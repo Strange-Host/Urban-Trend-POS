@@ -1,244 +1,211 @@
-const notificationsService = require('./notifications.service');
 const db = require('../config/db');
 const ApiError = require('../utils/ApiError');
+const logger = require('../utils/logger');
+const leadsService = require('./leads.service');
+const notificationsService = require('./notifications.service');
+const { getOrCreateSystemUser } = require('./paymentReconciliation.service');
 const { normalizePhone } = require('../utils/phone');
 const { logStaffAction } = require('../utils/auditLog');
-const telesalesDistribution = require('./telesalesDistribution.service');
 
-// State machine (§1.2) — the only legal transitions. `converted` and
-// `cancelled` are terminal; reopening a cancelled lead must go through
-// reactivate(), which creates a fresh history entry rather than a silent flip.
-const TRANSITIONS = {
-  new: ['contacted', 'cancelled'],
-  contacted: ['rescheduled', 'converted', 'cancelled'],
-  rescheduled: ['contacted', 'converted', 'cancelled'],
-  converted: [],
-  cancelled: [],
-};
+// Leads arriving from web forms (WordPress/WPForms and similar), ported from the
+// older system's POST /api/v1/leads — but authenticated (a shared secret, see
+// routes/leadIntake.routes.js), idempotent on the form's own entry id, never
+// silently dropping a repeat customer, and routed by an editable table instead
+// of "form name must equal product name".
 
-const VALID_SOURCES = ['whatsapp', 'walk_in', 'referral', 'shopify', 'other'];
-const VALID_ACTIVITY_TYPES = ['call', 'message', 'meeting', 'note'];
-
-function assertValidTransition(from, to) {
-  const allowed = TRANSITIONS[from] || [];
-  if (!allowed.includes(to)) {
-    throw new ApiError(
-      409,
-      `Cannot move a lead from "${from}" to "${to}". Valid next states: ${allowed.length ? allowed.join(', ') : 'none — this status is terminal'}.`
-    );
+function pick(fields, ...names) {
+  const lower = Object.fromEntries(Object.entries(fields).map(([k, v]) => [k.toLowerCase().trim(), v]));
+  for (const n of names) {
+    const v = lower[n.toLowerCase()];
+    if (v !== undefined && v !== null && String(v).trim() !== '') return String(v).trim();
   }
+  return null;
 }
 
-function findDuplicateByPhone({ storeId, phone }) {
-  const phoneNormalized = normalizePhone(phone);
+function startsWithKey(fields, prefix) {
+  const key = Object.keys(fields).find((k) => k.toLowerCase().startsWith(prefix.toLowerCase()));
+  return key ? String(fields[key]).trim() || null : null;
+}
+
+// WPForms labels are free text and differ per form, so variants (colour, size…)
+// are matched by keyword — the same approach the older system used.
+function pickVariants(fields) {
+  const out = {};
+  for (const [k, v] of Object.entries(fields)) {
+    if (/colou?r|size|material|variant/i.test(k) && v !== null && String(v).trim() !== '') out[k] = String(v).trim();
+  }
+  return out;
+}
+
+/**
+ * Accepts either the WPForms webhook shape
+ *   { formId, formName, wpEntryId, fields: { "Name": "...", "Phone Number": "...", ... } }
+ * or a flat shape { name, phone, email, notes, location, form_name, entry_id }.
+ */
+function parsePayload(body) {
+  if (!body || typeof body !== 'object') throw new ApiError(400, 'Expected a JSON body.');
+
+  const fields = body.fields && typeof body.fields === 'object' ? body.fields : null;
+  const src = fields || body;
+
+  const first = pick(src, 'First', 'First Name');
+  const last = pick(src, 'Last', 'Last Name');
+  const name = pick(src, 'Name', 'Full Name', 'name') || [first, last].filter(Boolean).join(' ') || null;
+  const phone = pick(src, 'Phone Number', 'Phone', 'Mobile', 'phone');
+  const altPhone = pick(src, 'Alternative Phone Number', 'Alternative Phone', 'Alt Phone');
+  const email = pick(src, 'Email', 'Email Address', 'email');
+  const location = pick(src, 'Location', 'Delivery County', 'County', 'City', 'Town', 'location');
+  const info = startsWithKey(src, 'Additional information') || pick(src, 'Notes', 'Message', 'Enquiry', 'notes', 'message');
+  const variants = pickVariants(src);
+  const importNote = pick(src, 'Import Note');   // used by the one-off import of old records; shown on its own line
+
+  const formName = (body.formName || body.form_name || '').toString().trim() || null;
+  const formId = body.formId ?? body.form_id ?? null;
+  const entryRaw = body.wpEntryId ?? body.entry_id ?? body.external_id ?? null;
+  const externalId = entryRaw !== null && String(entryRaw).trim() !== '' ? `${formId ?? 'form'}-${String(entryRaw).trim()}` : null;
+
+  const requestedSource = String(body.source || '').toLowerCase();
+  const source = requestedSource === 'shopify' ? 'shopify' : 'other';
+
+  return { name, phone, altPhone, email, location, info, variants, importNote, formName, formId, externalId, source, raw: body };
+}
+
+function routeFor(storeId, formName) {
+  if (!formName) return null;
   return db.prepare(`
-    SELECT * FROM leads WHERE store_id = ? AND phone_normalized = ? AND deleted_at IS NULL
-  `).get(storeId, phoneNormalized);
+    SELECT r.*, p.name AS product_name FROM lead_form_routes r LEFT JOIN products p ON p.id = r.product_id
+    WHERE r.store_id = ? AND lower(r.form_name) = lower(?) AND r.is_active = 1
+  `).get(storeId, formName.trim());
 }
 
-// Cashiers only see/manage their own assigned leads (§5.2: "own assigned leads only").
-function scopeToRole(where, params, { role, userId }) {
-  if (role === 'cashier') {
-    where.push('assigned_staff_id = ?');
-    params.push(userId);
-  }
+function buildNotes(parsed, productName) {
+  const lines = [];
+  if (parsed.formName) lines.push(`Web form: ${parsed.formName}`);
+  if (productName) lines.push(`Interested in: ${productName}`);
+  if (parsed.location) lines.push(`Location: ${parsed.location}`);
+  if (parsed.altPhone) lines.push(`Alternative phone: ${parsed.altPhone}`);
+  for (const [k, v] of Object.entries(parsed.variants)) lines.push(`${k}: ${v}`);
+  if (parsed.info) lines.push(`Customer said: ${parsed.info}`);
+  if (parsed.importNote) lines.push(parsed.importNote);
+  return lines.join('\n') || null;
 }
 
-function list({ storeId, role, userId, status, source, assignedStaffId, search, limit, offset }) {
-  const where = ['l.deleted_at IS NULL', 'l.store_id = ?'];
-  const params = [storeId];
-
-  if (status) { where.push('l.status = ?'); params.push(status); }
-  if (source) { where.push('l.source = ?'); params.push(source); }
-  if (assignedStaffId) { where.push('l.assigned_staff_id = ?'); params.push(assignedStaffId); }
-  if (search) {
-    where.push('(l.name LIKE ? OR l.phone LIKE ?)');
-    const term = `%${search}%`;
-    params.push(term, term);
-  }
-  scopeToRole(where, params, { role, userId });
-  const whereSql = `WHERE ${where.join(' AND ')}`;
-
-  const rows = db.prepare(`
-    SELECT l.*, u.name AS assigned_staff_name,
-      (SELECT MAX(created_at) FROM lead_activities WHERE lead_id = l.id) AS last_activity_at
-    FROM leads l LEFT JOIN users u ON u.id = l.assigned_staff_id
-    ${whereSql}
-    ORDER BY l.created_at DESC
-    LIMIT ? OFFSET ?
-  `).all(...params, limit, offset);
-
-  const total = db.prepare(`SELECT COUNT(*) c FROM leads l ${whereSql}`).get(...params).c;
-  return { rows, total };
-}
-
-function getStats({ storeId, role, userId }) {
-  const where = ['deleted_at IS NULL', 'store_id = ?'];
-  const params = [storeId];
-  scopeToRole(where, params, { role, userId });
-  const whereSql = `WHERE ${where.join(' AND ')}`;
-
-  const rows = db.prepare(`SELECT status, COUNT(*) c FROM leads ${whereSql} GROUP BY status`).all(...params);
-  const total = db.prepare(`SELECT COUNT(*) c FROM leads ${whereSql}`).get(...params).c;
-
-  const byStatus = { new: 0, contacted: 0, rescheduled: 0, converted: 0, cancelled: 0 };
-  rows.forEach((r) => { byStatus[r.status] = r.c; });
-  return { total, ...byStatus };
-}
-
-function getById({ id, storeId, role, userId }) {
-  const where = ['id = ?', 'deleted_at IS NULL', 'store_id = ?'];
-  const params = [id, storeId];
-  scopeToRole(where, params, { role, userId });
-
-  const lead = db.prepare(`SELECT * FROM leads WHERE ${where.join(' AND ')}`).get(...params);
-  if (!lead) return null;
-
-  const activities = db.prepare(`
-    SELECT a.*, u.name AS staff_name FROM lead_activities a
-    LEFT JOIN users u ON u.id = a.staff_id
-    WHERE a.lead_id = ? ORDER BY a.created_at DESC
-  `).all(lead.id);
-
-  const statusHistory = db.prepare(`
-    SELECT h.*, u.name AS changed_by_name FROM lead_status_history h
-    LEFT JOIN users u ON u.id = h.changed_by_staff_id
-    WHERE h.lead_id = ? ORDER BY h.changed_at DESC
-  `).all(lead.id);
-
-  return { ...lead, activities, status_history: statusHistory };
-}
-
-function create({ storeId, staffId, name, phone, email, source, notes, assignedStaffId }) {
-  if (!name || !phone || !source) throw new ApiError(400, 'name, phone, and source are required.');
-  if (!VALID_SOURCES.includes(source)) {
-    throw new ApiError(400, `source must be one of ${VALID_SOURCES.join(', ')}.`);
+/**
+ * Returns { outcome: 'created' | 'replay' | 'existing_lead', leadId }.
+ *  - replay: this exact form entry was already imported (webhook retry) — no-op.
+ *  - existing_lead: the phone already has a lead — nothing new is created (the
+ *    system never duplicates a lead), but the repeat enquiry is added to that
+ *    lead's timeline and its owner is told, so a returning customer isn't ignored.
+ */
+function intake({ storeId, body }) {
+  const parsed = parsePayload(body);
+  const digits = String(parsed.phone || '').replace(/\D/g, '');
+  if (digits.length < 7) {
+    logger.warn(`[lead-intake] rejected a "${parsed.formName || 'unnamed'}" submission: no usable phone number`);
+    throw new ApiError(400, 'A phone number is required.');
   }
 
-  // Duplicate detection (§1.2) — never silently merge, surface a 409 with the existing id.
-  const duplicate = findDuplicateByPhone({ storeId, phone });
-  if (duplicate) {
-    throw new ApiError(409, 'A lead with this phone number already exists.', { existingLeadId: duplicate.id });
+  if (parsed.externalId) {
+    const seen = db.prepare('SELECT id FROM leads WHERE store_id = ? AND source = ? AND external_id = ?').get(storeId, parsed.source, parsed.externalId);
+    if (seen) return { outcome: 'replay', leadId: seen.id };
   }
 
-  // §3 Equal Distribution: an explicit assignedStaffId always wins (a
-  // manager picking someone specific is intentional); only auto-assign
-  // when nobody was named, and only if a currently-eligible (clocked-in)
-  // telesales rep actually exists — otherwise this stays unassigned and
-  // telesalesDistribution's sweep picks it up once someone clocks in.
-  const finalAssignedStaffId = assignedStaffId || telesalesDistribution.autoAssignLead(storeId);
+  const system = getOrCreateSystemUser(storeId);
+  const route = routeFor(storeId, parsed.formName);
+  const productName = route?.product_name || null;
+  const notes = buildNotes(parsed, productName);
 
-  const result = db.prepare(`
-    INSERT INTO leads (store_id, name, phone, phone_normalized, email, source, assigned_staff_id, notes)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(storeId, name, phone, normalizePhone(phone), email || null, source, finalAssignedStaffId || null, notes || null);
-
-  const lead = db.prepare('SELECT * FROM leads WHERE id = ?').get(result.lastInsertRowid);
-  logStaffAction({ staffId, action: 'create', entityType: 'lead', entityId: lead.id, after: lead });
-  notificationsService.notifyLeadAssigned({ lead, assignedStaffId: finalAssignedStaffId, actorId: staffId });
-  return lead;
-}
-
-function update({ id, storeId, role, userId, staffId, name, phone, email, notes, assignedStaffId, convertedOrderId }) {
-  const where = ['id = ?', 'deleted_at IS NULL', 'store_id = ?'];
-  const params = [id, storeId];
-  scopeToRole(where, params, { role, userId });
-  const existing = db.prepare(`SELECT * FROM leads WHERE ${where.join(' AND ')}`).get(...params);
-  if (!existing) return null;
-
-  const finalName = name ?? existing.name;
-  const finalPhone = phone ?? existing.phone;
-  const finalEmail = email ?? existing.email;
-  const finalNotes = notes ?? existing.notes;
-  const finalAssignedStaffId = assignedStaffId ?? existing.assigned_staff_id;
-  const finalConvertedOrderId = convertedOrderId ?? existing.converted_order_id;
-
-  db.prepare(`
-    UPDATE leads SET name=?, phone=?, phone_normalized=?, email=?, notes=?, assigned_staff_id=?, converted_order_id=?, updated_at=datetime('now')
-    WHERE id=?
-  `).run(finalName, finalPhone, normalizePhone(finalPhone), finalEmail, finalNotes, finalAssignedStaffId, finalConvertedOrderId, id);
-
-  const lead = db.prepare('SELECT * FROM leads WHERE id = ?').get(id);
-  logStaffAction({ staffId, action: 'update', entityType: 'lead', entityId: lead.id, before: existing, after: lead });
-  if (lead.assigned_staff_id !== existing.assigned_staff_id) {
-    notificationsService.notifyLeadAssigned({ lead, assignedStaffId: lead.assigned_staff_id, actorId: staffId });
+  // A route may pin the lead to a specific active rep; otherwise normal
+  // equal-distribution applies inside leadsService.create.
+  let assignedStaffId;
+  if (route?.assigned_staff_id) {
+    const rep = db.prepare('SELECT id FROM users WHERE id = ? AND store_id = ? AND is_active = 1').get(route.assigned_staff_id, storeId);
+    if (rep) assignedStaffId = rep.id;
   }
-  return lead;
-}
 
-// Changing status writes lead_status_history AND a lead_activities row
-// automatically — staff never have to log the status_change activity by hand (§1.2).
-function changeStatus({ leadId, storeId, role, userId, toStatus, staffId, followUpDate }) {
-  const txn = db.transaction(() => {
-    const lead = db.prepare('SELECT * FROM leads WHERE id = ? AND store_id = ? AND deleted_at IS NULL').get(leadId, storeId);
-    if (!lead) throw new ApiError(404, 'Lead not found.');
-    if (role === 'cashier' && lead.assigned_staff_id !== userId) {
-      throw new ApiError(403, 'You can only update leads assigned to you.');
-    }
-
-    assertValidTransition(lead.status, toStatus);
-
-    if (toStatus === 'rescheduled' && !followUpDate) {
-      throw new ApiError(400, 'follow_up_date is required when moving a lead to rescheduled.');
-    }
-
-    db.prepare(`
-      UPDATE leads SET status = ?, follow_up_date = ?, updated_at = datetime('now') WHERE id = ?
-    `).run(toStatus, toStatus === 'rescheduled' ? followUpDate : null, leadId);
-
-    db.prepare(`
-      INSERT INTO lead_status_history (lead_id, from_status, to_status, changed_by_staff_id)
-      VALUES (?, ?, ?, ?)
-    `).run(leadId, lead.status, toStatus, staffId);
-
-    db.prepare(`
-      INSERT INTO lead_activities (lead_id, type, content, staff_id)
-      VALUES (?, 'status_change', ?, ?)
-    `).run(leadId, `Status changed from ${lead.status} to ${toStatus}`, staffId);
-
-    logStaffAction({
-      staffId,
-      action: 'update',
-      entityType: 'lead',
-      entityId: leadId,
-      before: { status: lead.status },
-      after: { status: toStatus },
+  let lead;
+  try {
+    lead = leadsService.create({
+      storeId, staffId: system.id, name: parsed.name || 'Website lead', phone: parsed.phone, email: parsed.email,
+      source: parsed.source, notes, assignedStaffId,
     });
-
-    return db.prepare('SELECT * FROM leads WHERE id = ?').get(leadId);
-  });
-
-  return txn();
-}
-
-function addActivity({ id, storeId, role, userId, type, content, staffId }) {
-  if (!type || !VALID_ACTIVITY_TYPES.includes(type)) {
-    throw new ApiError(400, `type must be one of ${VALID_ACTIVITY_TYPES.join(', ')}.`);
+  } catch (err) {
+    if (err.statusCode === 409 && err.details?.existingLeadId) return handleRepeat({ storeId, existingLeadId: err.details.existingLeadId, parsed, productName, notes, systemId: system.id });
+    throw err;
   }
 
-  const where = ['id = ?', 'deleted_at IS NULL', 'store_id = ?'];
-  const params = [id, storeId];
-  scopeToRole(where, params, { role, userId });
-  const lead = db.prepare(`SELECT * FROM leads WHERE ${where.join(' AND ')}`).get(...params);
-  if (!lead) return null;
-
-  const result = db.prepare(`
-    INSERT INTO lead_activities (lead_id, type, content, staff_id) VALUES (?, ?, ?, ?)
-  `).run(id, type, content || null, staffId);
-
-  return db.prepare('SELECT * FROM lead_activities WHERE id = ?').get(result.lastInsertRowid);
+  db.prepare(`UPDATE leads SET external_id = ?, form_name = ?, raw_payload = ?, interested_product_id = ? WHERE id = ?`)
+    .run(parsed.externalId, parsed.formName, JSON.stringify(parsed.raw).slice(0, 20000), route?.product_id || null, lead.id);
+  return { outcome: 'created', leadId: lead.id };
 }
 
-function remove({ id, storeId, staffId }) {
-  const existing = db.prepare('SELECT * FROM leads WHERE id = ? AND store_id = ? AND deleted_at IS NULL').get(id, storeId);
-  if (!existing) return false;
-
-  db.prepare(`UPDATE leads SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(id);
-  logStaffAction({ staffId, action: 'delete', entityType: 'lead', entityId: existing.id, before: existing });
-  return true;
+function handleRepeat({ storeId, existingLeadId, parsed, productName, notes, systemId }) {
+  const lead = db.prepare('SELECT * FROM leads WHERE id = ?').get(existingLeadId);
+  db.prepare(`INSERT INTO lead_activities (lead_id, type, content, staff_id) VALUES (?, 'note', ?, ?)`)
+    .run(existingLeadId, `Submitted a web form again.\n${notes || ''}`.trim(), systemId);
+  logStaffAction({ staffId: systemId, action: 'update', entityType: 'lead', entityId: existingLeadId, before: {}, after: { repeat_web_enquiry: parsed.formName || true } });
+  if (lead.assigned_staff_id) {
+    notificationsService.notify({
+      storeId, userIds: [lead.assigned_staff_id], type: 'lead_resubmitted', severity: 'info',
+      title: `${lead.name} enquired again${productName ? ` about ${productName}` : ''}`, body: `${lead.phone} — see the lead's notes`,
+      entityType: 'lead', entityId: existingLeadId,
+    });
+  }
+  return { outcome: 'existing_lead', leadId: existingLeadId };
 }
 
-module.exports = {
-  TRANSITIONS, assertValidTransition, findDuplicateByPhone,
-  list, getStats, getById, create, update, changeStatus, addActivity, remove,
-};
+// ------------------------------------------------------------ routing admin
+
+function listRoutes(storeId) {
+  return db.prepare(`
+    SELECT r.*, p.name AS product_name, u.name AS staff_name FROM lead_form_routes r
+    LEFT JOIN products p ON p.id = r.product_id LEFT JOIN users u ON u.id = r.assigned_staff_id
+    WHERE r.store_id = ? ORDER BY lower(r.form_name)
+  `).all(storeId);
+}
+
+function validateTargets(storeId, productId, staffId) {
+  // products carry no store_id in this schema (they are catalogue-wide), so existence is the only check available
+  if (productId && !db.prepare('SELECT id FROM products WHERE id = ? AND is_active = 1').get(productId)) throw new ApiError(404, 'Product not found.');
+  if (staffId && !db.prepare(`SELECT id FROM users WHERE id = ? AND store_id = ? AND is_active = 1`).get(staffId, storeId)) throw new ApiError(404, 'Staff member not found.');
+}
+
+function createRoute({ storeId, staffId, formName, productId, assignedStaffId }) {
+  validateTargets(storeId, productId, assignedStaffId);
+  try {
+    const r = db.prepare(`INSERT INTO lead_form_routes (store_id, form_name, product_id, assigned_staff_id) VALUES (?, ?, ?, ?)`)
+      .run(storeId, formName.trim(), productId || null, assignedStaffId || null);
+    logStaffAction({ staffId, action: 'create', entityType: 'lead_form_route', entityId: r.lastInsertRowid, after: { formName, productId, assignedStaffId } });
+    return listRoutes(storeId).find((x) => x.id === r.lastInsertRowid);
+  } catch (err) {
+    if (String(err.message).includes('UNIQUE')) throw new ApiError(409, 'A route for that form name already exists.');
+    throw err;
+  }
+}
+
+function updateRoute({ storeId, staffId, id, formName, productId, assignedStaffId, isActive }) {
+  const existing = db.prepare('SELECT * FROM lead_form_routes WHERE id = ? AND store_id = ?').get(id, storeId);
+  if (!existing) throw new ApiError(404, 'Route not found.');
+  const nextProduct = productId === undefined ? existing.product_id : productId;
+  const nextStaff = assignedStaffId === undefined ? existing.assigned_staff_id : assignedStaffId;
+  validateTargets(storeId, nextProduct, nextStaff);
+  try {
+    db.prepare(`UPDATE lead_form_routes SET form_name = ?, product_id = ?, assigned_staff_id = ?, is_active = ? WHERE id = ?`)
+      .run(formName ? formName.trim() : existing.form_name, nextProduct || null, nextStaff || null, isActive === undefined ? existing.is_active : (isActive ? 1 : 0), id);
+  } catch (err) {
+    if (String(err.message).includes('UNIQUE')) throw new ApiError(409, 'A route for that form name already exists.');
+    throw err;
+  }
+  logStaffAction({ staffId, action: 'update', entityType: 'lead_form_route', entityId: id, before: existing, after: { formName, productId, assignedStaffId, isActive } });
+  return listRoutes(storeId).find((x) => x.id === id);
+}
+
+function removeRoute({ storeId, staffId, id }) {
+  const existing = db.prepare('SELECT * FROM lead_form_routes WHERE id = ? AND store_id = ?').get(id, storeId);
+  if (!existing) throw new ApiError(404, 'Route not found.');
+  db.prepare('DELETE FROM lead_form_routes WHERE id = ?').run(id);
+  logStaffAction({ staffId, action: 'delete', entityType: 'lead_form_route', entityId: id, before: existing });
+  return { id };
+}
+
+module.exports = { intake, parsePayload, listRoutes, createRoute, updateRoute, removeRoute };
