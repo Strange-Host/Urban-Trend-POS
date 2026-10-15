@@ -155,7 +155,10 @@ export default function Leads() {
                   <div>{l.name}</div>
                   <div className="text-xs text-text-muted">{l.phone}</div>
                 </td>
-                <td className="px-4 py-3 capitalize whitespace-nowrap">{l.source.replace('_', ' ')}</td>
+                <td className="px-4 py-3 whitespace-nowrap">
+                  <div className="capitalize">{l.source.replace('_', ' ')}</div>
+                  {l.form_name && <div className="text-xs text-text-muted max-w-[200px] truncate">{l.form_name}</div>}
+                </td>
                 <td className="px-4 py-3 whitespace-nowrap">{l.assigned_staff_name || '—'}</td>
                 <td className="px-4 py-3">
                   <span className={`text-xs px-2 py-1 rounded-full ${STATUS_COLORS[l.status]}`}>{STATUS_LABELS[l.status]}</span>
@@ -227,7 +230,30 @@ export default function Leads() {
               <h2 className="font-display font-700 text-lg">{selectedLead.name}</h2>
               <span className={`text-xs px-2 py-1 rounded-full ${STATUS_COLORS[selectedLead.status]}`}>{STATUS_LABELS[selectedLead.status]}</span>
             </div>
-            <p className="text-sm text-text-muted mb-4">{selectedLead.phone} {selectedLead.email ? `· ${selectedLead.email}` : ''}</p>
+            <p className="text-sm text-text-muted mb-3">
+              <a href={`tel:${selectedLead.phone}`} className="underline">{selectedLead.phone}</a>
+              {selectedLead.email ? ` · ${selectedLead.email}` : ''}
+            </p>
+
+            <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm mb-3">
+              {(selectedLead.interested_product_name || selectedLead.form_name) && (<>
+                <dt className="text-text-muted">Product / form</dt>
+                <dd>{selectedLead.interested_product_name || selectedLead.form_name}{selectedLead.interested_product_name && selectedLead.form_name && selectedLead.form_name !== selectedLead.interested_product_name ? ` (${selectedLead.form_name})` : ''}</dd>
+              </>)}
+              <dt className="text-text-muted">Source</dt>
+              <dd className="capitalize">{(selectedLead.source || '').replace('_', ' ')}</dd>
+              <dt className="text-text-muted">Assigned to</dt>
+              <dd>{selectedLead.assigned_staff_name || 'Unassigned'}</dd>
+              <dt className="text-text-muted">Received</dt>
+              <dd>{selectedLead.created_at}</dd>
+            </dl>
+
+            {selectedLead.notes && (
+              <div className="mb-4 rounded-lg bg-paper border border-line px-3 py-2">
+                <div className="text-xs font-medium text-text-muted mb-1">Details from the customer</div>
+                <p className="text-sm whitespace-pre-line break-words">{selectedLead.notes}</p>
+              </div>
+            )}
 
             {NEXT_STATUSES[selectedLead.status]?.length > 0 && (
               <div className="mb-4">
