@@ -1,0 +1,112 @@
+import axios from 'axios';
+
+// Zero-config default: the API is on the same machine that served this page,
+// port 4000. Opening the app from a phone at http://192.168.1.42:5173 therefore
+// talks to http://192.168.1.42:4000 by itself - no .env needed. Set VITE_API_URL
+// only if the backend lives somewhere else (a different host, a public domain).
+export const API_BASE_URL = import.meta.env.VITE_API_URL
+  || `${window.location.protocol}//${window.location.hostname || 'localhost'}:4000/api`;
+
+// 2.3 — the access token lives ONLY in this module-level variable, never
+// in localStorage/sessionStorage. Anything that can read localStorage
+// (any XSS anywhere on the page, a malicious browser extension, etc.) can
+// silently exfiltrate a long-lived credential; a plain JS variable is
+// invisible to anything outside this module's own closure and vanishes
+// on a hard reload — which is fine, since AuthContext re-establishes it
+// on boot via the httpOnly refresh cookie (performRefresh below), the
+// same mechanism already used for the normal 401-triggered refresh.
+let accessToken = null;
+export function setAccessToken(token) { accessToken = token; }
+export function clearAccessToken() { accessToken = null; }
+
+// withCredentials: true — the refresh token lives in an httpOnly,
+// SameSite=Strict cookie (never in localStorage, never readable by JS,
+// even via XSS) instead of the response body. The browser attaches it
+// automatically on requests to /api/auth/*; this flag is what makes the
+// browser actually do that for cross-origin requests (frontend and
+// backend are different origins even on localhost — different ports).
+const client = axios.create({ baseURL: API_BASE_URL, withCredentials: true });
+
+client.interceptors.request.use((config) => {
+  if (accessToken) config.headers.Authorization = `Bearer ${accessToken}`;
+  return config;
+});
+
+function clearSessionAndRedirect() {
+  clearAccessToken();
+  // One-time cleanup for anyone who still has these from before this fix
+  // shipped — nothing writes them anymore, but a stale leftover value
+  // sitting in localStorage forever is just confusing, not dangerous.
+  localStorage.removeItem('ut_token');
+  localStorage.removeItem('ut_user');
+  if (!window.location.pathname.includes('/login')) {
+    window.location.href = '/login';
+  }
+}
+
+// Access tokens are short-lived (15m) now, so hitting a 401 mid-session is
+// routine, not exceptional — this refreshes silently and retries once
+// rather than kicking the user back to the login screen every 15 minutes.
+// Concurrent requests that all 401 around the same moment share ONE
+// refresh call (the refresh token is single-use/rotated, so firing several
+// at once would make all but the first fail). Also used directly by
+// AuthContext on app boot, to restore a session from the httpOnly cookie
+// after a hard reload (which clears the in-memory accessToken above).
+let refreshPromise = null;
+
+export function performRefresh() {
+  if (!refreshPromise) {
+    // No refresh token to read/send here — it's an httpOnly cookie, the
+    // browser attaches it automatically because of withCredentials above.
+    // Plain axios, not `client` — going through `client` here would recurse into this same interceptor.
+    refreshPromise = axios.post(`${API_BASE_URL}/auth/refresh`, {}, { withCredentials: true })
+      .then(({ data }) => {
+        setAccessToken(data.token);
+        return data; // { token, user } — AuthContext's boot check needs `user`, the 401 retry path below only needs `token`
+      })
+      .finally(() => { refreshPromise = null; });
+  }
+  return refreshPromise;
+}
+
+client.interceptors.response.use(
+  (res) => res,
+  async (err) => {
+    const originalRequest = err.config;
+    const status = err.response?.status;
+    const isAuthEndpoint = originalRequest?.url?.includes('/auth/login') || originalRequest?.url?.includes('/auth/refresh');
+
+    if (status === 401 && originalRequest && !originalRequest._retried && !isAuthEndpoint) {
+      originalRequest._retried = true;
+      try {
+        const { token } = await performRefresh();
+        originalRequest.headers.Authorization = `Bearer ${token}`;
+        return client(originalRequest);
+      } catch {
+        clearSessionAndRedirect();
+        return Promise.reject(err);
+      }
+    }
+
+    if (status === 401) {
+      clearSessionAndRedirect();
+    }
+    return Promise.reject(err);
+  }
+);
+
+export default client;
+
+// The backend error contract is { error: { code, message } }. Use this
+// everywhere instead of reading err.response.data.error directly (that's
+// now an object, not a string — reading it raw renders "[object Object]").
+export function getErrorMessage(err, fallback = 'Something went wrong.') {
+  return err?.response?.data?.error?.message || fallback;
+}
+
+// 2.1 — lets a caller check specifically for "you must change your
+// password first" (see middleware/auth.js) without string-matching a
+// human-readable message.
+export function isPasswordChangeRequired(err) {
+  return err?.response?.data?.error?.code === 'PASSWORD_CHANGE_REQUIRED';
+}
