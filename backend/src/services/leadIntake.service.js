@@ -57,6 +57,7 @@ function parsePayload(body) {
   const location = pick(src, 'Location', 'Delivery County', 'County', 'City', 'Town', 'location');
   const info = startsWithKey(src, 'Additional information') || pick(src, 'Notes', 'Message', 'Enquiry', 'notes', 'message');
   const variants = pickVariants(src);
+  const importNote = pick(src, 'Import Note');   // used by the one-off import of old records; shown on its own line
 
   const formName = (body.formName || body.form_name || '').toString().trim() || null;
   const formId = body.formId ?? body.form_id ?? null;
@@ -66,7 +67,7 @@ function parsePayload(body) {
   const requestedSource = String(body.source || '').toLowerCase();
   const source = requestedSource === 'shopify' ? 'shopify' : 'other';
 
-  return { name, phone, altPhone, email, location, info, variants, formName, formId, externalId, source, raw: body };
+  return { name, phone, altPhone, email, location, info, variants, importNote, formName, formId, externalId, source, raw: body };
 }
 
 function routeFor(storeId, formName) {
@@ -85,6 +86,7 @@ function buildNotes(parsed, productName) {
   if (parsed.altPhone) lines.push(`Alternative phone: ${parsed.altPhone}`);
   for (const [k, v] of Object.entries(parsed.variants)) lines.push(`${k}: ${v}`);
   if (parsed.info) lines.push(`Customer said: ${parsed.info}`);
+  if (parsed.importNote) lines.push(parsed.importNote);
   return lines.join('\n') || null;
 }
 
