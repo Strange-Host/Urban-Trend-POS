@@ -1,0 +1,41 @@
+# systemd process supervisor unit (Phase 0.4 of the fix/patch/upgrade plan)
+# — an alternative to ecosystem.config.js (pm2). Pick ONE of the two.
+#
+# Install:
+#   sudo cp urban-trends-pos-backend.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now urban-trends-pos-backend
+#
+# Check status / logs:
+#   systemctl status urban-trends-pos-backend
+#   journalctl -u urban-trends-pos-backend -f
+#
+# Edit the User=, WorkingDirectory=, and ExecStart= paths below to match
+# your actual deployment before installing this.
+
+[Unit]
+Description=Urban Trends POS backend
+After=network.target
+
+[Service]
+Type=simple
+User=urbantrends
+WorkingDirectory=/opt/urban-trends-pos/backend
+ExecStart=/usr/bin/node src/server.js
+Restart=always
+RestartSec=2
+# Same crash-loop protection reasoning as ecosystem.config.js's
+# max_restarts/min_uptime: if it keeps failing immediately, stop trying
+# after this many attempts in this window rather than restart-looping forever.
+StartLimitIntervalSec=300
+StartLimitBurst=10
+
+EnvironmentFile=/opt/urban-trends-pos/backend/.env
+
+# Hardening — not part of Phase 0, but essentially free alongside a
+# systemd unit you're writing anyway.
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,10 @@
+{
+  "name": "urban-trends-pos",
+  "private": true,
+  "description": "Urban Trends POS - builds the website and runs the API as ONE service (used by Railway).",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "build": "npm --prefix frontend ci --include=dev && VITE_API_URL=/api npm --prefix frontend run build && npm --prefix backend ci --omit=dev",
+    "start": "node backend/src/db/migrate.js && if [ \"$RUN_SEED\" = \"true\" ]; then node backend/src/db/seed.js; fi && node backend/src/server.js"
+  }
+}

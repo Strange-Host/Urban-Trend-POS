@@ -1,0 +1,10 @@
+# Secrets and runtime data - never commit these. backend/.env is created
+# automatically on first run and holds this install's unique secrets.
+.env
+.env.*
+!.env.example
+*.bak
+data/
+logs/
+node_modules/
+dist/

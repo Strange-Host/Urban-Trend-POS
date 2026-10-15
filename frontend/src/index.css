@@ -1,0 +1,117 @@
+@import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+@theme {
+  --color-ink: #14141a;
+  --color-ink-soft: #1f1f27;
+  --color-paper: #f7f7f5;
+  --color-surface: #ffffff;
+  --color-accent: #ffb800;
+  --color-accent-ink: #1a1a1f;
+  --color-success: #1f9d55;
+  --color-success-soft: #e6f6ec;
+  --color-danger: #e5484d;
+  --color-danger-soft: #fdecec;
+  --color-line: #e4e4e0;
+  --color-text: #1a1a1f;
+  --color-text-muted: #6b6b66;
+
+  --font-display: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
+  --font-body: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+}
+
+body {
+  font-family: var(--font-body);
+  color: var(--color-text);
+  background: var(--color-paper);
+  -webkit-font-smoothing: antialiased;
+}
+
+.font-display { font-family: var(--font-display); }
+.font-mono { font-family: var(--font-mono); }
+
+/* Receipt-strip signature: perforated top edge on the cart panel */
+.receipt-perforation {
+  background-image: radial-gradient(circle, var(--color-paper) 4px, transparent 4.5px);
+  background-size: 16px 16px;
+  background-position: -4px -4px;
+  height: 10px;
+}
+
+::selection {
+  background: var(--color-accent);
+  color: var(--color-accent-ink);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+/* ---------------------------------------------------------------------
+   Receipt printing (components/PrintReceipt.jsx). On screen the print
+   root is invisible; when printing, EVERYTHING else is hidden and the
+   receipt is laid out for an 80mm thermal roll (it also prints fine on A4).
+   --------------------------------------------------------------------- */
+.print-root { display: none; }
+@media print {
+  @page { size: 80mm auto; margin: 3mm; }
+  body > *:not(.print-root) { display: none !important; }
+  .print-root { display: block !important; color: #000; background: #fff; }
+}
+
+/* ---------------------------------------------------------------------
+   Responsive tables. Below 640px a table with class "stack-sm" is drawn as
+   a list of cards: one card per row, each cell on its own line with its
+   column name in front (the names are copied from <thead> onto each <td>
+   as data-label by components/useStackedTableLabels.js). From 640px up it
+   stays a normal table, which scrolls sideways inside its wrapper, with a
+   shadow on the edge that still has more to show (.scroll-x below).
+   Unlayered on purpose: it must beat Tailwind's min-w-[..] / px-4 utilities.
+   --------------------------------------------------------------------- */
+@media (max-width: 639px) {
+  table.stack-sm { display: block; min-width: 0 !important; width: 100%; }
+  table.stack-sm thead {
+    position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
+    overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+  }
+  table.stack-sm tbody, table.stack-sm tfoot { display: block; }
+  table.stack-sm tr { display: block; padding: 0.5rem 0; border-bottom: 1px solid var(--color-line); }
+  table.stack-sm tbody tr:last-child { border-bottom: 0; }
+  table.stack-sm td {
+    display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem;
+    padding: 0.3rem 1rem !important; text-align: right !important; border: 0 !important;
+    white-space: normal !important; word-break: break-word;
+  }
+  table.stack-sm td[data-label]:not([data-label=""])::before {
+    content: attr(data-label); flex: 0 0 auto; max-width: 42%; text-align: left;
+    font-family: var(--font-mono); font-size: 11px; text-transform: uppercase;
+    letter-spacing: 0.05em; color: var(--color-text-muted); padding-top: 0.15rem;
+  }
+  /* Cells that hold several lines (name + phone, ...) read better with the label above them */
+  table.stack-sm td[data-label]:not([data-label=""]):has(> :nth-child(2)) {
+    flex-direction: column; align-items: stretch; gap: 0.1rem; text-align: left !important;
+  }
+  table.stack-sm td[data-label]:not([data-label=""]):has(> :nth-child(2))::before { max-width: 100%; }
+  /* Action cells (no heading): buttons side by side, left aligned */
+  table.stack-sm td[data-label=""] { justify-content: flex-start; gap: 1.25rem; text-align: left !important; }
+  table.stack-sm td[colspan] { justify-content: center; text-align: center !important; }
+  table.stack-sm tr[class*="cursor-pointer"] { cursor: pointer; }
+}
+
+/* Edge shadows on a sideways-scrolling wrapper: the shadow only shows on a
+   side that still has hidden content, so people can tell there is more. */
+.scroll-x {
+  overflow-x: auto; -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain;
+  background:
+    linear-gradient(to right, var(--color-surface) 30%, transparent) left center / 24px 100% no-repeat local,
+    linear-gradient(to left, var(--color-surface) 30%, transparent) right center / 24px 100% no-repeat local,
+    linear-gradient(to right, rgb(0 0 0 / 0.14), transparent) left center / 10px 100% no-repeat scroll,
+    linear-gradient(to left, rgb(0 0 0 / 0.14), transparent) right center / 10px 100% no-repeat scroll;
+  background-color: var(--color-surface);
+}
+
+/* Long URLs / secrets / paths shown in <code> must wrap instead of widening the page. */
+main code, main pre { overflow-wrap: anywhere; }
+main pre { white-space: pre-wrap; }
