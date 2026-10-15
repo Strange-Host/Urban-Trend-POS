@@ -1,5 +1,7 @@
 require('./config/env'); // loads backend/.env and creates any missing secrets — must stay first
 const express = require('express');
+const fs = require('fs');
+const path = require('path');
 const cors = require('cors');
 const { buildCorsOptions } = require('./config/cors');
 const systemConfig = require('./services/systemConfig.service');
@@ -49,6 +51,10 @@ const leadIntakeRoutes = require('./routes/leadIntake.routes');
 const notificationsRoutes = require('./routes/notifications.routes');
 
 const app = express();
+
+// Railway (like any host) puts a proxy in front of this app. Trust exactly one hop so req.ip - which the
+// rate limiters use - is the real visitor address instead of the proxy's.
+app.set('trust proxy', 1);
 
 app.use(helmet());
 
@@ -142,6 +148,27 @@ app.use('/api/integrations/leads', leadIntakeRoutes);
 app.use('/api/notifications', notificationsRoutes);
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok', time: new Date().toISOString() }));
+
+// Serve the built website (frontend/dist) from this same server, so the site and the API share ONE address.
+// That is what makes the SameSite=Strict login cookie work with no CORS or proxy tricks. Skipped when the
+// frontend hasn't been built (local development uses the Vite dev server instead).
+const FRONTEND_DIST = path.resolve(__dirname, '..', '..', 'frontend', 'dist');
+const FRONTEND_INDEX = path.join(FRONTEND_DIST, 'index.html');
+if (fs.existsSync(FRONTEND_INDEX)) {
+  app.use(express.static(FRONTEND_DIST, {
+    index: false,
+    setHeaders: (res, filePath) => {
+      // Vite fingerprints everything under /assets, so those files can be cached for a year.
+      if (filePath.includes(`${path.sep}assets${path.sep}`)) res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    },
+  }));
+  // Any non-API address without a file extension (/login, /products...) is a page inside the React app: hand back
+  // index.html. A missing file such as /assets/old.js falls through to a real 404 instead.
+  app.get(/^\/(?!api(\/|$)|assets\/)(?!.*\.[A-Za-z0-9]+$).*/, (req, res) => {
+    res.setHeader('Cache-Control', 'no-cache');
+    res.sendFile(FRONTEND_INDEX);
+  });
+}
 
 app.use((req, res) => res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Route not found.' } }));
 app.use(errorHandler);
