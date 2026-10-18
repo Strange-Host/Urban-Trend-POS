@@ -1,6 +1,8 @@
 const router = require('express').Router();
 const ctrl = require('../controllers/leads.controller');
 const { authenticate, requireRole } = require('../middleware/auth');
+const validate = require('../middleware/validate');
+const { convertLeadSchema } = require('../validation/leads.schema');
 
 // "Manage CRM leads": admin, manager, cashier can all touch leads (§5.2) —
 // cashiers are scoped to their own assigned leads at the controller/service level.
@@ -14,5 +16,6 @@ router.patch('/:id', ctrl.update);
 router.delete('/:id', ctrl.remove);
 router.post('/:id/activities', ctrl.addActivity);
 router.patch('/:id/status', ctrl.changeStatus);
+router.post('/:id/convert', validate(convertLeadSchema), ctrl.convert);
 
 module.exports = router;

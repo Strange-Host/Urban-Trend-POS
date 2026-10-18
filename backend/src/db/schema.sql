@@ -753,7 +753,7 @@ CREATE TABLE IF NOT EXISTS leads (
   assigned_staff_id   INTEGER REFERENCES users(id),
   notes               TEXT,
   follow_up_date      TEXT,             -- required when status = 'rescheduled'
-  converted_order_id  INTEGER REFERENCES sales(id),
+  converted_order_id  INTEGER REFERENCES orders(id),   -- the order this lead became (was wrongly sales(id) before Phase 0)
 external_id         TEXT,                  -- the web form's own entry id: makes a re-delivered webhook idempotent
 form_name           TEXT,
 raw_payload         TEXT,                  -- exactly what the form sent, so nothing is lost to a mapping gap

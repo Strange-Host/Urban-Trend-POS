@@ -9,6 +9,7 @@ import Pager, { usePager } from '../components/Pager';
 import { fetchAll } from '../api/fetchAll';
 
 import Sheet from '../components/Sheet';
+import ConvertLeadSheet from '../components/ConvertLeadSheet';
 const SOURCES = ['whatsapp', 'walk_in', 'referral', 'shopify', 'other'];
 const STATUS_LABELS = { new: 'New', contacted: 'Contacted', rescheduled: 'Rescheduled', converted: 'Converted', cancelled: 'Cancelled' };
 const STATUS_COLORS = {
@@ -38,6 +39,7 @@ export default function Leads() {
   const [form, setForm] = useState(emptyForm);
   const [error, setError] = useState('');
   const [selectedId, setSelectedId] = useState(null);
+  const [converting, setConverting] = useState(false);
   const [followUpDate, setFollowUpDate] = useState('');
   const [activityForm, setActivityForm] = useState({ type: 'call', content: '' });
   const queryClient = useQueryClient();
@@ -266,7 +268,8 @@ export default function Leads() {
                       </button>
                     </div>
                   )}
-                  {NEXT_STATUSES[selectedLead.status].filter((s) => s !== 'rescheduled').map((s) => (
+                  {/* 'converted' is reached through "Convert to order" below, so a lead is never marked converted with no order. */}
+                  {NEXT_STATUSES[selectedLead.status].filter((s) => s !== 'rescheduled' && s !== 'converted').map((s) => (
                     <button key={s} onClick={() => handleStatusChange(s)}
                       className="px-3 py-1.5 rounded-lg border border-line text-xs font-medium hover:bg-paper">
                       {STATUS_LABELS[s]}
@@ -274,6 +277,16 @@ export default function Leads() {
                   ))}
                 </div>
               </div>
+            )}
+
+            {NEXT_STATUSES[selectedLead.status]?.includes('converted') || selectedLead.status === 'new' ? (
+              <button onClick={() => setConverting(true)}
+                className="w-full mb-4 py-2.5 rounded-lg bg-ink text-white text-sm font-medium hover:bg-ink-soft">
+                Convert to order
+              </button>
+            ) : null}
+            {selectedLead.status === 'converted' && selectedLead.converted_order_id && (
+              <p className="mb-4 text-sm text-text-muted">Converted to order #{selectedLead.converted_order_id}.</p>
             )}
 
             <form onSubmit={handleAddActivity} className="mb-4 flex gap-2 flex-wrap">
@@ -303,6 +316,14 @@ export default function Leads() {
 
             <button onClick={() => setSelectedId(null)} className="w-full mt-4 py-2.5 rounded-lg border border-line text-sm font-medium">Close</button>
           </Sheet>
+      )}
+
+      {converting && selectedLead && (
+        <ConvertLeadSheet
+          lead={selectedLead}
+          onClose={() => setConverting(false)}
+          onConverted={() => queryClient.invalidateQueries({ queryKey: ['leads', selectedId] })}
+        />
       )}
     </div>
   );
