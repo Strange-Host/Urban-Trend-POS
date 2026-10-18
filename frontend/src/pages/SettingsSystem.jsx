@@ -95,13 +95,20 @@ const PROVIDERS = [
   { label: 'Other', host: '', port: '587', secure: false, note: 'Ask your email provider for the "SMTP" (outgoing mail) server name and port.' },
 ];
 
+const METHODS = [
+  { id: 'resend', title: 'Resend', sub: 'Sends over the web (HTTPS). Works on any host, including Railway Hobby.' },
+  { id: 'smtp', title: 'SMTP', sub: 'A mail server such as Gmail or Outlook. Some hosts block this.' },
+];
+
 export function EmailSection() {
   const queryClient = useQueryClient();
   const toast = useToast();
   const dialog = useDialog();
   const { data } = useSystemConfig();
   const [f, setF] = useState(null);
+  const [method, setMethod] = useState('smtp');
   const [password, setPassword] = useState('');
+  const [resendKey, setResendKey] = useState('');
   const [note, setNote] = useState('');
   const [saving, setSaving] = useState(false);
   const [testTo, setTestTo] = useState('');
@@ -111,32 +118,44 @@ export function EmailSection() {
   useEffect(() => {
     if (data && !f) {
       const e = data.effective;
-      setF({ smtp_host: e.smtp_host, smtp_port: String(e.smtp_port), smtp_secure: !!e.smtp_secure, smtp_user: e.smtp_user, smtp_from: data.values.smtp_from || '' });
+      setMethod(e.mail_provider === 'resend' ? 'resend' : 'smtp');
+      setF({
+        smtp_host: e.smtp_host, smtp_port: String(e.smtp_port), smtp_secure: !!e.smtp_secure, smtp_user: e.smtp_user,
+        smtp_from: data.values.smtp_from || '', resend_from: data.values.resend_from || '',
+      });
     }
   }, [data]);
   if (!data || !f) return null;
 
   const set = (k, v) => setF({ ...f, [k]: v });
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['system-config'] });
-  const configured = Boolean(data.effective.smtp_host);
+  const savedMethod = data.effective.mail_provider === 'resend' ? 'resend' : 'smtp';
+  const configured = savedMethod === 'resend' ? Boolean(data.resend_api_key_set) : Boolean(data.effective.smtp_host);
+  const unsavedSwitch = method !== savedMethod;
 
   async function save() {
     setSaving(true);
     try {
-      await systemApi.saveConfig({
-        values: { smtp_host: f.smtp_host.trim(), smtp_port: f.smtp_port.trim(), smtp_secure: f.smtp_secure ? '1' : '0', smtp_user: f.smtp_user.trim(), smtp_from: f.smtp_from.trim() },
-        ...(password ? { smtp_password: password } : {}),
-      });
-      setPassword(''); refresh();
+      const body = method === 'resend'
+        ? { values: { mail_provider: 'resend', resend_from: f.resend_from.trim() }, ...(resendKey.trim() ? { resend_api_key: resendKey.trim() } : {}) }
+        : {
+          values: { mail_provider: 'smtp', smtp_host: f.smtp_host.trim(), smtp_port: f.smtp_port.trim(), smtp_secure: f.smtp_secure ? '1' : '0', smtp_user: f.smtp_user.trim(), smtp_from: f.smtp_from.trim() },
+          ...(password ? { smtp_password: password } : {}),
+        };
+      await systemApi.saveConfig(body);
+      setPassword(''); setResendKey(''); refresh();
       toast.success('Email settings saved. Press "Send test email" to check them.');
     } catch (err) { toast.error(getErrorMessage(err, 'Could not save the email settings.')); }
     finally { setSaving(false); }
   }
 
-  async function removePassword() {
-    if (!(await dialog.confirm({ title: 'Remove the saved email password?', message: 'Backups and alerts will stop being emailed until you enter one again.', danger: true, confirmLabel: 'Remove' }))) return;
-    try { await systemApi.saveConfig({ values: {}, clear_smtp_password: true }); refresh(); toast.success('Password removed.'); }
-    catch (err) { toast.error(getErrorMessage(err, 'Could not remove it.')); }
+  async function removeSecret(kind) {
+    const isKey = kind === 'resend';
+    if (!(await dialog.confirm({ title: isKey ? 'Remove the saved Resend API key?' : 'Remove the saved email password?', message: 'Backups and alerts will stop being emailed until you enter one again.', danger: true, confirmLabel: 'Remove' }))) return;
+    try {
+      await systemApi.saveConfig({ values: {}, ...(isKey ? { clear_resend_api_key: true } : { clear_smtp_password: true }) });
+      refresh(); toast.success(isKey ? 'API key removed.' : 'Password removed.');
+    } catch (err) { toast.error(getErrorMessage(err, 'Could not remove it.')); }
   }
 
   async function sendTest() {
@@ -151,45 +170,87 @@ export function EmailSection() {
       title="Email (outgoing mail)"
       description="Lets the system email you database backups and warn you if a backup fails. Choose who receives them under Backups below."
     >
-      <div className="flex flex-wrap items-center gap-2 mb-3">
-        <span className="text-xs text-text-muted">Quick fill:</span>
-        {PROVIDERS.map((p) => (
-          <button key={p.label} type="button" onClick={() => { setF({ ...f, smtp_host: p.host, smtp_port: p.port, smtp_secure: p.secure }); setNote(p.note); }}
-            className="px-2.5 py-1 rounded-md border border-line text-xs hover:border-text-muted">{p.label}</button>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-4" role="radiogroup" aria-label="How email is sent">
+        {METHODS.map((m) => (
+          <button
+            key={m.id} type="button" role="radio" aria-checked={method === m.id} onClick={() => { setMethod(m.id); setNote(''); }}
+            className={`text-left px-3 py-2.5 rounded-lg border text-sm ${method === m.id ? 'border-[var(--color-accent)] bg-accent/10' : 'border-line hover:border-text-muted'}`}
+          >
+            <div className="font-medium">{m.title}{savedMethod === m.id && configured ? <span className="ml-2 text-xs text-success">in use</span> : null}</div>
+            <div className="text-xs text-text-muted mt-0.5">{m.sub}</div>
+          </button>
         ))}
       </div>
-      {note && <div className="mb-3 px-3 py-2 rounded-lg bg-accent/10 text-xs">{note}</div>}
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-x-4">
-        <Field label="Mail server"><input className={inputCls} value={f.smtp_host} onChange={(e) => set('smtp_host', e.target.value)} placeholder="smtp.gmail.com" /></Field>
-        <Field label="Port" hint="Usually 587.">
-          <input className={inputCls} inputMode="numeric" value={f.smtp_port} onChange={(e) => set('smtp_port', e.target.value)} />
-        </Field>
-        <Field label="Secure connection (SSL/TLS)" hint="Off for port 587, on for port 465.">
-          <label className="flex items-center gap-2 mt-2 text-sm"><input type="checkbox" className="h-4 w-4 accent-[var(--color-accent)]" checked={f.smtp_secure} onChange={(e) => set('smtp_secure', e.target.checked)} /> Use SSL/TLS</label>
-        </Field>
-        <Field label="Username"><input className={inputCls} autoComplete="off" value={f.smtp_user} onChange={(e) => set('smtp_user', e.target.value)} placeholder="yourshop@gmail.com" /></Field>
-        <Field label="Password" hint={data.smtp_password_set ? 'Saved - type only to replace it.' : 'Not saved yet.'}>
-          <input type="password" className={inputCls} autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder={data.smtp_password_set ? '••••••••' : ''} />
-        </Field>
-        <Field label="Send from (optional)" hint="Defaults to the username.">
-          <input className={inputCls} value={f.smtp_from} onChange={(e) => set('smtp_from', e.target.value)} placeholder="yourshop@gmail.com" />
-        </Field>
-      </div>
-      <EnvNote show={data.from_environment.includes('smtp_host')} />
+      {method === 'resend' ? (
+        <>
+          <div className="mb-3 px-3 py-2 rounded-lg bg-accent/10 text-xs space-y-1">
+            <div className="font-medium">Set up Resend (free):</div>
+            <ol className="list-decimal pl-4 space-y-0.5">
+              <li>Create an account at resend.com using the email address that should receive the backups.</li>
+              <li>Open <b>API Keys</b> → <b>Create API Key</b> (Sending access is enough) and copy the key. It starts with <code className="font-mono">re_</code>.</li>
+              <li>Paste it below, save, then send a test email to that same address.</li>
+            </ol>
+            <div className="text-text-muted">Until you verify a domain at resend.com → Domains, Resend only delivers to the address you signed up with. That is fine for backups sent to one owner address.</div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4">
+            <Field label="Resend API key" hint={data.resend_api_key_set ? 'Saved - paste a new one only to replace it.' : 'Not saved yet.'}>
+              <input type="password" className={inputCls} autoComplete="new-password" value={resendKey} onChange={(e) => setResendKey(e.target.value)} placeholder={data.resend_api_key_set ? '••••••••••••' : 're_...'} />
+            </Field>
+            <Field label="Send from (optional)" hint="Leave blank to use Resend's test sender (onboarding@resend.dev). Only change it after you verify a domain.">
+              <input className={inputCls} value={f.resend_from} onChange={(e) => set('resend_from', e.target.value)} placeholder="Urban Trends <backups@yourdomain.com>" />
+            </Field>
+          </div>
+          <EnvNote show={data.resend_source === 'environment' && !data.values.mail_provider} />
+        </>
+      ) : (
+        <>
+          <div className="mb-3 px-3 py-2 rounded-lg bg-accent/10 text-xs border border-accent/30">
+            If this POS is hosted on Railway's Free, Trial or Hobby plan, outgoing SMTP is blocked there and the test will fail with "could not connect". Use <b>Resend</b> above instead.
+          </div>
+          <div className="flex flex-wrap items-center gap-2 mb-3">
+            <span className="text-xs text-text-muted">Quick fill:</span>
+            {PROVIDERS.map((p) => (
+              <button key={p.label} type="button" onClick={() => { setF({ ...f, smtp_host: p.host, smtp_port: p.port, smtp_secure: p.secure }); setNote(p.note); }}
+                className="px-2.5 py-1 rounded-md border border-line text-xs hover:border-text-muted">{p.label}</button>
+            ))}
+          </div>
+          {note && <div className="mb-3 px-3 py-2 rounded-lg bg-accent/10 text-xs">{note}</div>}
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-x-4">
+            <Field label="Mail server"><input className={inputCls} value={f.smtp_host} onChange={(e) => set('smtp_host', e.target.value)} placeholder="smtp.gmail.com" /></Field>
+            <Field label="Port" hint="Usually 587.">
+              <input className={inputCls} inputMode="numeric" value={f.smtp_port} onChange={(e) => set('smtp_port', e.target.value)} />
+            </Field>
+            <Field label="Secure connection (SSL/TLS)" hint="Off for port 587, on for port 465.">
+              <label className="flex items-center gap-2 mt-2 text-sm"><input type="checkbox" className="h-4 w-4 accent-[var(--color-accent)]" checked={f.smtp_secure} onChange={(e) => set('smtp_secure', e.target.checked)} /> Use SSL/TLS</label>
+            </Field>
+            <Field label="Username"><input className={inputCls} autoComplete="off" value={f.smtp_user} onChange={(e) => set('smtp_user', e.target.value)} placeholder="yourshop@gmail.com" /></Field>
+            <Field label="Password" hint={data.smtp_password_set ? 'Saved - type only to replace it.' : 'Not saved yet.'}>
+              <input type="password" className={inputCls} autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder={data.smtp_password_set ? '••••••••' : ''} />
+            </Field>
+            <Field label="Send from (optional)" hint="Defaults to the username.">
+              <input className={inputCls} value={f.smtp_from} onChange={(e) => set('smtp_from', e.target.value)} placeholder="yourshop@gmail.com" />
+            </Field>
+          </div>
+          <EnvNote show={data.from_environment.includes('smtp_host')} />
+        </>
+      )}
 
       <div className="flex flex-wrap gap-2 mb-5">
         <button onClick={save} disabled={saving} className={btnPrimary}>{saving ? 'Saving…' : 'Save email settings'}</button>
-        {data.smtp_password_set && <button onClick={removePassword} className={btnSecondary}>Remove saved password</button>}
+        {method === 'resend' && data.resend_api_key_set && data.resend_source === 'settings' && <button onClick={() => removeSecret('resend')} className={btnSecondary}>Remove saved API key</button>}
+        {method === 'smtp' && data.smtp_password_set && <button onClick={() => removeSecret('smtp')} className={btnSecondary}>Remove saved password</button>}
       </div>
 
       <div className="border border-line rounded-lg p-3 sm:p-4">
         <div className="font-medium text-sm mb-2">Send a test email</div>
         <div className="flex flex-col sm:flex-row gap-2 sm:items-end">
           <div className="flex-1"><Field label="Send it to"><input className={inputCls} inputMode="email" value={testTo} onChange={(e) => setTestTo(e.target.value)} placeholder="you@example.com" /></Field></div>
-          <button onClick={sendTest} disabled={testing || !configured || !testTo.trim()} className={`${btnSecondary} mb-3`}>{testing ? 'Sending…' : 'Send test email'}</button>
+          <button onClick={sendTest} disabled={testing || !configured || unsavedSwitch || !testTo.trim()} className={`${btnSecondary} mb-3`}>{testing ? 'Sending…' : 'Send test email'}</button>
         </div>
-        {!configured && <p className="text-xs text-text-muted">Fill in and save the mail server first.</p>}
+        {unsavedSwitch && <p className="text-xs text-text-muted">You changed the method. Press "Save email settings" first, then test.</p>}
+        {!unsavedSwitch && !configured && <p className="text-xs text-text-muted">{savedMethod === 'resend' ? 'Paste and save your Resend API key first.' : 'Fill in and save the mail server first.'}</p>}
         {result && <div className={`px-3 py-2 rounded-lg text-sm ${result.ok ? 'bg-success-soft text-success' : 'bg-danger-soft text-danger'}`}>{result.text}</div>}
       </div>
     </SectionCard>

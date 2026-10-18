@@ -203,11 +203,8 @@ function BackupsSection() {
 
         {!emailConfigured ? (
           <p className="text-text-muted text-sm">
-            Add at least one recipient above, and make sure <code className="font-mono text-xs">SMTP_HOST</code> (and{' '}
-            <code className="font-mono text-xs">SMTP_USER</code>/<code className="font-mono text-xs">SMTP_PASS</code> if your
-            mail provider needs them) is set in the backend's <code className="font-mono text-xs">.env</code> file — see{' '}
-            <code className="font-mono text-xs">.env.example</code>. The recipient list itself doesn't need a restart; the
-            SMTP connection details do.
+            Add at least one recipient above, and finish <b>Settings → Email (outgoing mail)</b> (Resend or SMTP). Both
+            take effect immediately; no restart or server file editing is needed.
           </p>
         ) : (
           <>

@@ -170,7 +170,7 @@ The database backs itself up automatically every 6 hours once the backend is run
 Settings → Backups to check on this, or trigger one immediately). Files land in
 `backend/data/backups/`. This protects you against a corrupted database file, not against losing
 the whole machine — for real disaster recovery, copy that folder somewhere else (a second drive,
-cloud storage) on your own schedule, or set the `SMTP_*`/`BACKUP_EMAIL_TO` variables in `.env`
+cloud storage) on your own schedule, or set up Settings > Email (Resend over HTTPS, which also works where SMTP is blocked, or SMTP) - the older `SMTP_*`/`RESEND_API_KEY`/`BACKUP_EMAIL_TO` variables in `.env` still work
 (see `.env.example`) to also email a copy off-machine every 24 hours.
 
 ## Production deployment notes

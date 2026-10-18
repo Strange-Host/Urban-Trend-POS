@@ -1,3 +1,30 @@
+# Email through Resend (HTTPS) for hosts that block SMTP
+
+**Why:** on Railway's Free/Trial/Hobby plans every outgoing SMTP port (25, 465, 587, 2525) is blocked, so backup
+emails, failure alerts and the Settings test email all failed with "Could not connect to the mail server".
+
+- **New email method: Resend.** Settings > Email now has a method switch (Resend / SMTP). Resend sends over HTTPS
+  (port 443), so it works on every host and plan. Existing SMTP setups are untouched and are never silently switched.
+- **One send path.** `mail.service.js` now exposes `sendMail({ to, subject, text, attachments })`; the backup
+  email, failure alerts and the test button all use it, so they can never disagree about how mail leaves.
+- **API key stored encrypted** (`resend_api_key_enc`, same AES-GCM as the SMTP password); never returned by any
+  endpoint, hidden from the generic `/api/settings` too, audit log records only "changed/removed".
+- **Environment fallback for Railway Variables:** `RESEND_API_KEY`, `RESEND_FROM`, `MAIL_PROVIDER`. A saved Settings
+  key wins over the environment. With a `RESEND_API_KEY` and no SMTP host the app picks Resend automatically.
+- **Plain-language errors** for a wrong key, a free account sending to a non-sign-up address (Resend only delivers to
+  the account's own address until a domain is verified), an unverified "send from" domain, rate limit, no internet,
+  timeout, and a backup too large (guard at ~28 MB). The SMTP "could not connect" message now also says Railway
+  Hobby blocks SMTP and points to Resend.
+- Default sender is `Urban Trends POS <onboarding@resend.dev>` until a domain is verified and a "Send from" is saved.
+- Backups settings hint no longer tells you to edit `.env` and restart.
+
+**Tests:** `emailResend.test.js` (17 new). Backend suite 476 passing (47 files) via the node:sqlite shim
+(better-sqlite3 cannot compile in the sandbox). Frontend build + lint clean (0 errors). **NOT verified:** a real
+Resend account (HTTP calls are mocked with the documented request shape), the Settings screen in a browser.
+
+**Deploy notes (Railway):** attach a Volume for `backend/data` and set `JWT_SECRET` and `ENCRYPTION_KEY` as service
+Variables, otherwise the database, backups and the encrypted API key are lost on redeploy.
+
 # Optional modules: HR & back office and control extras can be switched off (v29)
 
 For a lean launch. Two switches in **Settings > Business > Optional modules**, both **off by default** (new and

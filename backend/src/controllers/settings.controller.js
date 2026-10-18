@@ -3,9 +3,10 @@ const ApiError = require('../utils/ApiError');
 const settingsService = require('../services/settings.service');
 const systemConfig = require('../services/systemConfig.service');
 
-// The mail password (smtp_pass_enc) must never leave the server, even encrypted.
+// The mail password (smtp_pass_enc) and the Resend API key (resend_api_key_enc) must never leave the server, even encrypted.
 function publicView(all) {
-  const { [systemConfig.SECRET_KEY]: _secret, ...rest } = all;
+  const rest = { ...all };
+  for (const key of systemConfig.SECRET_KEYS) delete rest[key];
   return rest;
 }
 
