@@ -160,6 +160,11 @@ function update({ id, storeId, role, userId, staffId, name, phone, email, notes,
   const finalNotes = notes ?? existing.notes;
   const finalAssignedStaffId = assignedStaffId ?? existing.assigned_staff_id;
   const finalConvertedOrderId = convertedOrderId ?? existing.converted_order_id;
+  if (convertedOrderId != null) {
+    // The column is a foreign key to orders; refuse anything that is not a real order in this store.
+    const order = db.prepare('SELECT id FROM orders WHERE id = ? AND store_id = ? AND deleted_at IS NULL').get(convertedOrderId, storeId);
+    if (!order) throw new ApiError(400, 'converted_order_id must be an existing order in this store.');
+  }
 
   db.prepare(`
     UPDATE leads SET name=?, phone=?, phone_normalized=?, email=?, notes=?, assigned_staff_id=?, converted_order_id=?, updated_at=datetime('now')
@@ -219,6 +224,94 @@ function changeStatus({ leadId, storeId, role, userId, toStatus, staffId, follow
   return txn();
 }
 
+// "Convert to order" - one button, one transaction (Phase 0). Builds the order from
+// the lead, links the two both ways, and marks the lead converted. If anything
+// fails (stock, a discount over its cap, a duplicate phone) nothing is saved, so a
+// lead is never left half-converted.
+//
+// A phone number that already has an ACTIVE order is a 409 carrying that order's id
+// (never a silent second order). Calling again with merge_into_order_id set to that
+// id adds the items to the existing order instead - the one-click merge.
+function convertToOrder({
+  leadId, storeId, role, userId, staffId, items, city, discountTotal, notes, paymentType, courierType, mergeIntoOrderId,
+}) {
+  // Required lazily: orders.service pulls in a long chain of modules and nothing here needs it until a conversion runs.
+  const ordersService = require('./orders.service');
+
+  const txn = db.transaction(() => {
+    const lead = db.prepare('SELECT * FROM leads WHERE id = ? AND store_id = ? AND deleted_at IS NULL').get(leadId, storeId);
+    if (!lead) throw new ApiError(404, 'Lead not found.');
+    if (role === 'cashier' && lead.assigned_staff_id !== userId) {
+      throw new ApiError(403, 'You can only update leads assigned to you.');
+    }
+    if (lead.status === 'converted') {
+      throw new ApiError(409, 'This lead has already been converted.', { orderId: lead.converted_order_id });
+    }
+    if (lead.status === 'cancelled') {
+      throw new ApiError(409, 'This lead is cancelled and cannot be converted.');
+    }
+
+    let orderItems = items;
+    if (!orderItems || orderItems.length === 0) {
+      if (!lead.interested_product_id) {
+        throw new ApiError(400, 'Add at least one item - this lead has no product of interest to start from.');
+      }
+      orderItems = [{ product_id: lead.interested_product_id, quantity: 1 }];
+    }
+
+    const duplicate = ordersService.findDuplicateActiveOrder({ storeId, phone: lead.phone });
+    let order;
+    let merged = false;
+
+    if (duplicate && mergeIntoOrderId !== duplicate.id) {
+      throw new ApiError(
+        409,
+        'This phone number already has an active order. Merge the items into it, or fix the number.',
+        { existingOrderId: duplicate.id, canMerge: duplicate.status === 'awaiting_dispatch' }
+      );
+    }
+    if (!duplicate && mergeIntoOrderId) {
+      throw new ApiError(409, 'That order is no longer active for this customer, so nothing was merged.');
+    }
+
+    if (duplicate) {
+      order = ordersService.mergeItems({ orderId: duplicate.id, storeId, staffId, items: orderItems });
+      merged = true;
+      if (!order.lead_id) db.prepare('UPDATE orders SET lead_id = ? WHERE id = ?').run(lead.id, order.id);
+    } else {
+      order = ordersService.create({
+        storeId, staffId,
+        name: lead.name, phone: lead.phone, email: lead.email || undefined, city,
+        leadId: lead.id, assignedStaffId: lead.assigned_staff_id || undefined,
+        channel: lead.source === 'shopify' ? 'shopify' : 'manual',
+        items: orderItems, discountTotal, notes, paymentType, courierType,
+      });
+    }
+
+    // The state machine has no new -> converted step, so a lead that was never marked
+    // contacted is stepped through it here; both moves land in its history.
+    if (lead.status === 'new') {
+      changeStatus({ leadId, storeId, role, userId, toStatus: 'contacted', staffId });
+    }
+    changeStatus({ leadId, storeId, role, userId, toStatus: 'converted', staffId });
+
+    db.prepare(`UPDATE leads SET converted_order_id = ?, updated_at = datetime('now') WHERE id = ?`).run(order.id, lead.id);
+    db.prepare(`
+      INSERT INTO lead_activities (lead_id, type, content, staff_id) VALUES (?, 'note', ?, ?)
+    `).run(lead.id, merged ? `Items merged into existing order #${order.id}` : `Converted to order #${order.id}`, staffId);
+
+    const finalLead = db.prepare('SELECT * FROM leads WHERE id = ?').get(lead.id);
+    logStaffAction({
+      staffId, action: 'update', entityType: 'lead', entityId: lead.id,
+      before: { status: lead.status, converted_order_id: lead.converted_order_id },
+      after: { status: finalLead.status, converted_order_id: finalLead.converted_order_id, merged },
+    });
+    return { lead: finalLead, orderId: order.id, merged };
+  });
+
+  return txn();
+}
+
 function addActivity({ id, storeId, role, userId, type, content, staffId }) {
   if (!type || !VALID_ACTIVITY_TYPES.includes(type)) {
     throw new ApiError(400, `type must be one of ${VALID_ACTIVITY_TYPES.join(', ')}.`);
@@ -248,5 +341,5 @@ function remove({ id, storeId, staffId }) {
 
 module.exports = {
   TRANSITIONS, assertValidTransition, findDuplicateByPhone,
-  list, getStats, getById, create, update, changeStatus, addActivity, remove,
+  list, getStats, getById, create, update, changeStatus, convertToOrder, addActivity, remove,
 };
