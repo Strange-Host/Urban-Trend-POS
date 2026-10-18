@@ -14,6 +14,7 @@ const DESTINATIONS = {
   order: '/orders',
   sale: '/sales',
   payment_notification: '/reconciliation',
+  security_event: '/security',
   product: '/catalog',
 };
 

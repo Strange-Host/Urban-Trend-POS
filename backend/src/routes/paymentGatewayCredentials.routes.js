@@ -2,7 +2,8 @@ const router = require('express').Router();
 const rateLimit = require('express-rate-limit');
 const { RATE_LIMITS } = require('../config/limits');
 const ctrl = require('../controllers/paymentGatewayCredentials.controller');
-const { authenticate, requireRole } = require('../middleware/auth');
+const { authenticate, requireRole, requireRecentAuth } = require('../middleware/auth');
+const alertOnChange = require('../middleware/alertOnChange');
 const validate = require('../middleware/validate');
 const { simulateMpesaSchema, stkPushSchema } = require('../validation/paymentReconciliation.schema');
 
@@ -16,8 +17,8 @@ const actionLimiter = rateLimit({ ...RATE_LIMITS.SYNC, standardHeaders: true });
 
 router.get('/', ctrl.list);
 router.get('/:provider', ctrl.getByProvider);
-router.put('/:provider', ctrl.upsert);
-router.delete('/:provider', ctrl.deactivate);
+router.put('/:provider', requireRecentAuth(), alertOnChange('Payment provider details'), ctrl.upsert);
+router.delete('/:provider', requireRecentAuth(), alertOnChange('Payment provider (switched off)'), ctrl.deactivate);
 router.post('/:provider/test', actionLimiter, ctrl.testConnection);
 router.post('/mpesa/register-urls', actionLimiter, ctrl.registerMpesaUrls);
 router.post('/mpesa/simulate', actionLimiter, validate(simulateMpesaSchema), ctrl.simulateMpesaPayment);
