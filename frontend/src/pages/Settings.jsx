@@ -103,6 +103,8 @@ function BackupsSection() {
   const backups = data?.data;
   const emailConfigured = data?.emailConfigured;
   const lastEmail = data?.lastEmail;
+  const lastLocal = data?.lastLocal;
+  const passphraseSet = data?.passphraseSet;
 
   useEffect(() => { if (settings && recipients === null) setRecipients(settings.backup_email_recipients || ''); }, [settings]);
 
@@ -149,7 +151,7 @@ function BackupsSection() {
   return (
     <SectionCard
       title="Backups"
-      description="The database is backed up automatically every 6 hours locally (last 7 days kept), and — when email is configured — a copy is also emailed off-machine every 24 hours."
+      description="The database is backed up automatically every 6 hours (last 7 days kept, each one checked after it is made), and — when email is configured — an encrypted copy is also emailed off-machine every 24 hours. If the server restarts, an overdue backup runs right away."
     >
       {error && <div className="mb-3 px-3 py-2 rounded-lg bg-danger-soft text-danger text-sm">{error}</div>}
 
@@ -161,10 +163,20 @@ function BackupsSection() {
         {running ? 'Backing up…' : 'Run backup now'}
       </button>
 
+      {lastLocal && (
+        <p className="text-sm mb-3 text-text-muted">
+          Last backup: {lastLocal.status === 'ok' ? (
+            <span className="text-success">{lastLocal.file} at {new Date(lastLocal.at).toLocaleString()}</span>
+          ) : (
+            <span className="text-danger">failed ({lastLocal.error}) at {new Date(lastLocal.at).toLocaleString()}</span>
+          )}
+        </p>
+      )}
+
       {isLoading && <div className="text-text-muted text-sm">Loading…</div>}
       {backups?.length === 0 && !isLoading && (
         <div className="text-text-muted text-sm mb-4">
-          No backups yet — the first automatic one runs 6 hours after the server starts, or click "Run backup now" above.
+          No backups yet — the first one runs a minute or so after the server starts, or click "Run backup now" above.
         </div>
       )}
       {backups?.length > 0 && (
@@ -179,7 +191,7 @@ function BackupsSection() {
       )}
 
       <div className="border-t border-line pt-4">
-        <h3 className="text-sm font-medium mb-1">Email backups</h3>
+        <h3 className="text-sm font-medium mb-1">Off-site copy (email)</h3>
 
         <Field label="Recipient emails" hint="Comma-separated — e.g. owner@urbantrends.com, backups@urbantrends.com. Saved here, no server restart needed.">
           <textarea
@@ -203,11 +215,16 @@ function BackupsSection() {
 
         {!emailConfigured ? (
           <p className="text-text-muted text-sm">
-            Add at least one recipient above, and finish <b>Settings → Email (outgoing mail)</b> (Resend or SMTP). Both
-            take effect immediately; no restart or server file editing is needed.
+            Add at least one recipient above, and finish <b>Settings → Email (outgoing mail)</b> (SMTP). It takes
+            effect immediately; no restart or server file editing is needed.
           </p>
         ) : (
           <>
+            {!passphraseSet && (
+              <div className="mb-3 px-3 py-2 rounded-lg bg-danger-soft text-danger text-sm">
+                {data?.passphraseProblem || 'BACKUP_PASSPHRASE is not set.'} Until then no copy is sent off-machine. On Railway add it under <b>Variables</b>, and keep the same phrase in your password manager: it is the only way to open these backups.
+              </div>
+            )}
             {emailError && <div className="mb-2 px-3 py-2 rounded-lg bg-danger-soft text-danger text-sm">{emailError}</div>}
             {lastEmail ? (
               <p className="text-text-muted text-sm mb-3">
@@ -218,11 +235,11 @@ function BackupsSection() {
                 )}
               </p>
             ) : (
-              <p className="text-text-muted text-sm mb-3">No email backup sent yet — the first automatic one goes out 24 hours after the server starts.</p>
+              <p className="text-text-muted text-sm mb-3">No email backup sent yet — the first one goes out within about ten minutes once email and the passphrase are set up.</p>
             )}
             <button
               onClick={handleEmailNow}
-              disabled={emailing}
+              disabled={emailing || !passphraseSet}
               className="px-4 py-2 rounded-lg border border-line text-sm font-medium hover:border-text-muted disabled:opacity-50"
             >
               {emailing ? 'Sending…' : 'Send backup email now'}
