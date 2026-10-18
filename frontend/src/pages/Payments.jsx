@@ -6,6 +6,7 @@ import { getErrorMessage } from '../api/client';
 import { useToast, useDialog } from '../context/UIContext';
 import Pager, { usePager } from '../components/Pager';
 
+import Sheet from '../components/Sheet';
 const METHODS = ['cash', 'card', 'mobile_money', 'bank_transfer'];
 const emptyForm = { direction: 'incoming', sale_id: '', supplier_name: '', method: 'cash', amount: '', reference: '', notes: '' };
 
@@ -147,9 +148,7 @@ export default function Payments() {
       <Pager pager={pager} data={data} noun="payments" />
 
       {creating && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setCreating(false)}>
-          <form onSubmit={handleCreate} onClick={(e) => e.stopPropagation()}
-            className="bg-surface rounded-xl p-6 w-full max-w-sm max-h-[85vh] overflow-y-auto">
+        <Sheet onClose={() => setCreating(false)} size="sm" as="form" onSubmit={handleCreate}>
             <h2 className="font-display font-700 text-lg mb-4">Record payment</h2>
             {error && <div className="mb-3 px-3 py-2 rounded-lg bg-danger-soft text-danger text-sm">{error}</div>}
 
@@ -195,8 +194,7 @@ export default function Payments() {
               <button type="button" onClick={() => setCreating(false)} className="flex-1 py-2.5 rounded-lg border border-line text-sm font-medium">Cancel</button>
               <button type="submit" className="flex-1 py-2.5 rounded-lg bg-ink text-white text-sm font-medium hover:bg-ink-soft">Save</button>
             </div>
-          </form>
-        </div>
+          </Sheet>
       )}
     </div>
   );

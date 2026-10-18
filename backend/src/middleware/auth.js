@@ -40,8 +40,48 @@ function authenticate(req, res, next) {
     throw new ApiError(403, 'You must change your password before doing anything else.', null, 'PASSWORD_CHANGE_REQUIRED');
   }
 
-  req.user = payload; // { id, role, storeId, name, tokenVersion }
+  // Sign-in sessions (services/sessions.service.js): every access token names the session it belongs to, and that
+  // session can end (idle too long, past its maximum, signed out elsewhere) or be locked. Checked on every request so
+  // a copied token can't outlive the rules; locking is enforced here, not just drawn on screen.
+  const sessions = require('../services/sessions.service');
+  const session = payload.sid ? sessions.get(payload.sid) : null;
+  if (!session || session.user_id !== payload.id) {
+    throw new ApiError(401, 'Invalid or expired token.', null, 'SESSION_EXPIRED');
+  }
+  const standing = sessions.evaluate(session, payload.role);
+  if (standing.state === 'revoked' || standing.state === 'expired') {
+    throw new ApiError(401, 'Your session has ended. Please sign in again.', null, 'SESSION_EXPIRED');
+  }
+  const path = req.originalUrl.split('?')[0];
+  if (standing.state === 'locked' && !LOCKED_ALLOWLIST.includes(path)) {
+    throw new ApiError(403, 'The screen is locked. Enter your password or PIN to carry on.', null, 'SESSION_LOCKED');
+  }
+  // Only deliberate actions keep a session alive: any change (POST/PUT/PATCH/DELETE) or the app's own "someone is
+  // using this" ping. Reading pages and background polling (the notification bell) deliberately do not.
+  if (standing.state === 'active' && !['GET', 'HEAD', 'OPTIONS'].includes(req.method) && !req.headers['x-background']) {
+    sessions.touch(session);
+  }
+
+  req.user = payload; // { id, role, storeId, name, tokenVersion, sid }
+  req.session = session;
   next();
+}
+
+// While locked, only these work: unlocking, signing out, and asking who is signed in.
+const LOCKED_ALLOWLIST = ['/api/auth/unlock', '/api/auth/logout', '/api/auth/me'];
+
+// Usage: router.post('/:id/void', requireRecentAuth(), ...) - risky actions need the password (or a cashier's PIN)
+// typed within the last few minutes (Security settings). The app shows a "confirm it's you" box and retries by itself.
+// { writesOnly: true } guards a whole router but lets plain reads through.
+function requireRecentAuth({ writesOnly = false } = {}) {
+  return (req, res, next) => {
+    if (writesOnly && ['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next();
+    const sessions = require('../services/sessions.service');
+    if (!req.session || !sessions.recentlyConfirmed(req.session, req.user.role)) {
+      throw new ApiError(403, 'Please confirm it is you: enter your password (or PIN) to continue.', null, 'REAUTH_REQUIRED');
+    }
+    next();
+  };
 }
 
 // Usage: requireRole('admin', 'manager')
@@ -69,4 +109,4 @@ function requirePermission(key) {
   };
 }
 
-module.exports = { authenticate, requireRole, requirePermission };
+module.exports = { authenticate, requireRole, requirePermission, requireRecentAuth };

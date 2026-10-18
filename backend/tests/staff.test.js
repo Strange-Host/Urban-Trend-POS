@@ -11,7 +11,7 @@ afterAll(() => cleanupTestDb());
 describe('staff (users)', () => {
   it('creates a staff member and lists them', async () => {
     const createRes = await request(app).post('/api/staff').set('Authorization', `Bearer ${token}`)
-      .send({ name: 'Staff List Test', email: 'staff-list-test@urbantrends.com', phone: '0711000001', password: 'ListTest123!', role: 'cashier' });
+      .send({ name: 'Staff List Test', email: 'staff-list-test@urbantrends.com', phone: '0711000001', password: 'Willow-Anchor-5792', role: 'cashier' });
     expect(createRes.status).toBe(201);
     expect(createRes.body.data.password_hash).toBeUndefined(); // never leaked
 
@@ -22,13 +22,13 @@ describe('staff (users)', () => {
 
   it('rejects creating a staff member with an unknown role', async () => {
     const res = await request(app).post('/api/staff').set('Authorization', `Bearer ${token}`)
-      .send({ name: 'Bad Role', email: 'bad-role@urbantrends.com', phone: '0711000002', password: 'BadRole123!', role: 'superadmin' });
+      .send({ name: 'Bad Role', email: 'bad-role@urbantrends.com', phone: '0711000002', password: 'Slate-Cedar-9007', role: 'superadmin' });
     expect(res.status).toBe(400);
   });
 
   it('gets a single staff member by id', async () => {
     const createRes = await request(app).post('/api/staff').set('Authorization', `Bearer ${token}`)
-      .send({ name: 'Get By Id Test', email: 'get-by-id@urbantrends.com', phone: '0711000003', password: 'GetById123!', role: 'cashier' });
+      .send({ name: 'Get By Id Test', email: 'get-by-id@urbantrends.com', phone: '0711000003', password: 'Tundra-Mosaic-3341', role: 'cashier' });
 
     const getRes = await request(app).get(`/api/staff/${createRes.body.data.id}`).set('Authorization', `Bearer ${token}`);
     expect(getRes.status).toBe(200);
@@ -42,10 +42,10 @@ describe('staff (users)', () => {
 
   it('updates a field without a password change and does NOT revoke tokens', async () => {
     const createRes = await request(app).post('/api/staff').set('Authorization', `Bearer ${token}`)
-      .send({ name: 'Update Test', email: 'update-test@urbantrends.com', phone: '0711000004', password: 'UpdateTest123!', role: 'cashier' });
+      .send({ name: 'Update Test', email: 'update-test@urbantrends.com', phone: '0711000004', password: 'Ivory-Beacon-8250', role: 'cashier' });
     const staffId = createRes.body.data.id;
 
-    const staffLogin = await request(app).post('/api/auth/login').send({ email: 'update-test@urbantrends.com', password: 'UpdateTest123!' });
+    const staffLogin = await request(app).post('/api/auth/login').send({ email: 'update-test@urbantrends.com', password: 'Ivory-Beacon-8250' });
     const staffToken = staffLogin.body.token;
 
     const updateRes = await request(app).patch(`/api/staff/${staffId}`).set('Authorization', `Bearer ${token}`)
@@ -62,10 +62,10 @@ describe('staff (users)', () => {
 
   it('admin password reset revokes the existing session and returns a one-time temp password', async () => {
     const createRes = await request(app).post('/api/staff').set('Authorization', `Bearer ${token}`)
-      .send({ name: 'Reset Test', email: 'reset-test@urbantrends.com', phone: '0711000005', password: 'ResetTest123!', role: 'cashier' });
+      .send({ name: 'Reset Test', email: 'reset-test@urbantrends.com', phone: '0711000005', password: 'Crimson-Harvest-1486', role: 'cashier' });
     const staffId = createRes.body.data.id;
 
-    const staffLogin = await request(app).post('/api/auth/login').send({ email: 'reset-test@urbantrends.com', password: 'ResetTest123!' });
+    const staffLogin = await request(app).post('/api/auth/login').send({ email: 'reset-test@urbantrends.com', password: 'Crimson-Harvest-1486' });
     const staffToken = staffLogin.body.token;
 
     const resetRes = await request(app).post(`/api/staff/${staffId}/reset-password`).set('Authorization', `Bearer ${token}`);

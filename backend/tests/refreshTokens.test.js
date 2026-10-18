@@ -74,10 +74,10 @@ describe('refresh tokens', () => {
     const createRes = await request(app)
       .post('/api/staff')
       .set('Authorization', `Bearer ${adminToken}`)
-      .send({ name: 'Refresh Revoke Test', email: 'refresh-revoke@urbantrends.com', phone: '0700000002', password: 'RefreshTest123!', role: 'cashier' });
+      .send({ name: 'Refresh Revoke Test', email: 'refresh-revoke@urbantrends.com', phone: '0700000002', password: 'Copper-Lantern-7115', role: 'cashier' });
     const staffId = createRes.body.data.id;
 
-    const staffLogin = await request(app).post('/api/auth/login').send({ email: 'refresh-revoke@urbantrends.com', password: 'RefreshTest123!' });
+    const staffLogin = await request(app).post('/api/auth/login').send({ email: 'refresh-revoke@urbantrends.com', password: 'Copper-Lantern-7115' });
     const staffCookie = extractRefreshCookie(staffLogin);
 
     await request(app).delete(`/api/staff/${staffId}`).set('Authorization', `Bearer ${adminToken}`);

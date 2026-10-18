@@ -36,13 +36,13 @@ describe('auth', () => {
     const createRes = await request(app)
       .post('/api/staff')
       .set('Authorization', `Bearer ${adminToken}`)
-      .send({ name: 'Revoke Test', email: 'revoke-test@urbantrends.com', phone: '0700000001', password: 'RevokeTest123!', role: 'cashier' });
+      .send({ name: 'Revoke Test', email: 'revoke-test@urbantrends.com', phone: '0700000001', password: 'Amber-Falcon-3380', role: 'cashier' });
     expect(createRes.status).toBe(201);
     const staffId = createRes.body.data.id;
 
     const loginRes = await request(app)
       .post('/api/auth/login')
-      .send({ email: 'revoke-test@urbantrends.com', password: 'RevokeTest123!' });
+      .send({ email: 'revoke-test@urbantrends.com', password: 'Amber-Falcon-3380' });
     const staffToken = loginRes.body.token;
 
     // Token works before deactivation.

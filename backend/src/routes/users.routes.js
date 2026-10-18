@@ -1,7 +1,7 @@
 const requireModule = require('../middleware/requireModule');
 const router = require('express').Router();
 const ctrl = require('../controllers/users.controller');
-const { authenticate, requireRole, requirePermission } = require('../middleware/auth');
+const { authenticate, requireRole, requirePermission, requireRecentAuth } = require('../middleware/auth');
 
 router.use(authenticate);
 
@@ -11,6 +11,15 @@ router.get('/:id', requirePermission('staff.view'), ctrl.getById);
 
 // Account management: admin only (§5.2 "Manage Staff accounts").
 router.use(requireRole('admin'));
+// Every change to a staff account asks for the admin's password (or at least a recent confirmation) first.
+router.use(requireRecentAuth({ writesOnly: true }));
+router.get('/:id/removal-check', ctrl.removalCheck);
+router.get('/:id/sessions', ctrl.sessionsFor);
+router.post('/:id/reactivate', ctrl.reactivate);
+router.post('/:id/permanent-delete', ctrl.permanentDelete);
+router.post('/:id/erase-personal-data', ctrl.erasePersonalData);
+router.post('/:id/sign-out-everywhere', ctrl.signOutEverywhere);
+router.post('/:id/unlock-account', ctrl.unlockAccount);
 router.post('/', ctrl.create);
 router.patch('/:id', ctrl.update);
 router.put('/:id', ctrl.update); // kept for backward compatibility with any existing PUT callers

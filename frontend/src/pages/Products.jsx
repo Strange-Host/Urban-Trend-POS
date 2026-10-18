@@ -4,8 +4,10 @@ import { productsApi, categoriesApi, inventoryApi } from '../api/endpoints';
 import { getErrorMessage } from '../api/client';
 import { useDialog } from '../context/UIContext';
 
+import Sheet from '../components/Sheet';
+import Picker, { Segmented } from '../components/Picker';
 const emptyForm = { sku: '', barcode: '', name: '', category_id: '', cost_price: '', sell_price: '' };
-const emptyAdjustForm = { qty: '', reason: 'restock' };
+const emptyAdjustForm = { mode: 'add', qty: '', reason: 'restock' };
 
 export default function Products() {
   const dialog = useDialog();
@@ -84,7 +86,9 @@ export default function Products() {
     e.preventDefault();
     setAdjustError('');
     try {
-      await inventoryApi.adjust({ product_id: adjusting.id, change_qty: parseInt(adjustForm.qty, 10), reason: adjustForm.reason });
+      const amount = parseInt(adjustForm.qty, 10);
+      if (!amount || amount < 1) { setAdjustError('Enter how many units (1 or more).'); return; }
+      await inventoryApi.adjust({ product_id: adjusting.id, change_qty: adjustForm.mode === 'remove' ? -amount : amount, reason: adjustForm.reason });
       queryClient.invalidateQueries({ queryKey: ['products'] });
       queryClient.invalidateQueries({ queryKey: ['inventory'] });
       setAdjusting(null);
@@ -167,12 +171,7 @@ export default function Products() {
       )}
 
       {editing !== null && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setEditing(null)}>
-          <form
-            onSubmit={handleSave}
-            onClick={(e) => e.stopPropagation()}
-            className="bg-surface rounded-xl p-6 w-full max-w-md max-h-full overflow-y-auto"
-          >
+        <Sheet onClose={() => setEditing(null)} size="md" as="form" onSubmit={handleSave}>
             <h2 className="font-display font-700 text-lg mb-4">{editing.id ? 'Edit product' : 'New product'}</h2>
 
             {error && <div className="mb-3 px-3 py-2 rounded-lg bg-danger-soft text-danger text-sm">{error}</div>}
@@ -195,24 +194,17 @@ export default function Products() {
               </div>
               <div>
                 <label className="block text-xs font-medium text-text-muted mb-1">Category</label>
-                <select value={form.category_id} onChange={async (e) => {
-                  if (e.target.value === '__new__') {
-                    const name = await dialog.prompt('New category name:');
-                    if (name && name.trim()) {
-                      categoriesApi.create({ name: name.trim() }).then(({ data }) => {
-                        queryClient.invalidateQueries({ queryKey: ['categories'] });
-                        setForm((f) => ({ ...f, category_id: data.data.id }));
-                      }).catch((err) => setError(getErrorMessage(err, 'Could not create category.')));
-                    }
-                  } else {
-                    setForm({ ...form, category_id: e.target.value });
-                  }
-                }}
-                  className="w-full px-3 py-2 rounded-lg border border-line outline-none focus:border-accent">
-                  <option value="">None</option>
-                  {categories?.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                  <option value="__new__">+ New category…</option>
-                </select>
+                <Picker
+                  value={form.category_id} title="Category" aria-label="Category"
+                  onChange={(v) => setForm({ ...form, category_id: v })}
+                  options={(categories || []).map((c) => ({ value: c.id, label: c.name }))}
+                  allowClear clearLabel="None" createLabel="New category"
+                  onCreate={async (name) => {
+                    const { data } = await categoriesApi.create({ name });
+                    queryClient.invalidateQueries({ queryKey: ['categories'] });
+                    return data.data.id;
+                  }}
+                />
               </div>
               <div>
                 <label className="block text-xs font-medium text-text-muted mb-1">Cost price</label>
@@ -234,32 +226,51 @@ export default function Products() {
                 Save
               </button>
             </div>
-          </form>
-        </div>
+          </Sheet>
       )}
 
       {adjusting && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setAdjusting(null)}>
-          <form onSubmit={handleAdjust} onClick={(e) => e.stopPropagation()} className="bg-surface rounded-xl p-6 w-full max-w-sm max-h-full overflow-y-auto">
+        <Sheet onClose={() => setAdjusting(null)} size="sm" as="form" onSubmit={handleAdjust}>
             <h2 className="font-display font-700 text-lg mb-1">Adjust stock</h2>
             <p className="text-text-muted text-sm mb-4">{adjusting.name} — currently {adjusting.total_stock}</p>
 
             {adjustError && <div className="mb-3 px-3 py-2 rounded-lg bg-danger-soft text-danger text-sm">{adjustError}</div>}
 
-            <label className="block text-xs font-medium text-text-muted mb-1">Change (use negative to reduce)</label>
-            <input
-              type="number" required value={adjustForm.qty} onChange={(e) => setAdjustForm({ ...adjustForm, qty: e.target.value })}
-              className="w-full px-3 py-2 rounded-lg border border-line outline-none focus:border-accent mb-3"
-              placeholder="e.g. 20 or -5"
+            <Segmented
+              value={adjustForm.mode} aria-label="Add or remove stock" className="mb-4"
+              onChange={(mode) => setAdjustForm((f) => ({ ...f, mode, reason: mode === 'remove' && f.reason === 'restock' ? 'adjustment' : mode === 'add' && f.reason === 'adjustment' ? 'restock' : f.reason }))}
+              options={[{ value: 'add', label: '＋ Add stock' }, { value: 'remove', label: '－ Remove stock' }]}
             />
 
-            <label className="block text-xs font-medium text-text-muted mb-1">Reason</label>
-            <select value={adjustForm.reason} onChange={(e) => setAdjustForm({ ...adjustForm, reason: e.target.value })}
-              className="w-full px-3 py-2 rounded-lg border border-line outline-none focus:border-accent mb-5">
-              <option value="restock">Restock</option>
-              <option value="adjustment">Stock count adjustment</option>
-              <option value="return">Customer return</option>
-            </select>
+            <label htmlFor="adjust-qty" className="block text-xs font-medium text-text-muted mb-1">How many units?</label>
+            <input
+              id="adjust-qty" type="text" inputMode="numeric" pattern="[0-9]*" enterKeyHint="done" autoComplete="off" maxLength={6}
+              value={adjustForm.qty} onChange={(e) => setAdjustForm({ ...adjustForm, qty: e.target.value.replace(/\D/g, '') })}
+              className="w-full px-3 py-3 rounded-lg border border-line outline-none focus:border-accent text-xl font-mono mb-2"
+              placeholder="0"
+            />
+            <div className="flex gap-2 mb-3">
+              {[1, 5, 10].map((n) => (
+                <button key={n} type="button" onClick={() => setAdjustForm((f) => ({ ...f, qty: String((parseInt(f.qty, 10) || 0) + n) }))}
+                  className="flex-1 min-h-[44px] rounded-lg border border-line text-sm font-medium hover:bg-paper">+{n}</button>
+              ))}
+            </div>
+            {(() => {
+              const amount = parseInt(adjustForm.qty, 10) || 0;
+              const after = (adjusting.total_stock || 0) + (adjustForm.mode === 'remove' ? -amount : amount);
+              return amount > 0 && (
+                <p className={`text-sm mb-3 ${after < 0 ? 'text-danger' : 'text-text-muted'}`}>
+                  Stock: {adjusting.total_stock || 0} → <b>{after}</b>{after < 0 ? ' (below zero)' : ''}
+                </p>
+              );
+            })()}
+
+            <div className="block text-xs font-medium text-text-muted mb-1">Reason</div>
+            <Segmented
+              value={adjustForm.reason} aria-label="Reason" className="mb-5"
+              onChange={(reason) => setAdjustForm({ ...adjustForm, reason })}
+              options={[{ value: 'restock', label: 'Restock' }, { value: 'adjustment', label: 'Count fix' }, { value: 'return', label: 'Return' }]}
+            />
 
             <div className="flex gap-2">
               <button type="button" onClick={() => setAdjusting(null)} className="flex-1 py-2.5 rounded-lg border border-line text-sm font-medium">
@@ -269,8 +280,7 @@ export default function Products() {
                 Apply
               </button>
             </div>
-          </form>
-        </div>
+          </Sheet>
       )}
     </div>
   );
