@@ -17,6 +17,7 @@ import POSTerminal from './pages/POSTerminal';
 // trade a bundle-size win for a network round trip on the most common
 // path through the app.
 const ChangePassword = lazy(() => import('./pages/ChangePassword'));
+const Security = lazy(() => import('./pages/Security'));
 const Orders = lazy(() => import('./pages/Orders'));
 const PaymentReconciliation = lazy(() => import('./pages/PaymentReconciliation'));
 const Attendance = lazy(() => import('./pages/Attendance'));
@@ -65,6 +66,7 @@ export default function App() {
                 }
               >
                 <Route path="/" element={<POSTerminal />} />
+                <Route path="/security" element={<Security />} />
                 <Route
                   path="/catalog"
                   element={

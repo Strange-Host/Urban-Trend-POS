@@ -107,6 +107,9 @@ const update = asyncHandler(async (req, res) => {
   `).run({ ...updates, id: req.params.id });
 
   const product = db.prepare('SELECT * FROM products WHERE id = ?').get(req.params.id);
+  require('../services/securityAlerts.service').priceChanged({
+    storeId: req.user.storeId, actor: { id: req.user.id, name: req.user.name }, product: product.name, oldCents: existing.sell_price, newCents: product.sell_price,
+  });
   res.json({ data: product });
 });
 

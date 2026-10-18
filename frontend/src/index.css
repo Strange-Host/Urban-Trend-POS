@@ -115,3 +115,54 @@ body {
 /* Long URLs / secrets / paths shown in <code> must wrap instead of widening the page. */
 main code, main pre { overflow-wrap: anywhere; }
 main pre { white-space: pre-wrap; }
+
+/* ---------------------------------------------------------------------
+   Pop-ups (components/Sheet.jsx). On phones a pop-up is a bottom sheet:
+   it sits at the bottom, is never taller than the visible screen (dvh
+   follows the on-screen keyboard together with the viewport tag in
+   index.html), scrolls inside itself, and keeps its button row stuck to
+   the bottom. From 640px up it is the familiar centred card.
+   --------------------------------------------------------------------- */
+.sheet-backdrop {
+  position: fixed; inset: 0; display: flex; align-items: flex-end; justify-content: center;
+  background: rgb(0 0 0 / 0.4);
+  animation: sheet-fade 0.15s ease-out;
+}
+.sheet {
+  background: var(--color-surface);
+  width: 100%;
+  max-height: calc(100dvh - 0.5rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border-radius: 1rem 1rem 0 0;
+  box-shadow: 0 -8px 30px rgb(0 0 0 / 0.18);
+  animation: sheet-up 0.2s ease-out;
+}
+.sheet-padded { padding: 0.75rem 1.25rem 0; }
+.sheet-sm { max-width: 100%; } .sheet-md { max-width: 100%; } .sheet-lg { max-width: 100%; }
+.sheet-handle { width: 2.5rem; height: 0.25rem; border-radius: 9999px; background: var(--color-line); margin: 0 auto 0.75rem; }
+.sheet:not(.sheet-padded) .sheet-handle { margin-top: 0.75rem; margin-bottom: 0; }
+.sheet-actions {
+  position: sticky; bottom: 0; z-index: 1;
+  background: var(--color-surface);
+  margin-top: 1rem !important;
+  padding: 0.75rem 0 calc(0.75rem + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--color-line);
+}
+.sheet:not(.sheet-padded) .sheet-actions { padding-left: 1.25rem; padding-right: 1.25rem; }
+.sheet:not(.sheet-padded) { padding-bottom: env(safe-area-inset-bottom); }
+.sheet-actions > button { min-height: 2.75rem; }
+
+@media (min-width: 640px) {
+  .sheet-backdrop { align-items: center; padding: 1rem; }
+  .sheet { border-radius: 0.75rem; max-height: 88vh; box-shadow: 0 20px 50px rgb(0 0 0 / 0.25); animation: sheet-pop 0.15s ease-out; }
+  .sheet-padded { padding: 1.5rem 1.5rem 0; }
+  .sheet-sm { max-width: 24rem; } .sheet-md { max-width: 28rem; } .sheet-lg { max-width: 32rem; }
+  .sheet-handle { display: none; }
+  .sheet-actions { padding-bottom: 1.25rem; margin-left: 0; margin-right: 0; }
+  .sheet:not(.sheet-padded) { padding-bottom: 0; }
+}
+@keyframes sheet-up { from { transform: translateY(2rem); opacity: 0.6; } to { transform: none; opacity: 1; } }
+@keyframes sheet-pop { from { transform: scale(0.97); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes sheet-fade { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .sheet, .sheet-backdrop { animation: none; } }

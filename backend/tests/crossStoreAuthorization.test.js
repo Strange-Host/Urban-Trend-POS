@@ -19,12 +19,12 @@ beforeAll(async () => {
   // Shopify/WooCommerce sync setup flow, not a normal signup path).
   const storeBResult = db.prepare(`INSERT INTO stores (name) VALUES ('Store B')`).run();
   const storeBId = storeBResult.lastInsertRowid;
-  const passwordHash = bcrypt.hashSync('StoreBPass123!', 10);
+  const passwordHash = bcrypt.hashSync('Cobalt-Willow-9152', 10);
   db.prepare(`
     INSERT INTO users (store_id, name, email, password_hash, role, is_active) VALUES (?, 'Store B Admin', 'storeb@urbantrends.com', ?, 'admin', 1)
   `).run(storeBId, passwordHash);
 
-  const loginRes = await request(app).post('/api/auth/login').send({ email: 'storeb@urbantrends.com', password: 'StoreBPass123!' });
+  const loginRes = await request(app).post('/api/auth/login').send({ email: 'storeb@urbantrends.com', password: 'Cobalt-Willow-9152' });
   storeBToken = loginRes.body.token;
 
   // A real sale + cash session in Store A, to try reaching from Store B.

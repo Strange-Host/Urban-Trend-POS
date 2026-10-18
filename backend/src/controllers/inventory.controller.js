@@ -63,7 +63,12 @@ const adjust = asyncHandler(async (req, res) => {
       .get(product_id, req.user.storeId);
   });
 
-  res.json({ data: txn() });
+  const result = txn();
+  const product = db.prepare('SELECT name FROM products WHERE id = ?').get(product_id);
+  require('../services/securityAlerts.service').stockAdjusted({
+    storeId: req.user.storeId, actor: { id: req.user.id, name: req.user.name }, product: product?.name, qty: change_qty, reason,
+  });
+  res.json({ data: result });
 });
 
 // GET /api/inventory/:productId/movements — audit trail for one product

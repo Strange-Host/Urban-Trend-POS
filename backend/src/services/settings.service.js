@@ -68,6 +68,24 @@ const DEFAULTS = {
   // Live sync with Shopify / WooCommerce (services/liveSync.service.js)
   live_poll_minutes: '10',                       // safety-net check for changes a webhook missed; 0 = off
   online_auto_import_orders: '1',                // new to-ship online orders are added to the Orders page by themselves
+  // Sign-in security (services/sessions.service.js, loginGuard.service.js, securityAlerts.service.js).
+  // Edited by an admin in the Security page, never by hand.
+  security_lockout_attempts: '5',                // wrong passwords/PINs in a row before that account (or PIN) locks
+  security_lockout_minutes: '15',
+  security_lock_minutes_cashier: '5',            // idle minutes before the screen locks (password or PIN to carry on)
+  security_lock_minutes_manager: '10',
+  security_lock_minutes_admin: '10',
+  security_idle_signout_minutes_cashier: '30',   // idle minutes before the session ends for good (not for remembered devices)
+  security_idle_signout_minutes_manager: '60',
+  security_idle_signout_minutes_admin: '30',
+  security_max_session_hours_cashier: '12',      // the longest any one sign-in can last, however active
+  security_max_session_hours_manager: '168',
+  security_max_session_hours_admin: '24',
+  security_unremembered_max_hours: '12',         // cap when "remember this device" is NOT ticked
+  security_reauth_minutes: '5',                  // risky actions need the password/PIN typed within this many minutes
+  security_alert_refund_kes: '3000',             // refunds and voids at or above this alert the admins
+  security_alert_stock_units: '25',              // stock adjustments of this many units or more alert the admins
+  security_alert_price_percent: '15',            // price changes of this percent or more alert the admins
 };
 
 function getAll() {

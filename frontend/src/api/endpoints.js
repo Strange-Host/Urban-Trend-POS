@@ -1,8 +1,13 @@
 import client from './client';
 
 export const authApi = {
-  login: (email, password) => client.post('/auth/login', { email, password }),
-  verifyOtp: (challengeToken, code) => client.post('/auth/verify-otp', { challengeToken, code }),
+  login: (email, password, remember = false) => client.post('/auth/login', { email, password, remember }),
+  verifyOtp: (challengeToken, code, remember = false) => client.post('/auth/verify-otp', { challengeToken, code, remember }),
+  unlock: (secret) => client.post('/auth/unlock', secret),          // { password } or { pin }
+  activity: () => client.post('/auth/activity', {}),
+  sessions: () => client.get('/auth/sessions'),
+  endSession: (id) => client.delete(`/auth/sessions/${id}`),
+  endOtherSessions: () => client.post('/auth/sessions/revoke-others', {}),
   resendOtp: (challengeToken) => client.post('/auth/resend-otp', { challengeToken }),
   refresh: () => client.post('/auth/refresh'),
   logout: () => client.post('/auth/logout'),
@@ -19,8 +24,13 @@ export const productsApi = {
 };
 
 export const categoriesApi = {
-  list: () => client.get('/categories'),
+  list: (params) => client.get('/categories', { params }),
   create: (data) => client.post('/categories', data),
+  update: (id, data) => client.put(`/categories/${id}`, data),
+  usage: (id) => client.get(`/categories/${id}/usage`),
+  remove: (id, moveTo) => client.delete(`/categories/${id}`, { params: moveTo ? { move_to: moveTo } : undefined }),
+  archive: (id) => client.post(`/categories/${id}/archive`, {}),
+  restore: (id) => client.post(`/categories/${id}/restore`, {}),
 };
 
 export const inventoryApi = {
@@ -168,6 +178,19 @@ export const staffApi = {
   update: (id, data) => client.patch(`/staff/${id}`, data),
   remove: (id) => client.delete(`/staff/${id}`),
   resetPassword: (id) => client.post(`/staff/${id}/reset-password`),
+  removalCheck: (id) => client.get(`/staff/${id}/removal-check`),
+  reactivate: (id) => client.post(`/staff/${id}/reactivate`, {}),
+  permanentDelete: (id, confirmName) => client.post(`/staff/${id}/permanent-delete`, { confirmName }),
+  erasePersonalData: (id, confirmName) => client.post(`/staff/${id}/erase-personal-data`, { confirmName }),
+  signOutEverywhere: (id) => client.post(`/staff/${id}/sign-out-everywhere`, {}),
+  sessions: (id) => client.get(`/staff/${id}/sessions`),
+  unlockAccount: (id) => client.post(`/staff/${id}/unlock-account`, {}),
+};
+
+export const securityApi = {
+  policy: () => client.get('/security/policy'),
+  updatePolicy: (data) => client.put('/security/policy', data),
+  events: (params) => client.get('/security/events', { params }),
 };
 
 export const staffLogsApi = {  list: (params) => client.get('/staff-logs', { params }),

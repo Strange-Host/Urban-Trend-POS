@@ -86,9 +86,9 @@ describe('leads', () => {
 
   it('a cashier only sees and can only act on their own assigned leads', async () => {
     const staffRes = await request(app).post('/api/staff').set('Authorization', `Bearer ${token}`)
-      .send({ name: 'Cashier Leads Test', email: 'cashier-leads@urbantrends.com', phone: '0722000006', password: 'CashierLeads123!', role: 'cashier' });
+      .send({ name: 'Cashier Leads Test', email: 'cashier-leads@urbantrends.com', phone: '0722000006', password: 'Orchid-Summit-1930', role: 'cashier' });
     const cashierId = staffRes.body.data.id;
-    const cashierLogin = await request(app).post('/api/auth/login').send({ email: 'cashier-leads@urbantrends.com', password: 'CashierLeads123!' });
+    const cashierLogin = await request(app).post('/api/auth/login').send({ email: 'cashier-leads@urbantrends.com', password: 'Orchid-Summit-1930' });
     const cashierToken = cashierLogin.body.token;
 
     // A lead assigned to someone else...

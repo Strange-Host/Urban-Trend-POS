@@ -78,6 +78,9 @@ const getById = asyncHandler(async (req, res) => {
 // POST /api/sales/:id/void  — manager/admin only, restocks items
 const voidSale = asyncHandler(async (req, res) => {
   const sale = salesService.voidSale(req.params.id, req.user.storeId, req.user.id);
+  require('../services/securityAlerts.service').largeMoney({
+    storeId: req.user.storeId, actor: { id: req.user.id, name: req.user.name }, kind: 'void', amountCents: sale?.total || 0, reference: `#${sale?.id ?? req.params.id}`,
+  });
   res.json({ data: sale });
 });
 

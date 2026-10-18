@@ -5,6 +5,7 @@ import { shopifyApi, categoriesApi } from '../api/endpoints';
 import { getErrorMessage } from '../api/client';
 import { useToast, useDialog } from '../context/UIContext';
 
+import Picker from '../components/Picker';
 const badgeStyles = {
   new: 'bg-success-soft text-success',
   update: 'bg-accent/20 text-accent-ink',
@@ -32,6 +33,9 @@ export default function ShopifySync() {
   const debouncedSave = useDebouncedSave();
 
   const [storeChoice, setStoreChoice] = useState('all');
+  const [selected, setSelected] = useState(() => new Set());     // rows ticked for "set category" / "approve selected"
+  const [visibleCount, setVisibleCount] = useState(50);          // long lists are drawn 50 at a time (kinder to phones)
+  const [bulkBusy, setBulkBusy] = useState(false);
 
   // Refreshes by itself: a product changed in the store (live sync) or pulled by anyone shows up here without a reload.
   const { data: staged, isLoading } = useQuery({
@@ -105,6 +109,50 @@ export default function ShopifySync() {
   async function handleReject(id) {
     await shopifyApi.reject(id);
     queryClient.invalidateQueries({ queryKey: ['shopify-staging'] });
+  }
+
+  const categoryOptions = (categories || []).map((c) => ({ value: c.id, label: c.name }));
+  const rowNeedsCategory = (row) => row.match_status === 'new' && !fieldValue(row, 'category_id');
+  const toggleSelected = (id) => setSelected((prev) => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
+
+  // Runs an async job for each row, a few at a time, so a long selection doesn't hammer the server or the phone.
+  async function inChunks(rows, job, size = 4) {
+    const results = [];
+    for (let i = 0; i < rows.length; i += size) {
+      // eslint-disable-next-line no-await-in-loop
+      results.push(...await Promise.allSettled(rows.slice(i, i + size).map(job)));
+    }
+    return results;
+  }
+
+  async function bulkSetCategory(categoryId) {
+    const rows = (staged || []).filter((r) => selected.has(r.id) && r.match_status === 'new');
+    if (!categoryId || rows.length === 0) { toast.error('Tick at least one new product first.'); return; }
+    setBulkBusy(true);
+    const results = await inChunks(rows, (r) => shopifyApi.updateStaging(r.id, { category_id: categoryId }));
+    const failed = results.filter((r) => r.status === 'rejected').length;
+    queryClient.invalidateQueries({ queryKey: ['shopify-staging'] });
+    setBulkBusy(false);
+    if (failed) toast.error(`Category set for ${rows.length - failed}. ${failed} could not be saved.`);
+    else toast.success(`Category set for ${rows.length} product${rows.length === 1 ? '' : 's'}.`);
+  }
+
+  async function approveSelected() {
+    const rows = (staged || []).filter((r) => selected.has(r.id));
+    const ready = rows.filter((r) => !rowNeedsCategory(r));
+    const waiting = rows.length - ready.length;
+    if (ready.length === 0) { toast.error('The ticked products still need a category.'); return; }
+    setBulkBusy(true);
+    const results = await inChunks(ready, (r) => shopifyApi.approve(r.id));
+    const failed = results.filter((r) => r.status === 'rejected').length;
+    queryClient.invalidateQueries({ queryKey: ['shopify-staging'] });
+    queryClient.invalidateQueries({ queryKey: ['products'] });
+    queryClient.invalidateQueries({ queryKey: ['inventory'] });
+    setSelected(new Set());
+    setBulkBusy(false);
+    const notes = [waiting ? `${waiting} still need a category` : '', failed ? `${failed} failed` : ''].filter(Boolean).join(', ');
+    if (notes) toast.error(`Approved ${ready.length - failed}. ${notes}.`);
+    else toast.success(`Approved ${ready.length} product${ready.length === 1 ? '' : 's'}.`);
   }
 
   async function handleApproveAll() {
@@ -201,6 +249,28 @@ export default function ShopifySync() {
         </div>
       )}
 
+      {staged?.length > 0 && (() => {
+        const needing = staged.filter(rowNeedsCategory);
+        return (
+          <div className="flex flex-wrap items-center gap-2 mb-3 text-sm">
+            <button
+              type="button"
+              onClick={() => setSelected(new Set(staged.filter(rowNeedsCategory).map((r) => r.id)))}
+              disabled={needing.length === 0}
+              className="min-h-[44px] px-3 rounded-lg border border-line font-medium hover:border-text-muted disabled:opacity-40"
+            >
+              Tick all needing a category ({needing.length})
+            </button>
+            <button type="button" onClick={() => setSelected(new Set(staged.map((r) => r.id)))} className="min-h-[44px] px-3 rounded-lg border border-line font-medium hover:border-text-muted">
+              Tick all ({staged.length})
+            </button>
+            {selected.size > 0 && (
+              <button type="button" onClick={() => setSelected(new Set())} className="min-h-[44px] px-3 text-text-muted underline">Clear ticks</button>
+            )}
+          </div>
+        );
+      })()}
+
       <div className="bg-surface border border-line rounded-xl overflow-hidden scroll-x">
         <table className="stack-sm w-full text-sm min-w-[840px]">
           <thead>
@@ -221,14 +291,22 @@ export default function ShopifySync() {
                 Nothing pending review. Press “Pull products” to bring in your catalog - or wait: with live sync on, changes in your store appear here by themselves.
               </td></tr>
             )}
-            {staged?.map((s) => {
+            {staged?.slice(0, visibleCount).map((s) => {
               const isNew = s.match_status === 'new';
               const categoryId = fieldValue(s, 'category_id');
               const needsCategory = isNew && !categoryId;
               const rowState = edits[s.id] || {};
               return (
                 <tr key={s.id} className="border-b border-line last:border-0">
-                  <td className="px-4 py-3 font-medium">{s.name}</td>
+                  <td className="px-4 py-3 font-medium">
+                    <label className="flex items-start gap-3 min-h-[44px] sm:min-h-0 cursor-pointer">
+                      <input
+                        type="checkbox" checked={selected.has(s.id)} onChange={() => toggleSelected(s.id)}
+                        aria-label={`Tick ${s.name}`} className="mt-0.5 w-5 h-5 shrink-0 accent-[var(--color-ink)]"
+                      />
+                      <span className="min-w-0 break-words">{s.name}</span>
+                    </label>
+                  </td>
                   <td className="px-4 py-3">
                     <input
                       value={fieldValue(s, 'sku')}
@@ -239,16 +317,17 @@ export default function ShopifySync() {
                   </td>
                   <td className="px-4 py-3">
                     {isNew ? (
-                      <select
-                        value={categoryId}
-                        onChange={(e) => handleCategoryChange(s, e.target.value)}
-                        className={`w-36 px-2 py-1 rounded-md border bg-paper text-xs outline-none focus:border-accent ${
-                          needsCategory ? 'border-danger/50' : 'border-line'
-                        }`}
-                      >
-                        <option value="">Select…</option>
-                        {categories?.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                      </select>
+                      <Picker
+                        value={categoryId} title="Category" aria-label={`Category for ${s.name}`}
+                        onChange={(v) => handleCategoryChange(s, v)}
+                        options={categoryOptions} invalid={needsCategory} className="sm:w-44"
+                        onCreate={async (name) => {
+                          const { data } = await categoriesApi.create({ name });
+                          queryClient.invalidateQueries({ queryKey: ['categories'] });
+                          return data.data.id;
+                        }}
+                        createLabel="New category"
+                      />
                     ) : (
                       <span className="text-xs text-text-muted">matches existing</span>
                     )}
@@ -261,18 +340,25 @@ export default function ShopifySync() {
                     </span>
                     {rowState.error && <div className="text-danger text-xs mt-1">{rowState.error}</div>}
                   </td>
-                  <td className="px-4 py-3 text-right whitespace-nowrap">
-                    <button
-                      onClick={() => handleApprove(s.id)}
-                      disabled={needsCategory || rowState.saving}
-                      title={needsCategory ? 'Pick a category first' : undefined}
-                      className="text-xs text-success hover:opacity-70 mr-3 disabled:opacity-30"
-                    >
-                      Approve
-                    </button>
-                    <button onClick={() => handleReject(s.id)} className="text-xs text-danger hover:opacity-70">
-                      Reject
-                    </button>
+                  <td className="px-4 py-3 text-right">
+                    <div className="w-full">
+                    <div className="flex gap-2 sm:justify-end">
+                      <button
+                        type="button" onClick={() => handleReject(s.id)}
+                        className="flex-1 sm:flex-none min-h-[44px] px-4 rounded-lg border border-danger/40 text-danger text-sm font-medium hover:bg-danger-soft"
+                      >
+                        Reject
+                      </button>
+                      <button
+                        type="button" onClick={() => handleApprove(s.id)}
+                        disabled={needsCategory || rowState.saving}
+                        className="flex-1 sm:flex-none min-h-[44px] px-4 rounded-lg bg-success text-white text-sm font-medium hover:opacity-90 disabled:bg-line disabled:text-text-muted"
+                      >
+                        Approve
+                      </button>
+                    </div>
+                    {needsCategory && <p className="mt-1.5 text-xs text-danger sm:text-right">Choose a category first</p>}
+                    </div>
                   </td>
                 </tr>
               );
@@ -280,6 +366,38 @@ export default function ShopifySync() {
           </tbody>
         </table>
       </div>
+
+      {staged && staged.length > visibleCount && (
+        <button type="button" onClick={() => setVisibleCount((n) => n + 50)} className="mt-3 w-full min-h-[48px] rounded-lg border border-line text-sm font-medium hover:border-text-muted">
+          Show 50 more ({staged.length - visibleCount} not shown)
+        </button>
+      )}
+
+      {selected.size > 0 && (
+        <div className="sticky bottom-0 z-10 -mx-4 md:-mx-8 mt-4 px-4 md:px-8 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] bg-surface border-t border-line shadow-[0_-6px_20px_rgb(0_0_0/0.08)]">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm font-medium mr-auto">{selected.size} ticked</span>
+            <div className="w-full sm:w-56">
+              <Picker
+                value="" onChange={bulkSetCategory} title="Set category for ticked products" aria-label="Set category for ticked products"
+                placeholder="Set category…" options={categoryOptions} disabled={bulkBusy}
+                onCreate={async (name) => {
+                  const { data } = await categoriesApi.create({ name });
+                  queryClient.invalidateQueries({ queryKey: ['categories'] });
+                  return data.data.id;
+                }}
+                createLabel="New category"
+              />
+            </div>
+            <button
+              type="button" onClick={approveSelected} disabled={bulkBusy}
+              className="flex-1 sm:flex-none min-h-[44px] px-5 rounded-lg bg-success text-white text-sm font-medium hover:opacity-90 disabled:opacity-50"
+            >
+              {bulkBusy ? 'Working…' : `Approve ${selected.size}`}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

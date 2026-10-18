@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { authApi } from '../api/endpoints';
 import { getErrorMessage } from '../api/client';
+import { minLengthFor, passwordHint, passwordChecks } from '../utils/passwordRules';
 
 export default function ChangePassword() {
   const { user, logout } = useAuth();
@@ -21,8 +22,8 @@ export default function ChangePassword() {
       setError('New password and confirmation do not match.');
       return;
     }
-    if (newPassword.length < 8) {
-      setError('New password must be at least 8 characters.');
+    if (newPassword.length < minLengthFor(user?.role)) {
+      setError(`New password must be at least ${minLengthFor(user?.role)} characters.`);
       return;
     }
 
@@ -72,12 +73,19 @@ export default function ChangePassword() {
         <input
           type="password"
           required
-          minLength={8}
+          minLength={minLengthFor(user?.role)}
           value={newPassword}
           onChange={(e) => setNewPassword(e.target.value)}
-          className="w-full px-3.5 py-2.5 rounded-lg border border-line bg-surface focus:border-accent outline-none mb-4"
-          placeholder="At least 8 characters"
+          autoComplete="new-password"
+          className="w-full px-3.5 py-2.5 rounded-lg border border-line bg-surface focus:border-accent outline-none mb-2"
+          placeholder={`At least ${minLengthFor(user?.role)} characters`}
         />
+        <p className="text-xs text-text-muted mb-1">{passwordHint(user?.role)}</p>
+        <ul className="text-xs mb-4 space-y-0.5" aria-live="polite">
+          {passwordChecks(newPassword, user?.role).map((c) => (
+            <li key={c.text} className={c.ok ? 'text-success' : 'text-text-muted'}>{c.ok ? '✓' : '○'} {c.text}</li>
+          ))}
+        </ul>
 
         <label className="block text-sm font-medium mb-1.5">Confirm new password</label>
         <input

@@ -14,7 +14,8 @@ const getAll = asyncHandler(async (req, res) => {
 });
 
 const update = asyncHandler(async (req, res) => {
-  const blocked = Object.keys(req.body || {}).filter((k) => systemConfig.MANAGED_KEYS.has(k));
+  // security_* values have their own validated screen (Security) so a typo can't, say, make the lock time longer than the sign-out time.
+  const blocked = Object.keys(req.body || {}).filter((k) => systemConfig.MANAGED_KEYS.has(k) || k.startsWith('security_'));
   if (blocked.length) {
     throw new ApiError(400, `${blocked.join(', ')} can only be changed from their own section in Settings, which validates them.`);
   }
