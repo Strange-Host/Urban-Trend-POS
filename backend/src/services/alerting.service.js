@@ -5,8 +5,8 @@ const settingsService = require('./settings.service');
 // 2.4 — before this, a failed backup or a drifted inventory row only ever
 // produced a log line: something nobody looks at unless they already
 // suspect a problem. This deliberately duplicates backup.service.js's
-// small amount of SMTP setup (same SMTP_* env vars, same
-// backup_email_recipients setting) rather than importing it directly —
+// small amount of recipient setup (same backup_email_recipients setting)
+// rather than importing it directly —
 // backup.service.js is going to need to call INTO this module (to alert on
 // its own failures), so importing back the other way would make the two
 // files circularly require each other. A dozen duplicated lines is a much
@@ -30,18 +30,14 @@ function emailConfigured() {
   return mailService.isConfigured() && getRecipients().length > 0;
 }
 
-const getTransport = () => mailService.getTransport();
-
 async function sendAlert({ subject, message }) {
   if (!emailConfigured()) {
     logger.warn(`[alert] not sent (email not configured) — ${subject}`);
     return false;
   }
   try {
-    const transport = getTransport();
-    await transport.sendMail({
-      from: mailService.fromAddress(),
-      to: getRecipients().join(', '),
+    await mailService.sendMail({
+      to: getRecipients(),
       subject: `[Urban Trends POS alert] ${subject}`,
       text: `${message}\n\nSent: ${new Date().toISOString()}`,
     });
@@ -62,7 +58,7 @@ function alertBackupFailure(err) {
 function alertBackupEmailFailure(err) {
   return sendAlert({
     subject: 'Backup email failed to send',
-    message: `The local backup itself succeeded, but emailing a copy off-machine failed with:\n\n${err.message}\n\nCheck the SMTP_* settings in .env — a bad SMTP password or an expired app-password is the most common cause.`,
+    message: `The local backup itself succeeded, but emailing a copy off-machine failed with:\n\n${err.message}\n\nOpen Settings → Email and press "Send test email". A wrong or expired SMTP app password, an invalid Resend API key, or a host that blocks SMTP (Railway Free/Trial/Hobby) are the most common causes.`,
   });
 }
 
