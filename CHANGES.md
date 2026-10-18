@@ -1,3 +1,39 @@
+# Backups: remembered schedule, verified copies, mandatory passphrase, in-app alerts; Resend removed
+
+**Resend removed.** Outgoing email is SMTP only again. Settings > Email lost the method switch and the Resend
+fields; `mail_provider`, `resend_from` and the encrypted `resend_api_key_enc` rows are deleted by the migration on the
+next start (so the key is no longer sitting in the database or its backups). **Email stops until SMTP is configured**
+if Resend was the only method set up, and SMTP only works from Railway's Pro plan.
+
+Fixes to the backup plan:
+
+1. **The schedule survives restarts.** The two `setInterval` timers restarted from zero on every boot (and did not
+   run at boot), so a server redeployed more often than every 6h/24h could go without backups. One scheduler now
+   checks every 10 minutes (and 45 s after boot), runs whatever is overdue, and remembers the last success in the
+   `settings` table (`last_local_backup`, `last_backup_email`). A failed run is retried hourly, not every tick.
+2. **Off-site copies need `BACKUP_PASSPHRASE`.** The silent fallback to a key derived from `ENCRYPTION_KEY` is gone
+   (that key lives on the same machine, so losing the machine lost the key). A missing or too-short (<12) passphrase
+   is a clear error and an alert, never a quiet fallback. `restore-backup.js` can still open backups made under the
+   old fallback. The email text now says `ENCRYPTION_KEY` must be kept separately.
+3. **Backups are verified.** Each new local backup gets a SQLite `quick_check` (and must be a POS database); a bad one
+   is deleted, never pushes a good one out of retention, and is reported. Each off-site copy is decrypted again and
+   checked before it is sent.
+4. **Permissions.** Backup folder `0700`, files `0600` (existing ones tightened at boot), temp copies `0600`. The
+   database and backups are on the same persistent volume, so this is hardening, not off-site protection: the
+   encrypted email copy is what covers losing the volume.
+5. **Alerts no longer depend on email.** Backup failures, off-site failures and inventory drift also create an in-app
+   notice for every active admin (bell). A failure streak alerts once, then once a day; the notice clears when it is fixed.
+6. **Smaller fixes.** Temp encrypted copy always removed (it leaked if encryption failed); one backup at a time (a
+   manual click joins a running one); one scheduler pass makes one backup and emails that same file; the Backups
+   screen shows the last local result and warns when the passphrase is missing.
+
+**Tests:** `emailResend.test.js` replaced by `emailSmtp.test.js`; new `backups.test.js`; additions to
+`backupEncryption.test.js`. Backend suite 493 passing (48 files) on the real better-sqlite3; frontend build, lint
+(no new warnings) and tests pass. **NOT verified:** a real SMTP server, the Settings screens in a browser, behaviour on Railway.
+
+**Deploy notes (Railway):** set `BACKUP_PASSPHRASE` under Variables **before** deploying, or no off-site copy is sent
+until you do (admins are told in the bell). `ENCRYPTION_KEY` must also be saved somewhere outside the server.
+
 # Email through Resend (HTTPS) for hosts that block SMTP
 
 **Why:** on Railway's Free/Trial/Hobby plans every outgoing SMTP port (25, 465, 587, 2525) is blocked, so backup

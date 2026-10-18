@@ -2,7 +2,7 @@ const app = require('./app');
 const logger = require('./utils/logger');
 const validateEnv = require('./utils/validateEnv');
 const db = require('./config/db');
-const { scheduleBackups, scheduleEmailBackups } = require('./services/backup.service');
+const { scheduleBackups } = require('./services/backup.service');
 const { findDrift } = require('./services/reconciliation.service');
 const { expireUnconfirmedOrders } = require('./services/orders.service');
 const { rebalanceStaleAssignments } = require('./services/telesalesDistribution.service');
@@ -44,7 +44,6 @@ require('./services/securityBaseline.service').clearDefaultAdminPins();
 app.listen(PORT, () => {
   logger.info(`Urban Trends POS API listening on port ${PORT}`);
   scheduleBackups();
-  scheduleEmailBackups();
 
   // COD Confirmation Gate (§1): unconfirmed COD orders auto-cancel once
   // their window elapses. dispatch()/confirmCod() already catch this
@@ -136,6 +135,8 @@ app.listen(PORT, () => {
       if (drift.length > 0) {
         logger.warn(`[reconcile] ${drift.length} inventory row(s) have drifted from the ledger — check Settings or GET /api/inventory/reconcile`, { rows: drift });
         alerting.alertInventoryDrift(drift); // 2.4 — same reasoning as the backup alerts above
+      } else {
+        alerting.resolveNotices('inventory_drift'); // clean now: the next drift may notify again
       }
     } catch (err) {
       logger.error('[reconcile] drift check failed', { error: err.message, stack: err.stack });
