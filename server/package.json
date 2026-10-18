@@ -1,0 +1,33 @@
+{
+  "name": "urban-trends-pos-server",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Urban Trends POS v2: PostgreSQL + TypeScript (Implementation Plan v3). Runs beside the legacy backend until cutover.",
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/db/migrate-cli.js && node dist/server.js",
+    "migrate": "tsx src/db/migrate-cli.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "pg": "^8.13.1",
+    "pino": "^9.5.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.10.0",
+    "@types/pg": "^8.11.10",
+    "@types/supertest": "^6.0.2",
+    "embedded-postgres": "18.4.0-beta.17",
+    "supertest": "^7.0.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}
