@@ -497,6 +497,10 @@ function migrate() {
   // everything in schema.sql is IF NOT EXISTS.
   db.exec(schema);
 
+  // Resend support was removed. Delete what it left behind - above all the encrypted API key, which
+  // should not sit in the database (and therefore in every backup of it) once nothing can use it.
+  db.prepare("DELETE FROM settings WHERE key IN ('mail_provider', 'resend_from', 'resend_api_key_enc')").run();
+
   console.log('Migration complete: schema applied.');
 }
 

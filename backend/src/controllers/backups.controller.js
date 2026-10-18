@@ -3,9 +3,13 @@ const backupService = require('../services/backup.service');
 
 // GET /api/backups
 const list = asyncHandler(async (req, res) => {
+  const { passphraseSet, passphraseProblem } = backupService.passphraseStatus();
   res.json({
     data: backupService.listBackups(),
     emailConfigured: backupService.emailConfigured(),
+    passphraseSet,
+    passphraseProblem,
+    lastLocal: backupService.getLastLocalStatus(),
     lastEmail: backupService.getLastEmailStatus(),
   });
 });
