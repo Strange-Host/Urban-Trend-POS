@@ -1,5 +1,6 @@
 const db = require('../config/db');
 const ApiError = require('../utils/ApiError');
+const { assertLineDiscount, assertSaleDiscount } = require('../utils/discounts');
 
 /**
  * items: [{ product_id, quantity, discount? }]
@@ -58,6 +59,7 @@ function checkout({ storeId, cashierId, customerId, cashSessionId, items, paymen
 
       const unitPrice = product.sell_price;
       const discount = item.discount || 0;
+      assertLineDiscount({ discount, unitPrice, quantity: item.quantity, productName: product.name });
       // Tax is no longer added to what's charged — see CHANGES.md. tax_rate
       // is still recorded as 0 on the line item (rather than the product's
       // rate) so a sale record never implies tax was applied when it wasn't.
@@ -76,6 +78,7 @@ function checkout({ storeId, cashierId, customerId, cashSessionId, items, paymen
     }
 
     const taxTotal = 0;
+    assertSaleDiscount({ discountTotal, subtotal });
     const total = subtotal - discountTotal;
     const paymentsSum = payments.reduce((s, p) => s + p.amount, 0);
     // Amounts are integer cents now — an exact match is the correct check
