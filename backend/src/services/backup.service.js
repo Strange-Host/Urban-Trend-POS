@@ -1,5 +1,7 @@
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
+const backupCrypto = require('../utils/backupCrypto');
 const mailService = require('./mail.service');
 const db = require('../config/db');
 const logger = require('../utils/logger');
@@ -105,13 +107,23 @@ async function emailBackup(backupResult) {
     throw new ApiError(400, 'Email backups are not configured — fill in Settings → Email (outgoing mail) and add at least one recipient under Settings → Backups.');
   }
   const transport = getTransport();
+  // The copy that leaves the server is compressed and encrypted (utils/backupCrypto.js): an emailed database holds every
+  // customer's name and phone number, so it must be useless to anyone who finds it without the passphrase.
+  const { value: passphrase, source } = backupCrypto.passphraseFromEnv();
+  const encryptedPath = path.join(os.tmpdir(), `${backupResult.file}.gz.enc`);
+  await backupCrypto.encryptFile(backupResult.path, encryptedPath, passphrase);
+  try {
   await transport.sendMail({
     from: mailService.fromAddress(),
     to: getRecipients().join(', '),
-    subject: `Urban Trends POS backup — ${backupResult.file}`,
-    text: `Automatic database backup attached.\n\nFile: ${backupResult.file}\nSize: ${(backupResult.sizeBytes / 1024).toFixed(0)} KB\nGenerated: ${new Date().toISOString()}\n\nThis backup contains the full database, including encrypted store credentials and user password hashes — keep this email as secure as you would the server itself.`,
-    attachments: [{ filename: backupResult.file, path: backupResult.path }],
+    subject: `Urban Trends POS backup (encrypted) — ${backupResult.file}`,
+    text: `Automatic database backup attached. It is ENCRYPTED: open it with: node scripts/restore-backup.js <file> (needs your BACKUP_PASSPHRASE, or the server's ENCRYPTION_KEY if no passphrase was set).\n\nFile: ${backupResult.file}\nSize: ${(backupResult.sizeBytes / 1024).toFixed(0)} KB\nGenerated: ${new Date().toISOString()}\n\nThis backup contains the full database, including encrypted store credentials and user password hashes — keep this email as secure as you would the server itself.`,
+    attachments: [{ filename: `${backupResult.file}.gz.enc`, path: encryptedPath }],
   });
+  } finally {
+    fs.rm(encryptedPath, { force: true }, () => {});
+  }
+  logger.info('[backup] emailed an encrypted backup', { file: backupResult.file, keySource: source });
 }
 
 /** Runs a fresh backup (kept locally like any other) and emails that same file. Returns the backup result. */

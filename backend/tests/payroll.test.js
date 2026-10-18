@@ -10,10 +10,10 @@ beforeAll(async () => {
   adminToken = await loginAsAdmin();
 
   const createRep = await request(app).post('/api/staff').set('Authorization', `Bearer ${adminToken}`)
-    .send({ name: 'Payroll Rep', email: 'payrollrep@urbantrends.com', phone: '0722100001', password: 'RepPass123!', role: 'cashier' });
+    .send({ name: 'Payroll Rep', email: 'payrollrep@urbantrends.com', phone: '0722100001', password: 'Marble-Thistle-4678', role: 'cashier' });
   repId = createRep.body.data.id;
 
-  const repLogin = await request(app).post('/api/auth/login').send({ email: 'payrollrep@urbantrends.com', password: 'RepPass123!' });
+  const repLogin = await request(app).post('/api/auth/login').send({ email: 'payrollrep@urbantrends.com', password: 'Marble-Thistle-4678' });
   repToken = repLogin.body.token;
   await request(app).post('/api/attendance/clock-in').set('Authorization', `Bearer ${repToken}`);
 

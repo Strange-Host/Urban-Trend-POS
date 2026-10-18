@@ -1,6 +1,6 @@
 const router = require('express').Router();
 const rateLimit = require('express-rate-limit');
-const { login, verifyOtp, resendOtp, pinLogin, refresh, logout, me, changePassword } = require('../controllers/auth.controller');
+const { login, verifyOtp, resendOtp, pinLogin, refresh, logout, me, changePassword, confirmIdentity, activity, listSessions, endSession, endOtherSessions } = require('../controllers/auth.controller');
 const { RATE_LIMITS } = require('../config/limits');
 const { authenticate } = require('../middleware/auth');
 
@@ -22,5 +22,15 @@ router.get('/me', authenticate, me);
 // middleware/auth.js's allowlist) — this is the one authenticated route
 // that HAS to stay open, since it's the only way out of that state.
 router.post('/change-password', authenticate, changePassword);
+
+// Unlocking the screen / confirming it's you before a risky action. Rate-limited like sign-in, and wrong
+// attempts also count towards the account lockout.
+router.post('/unlock', loginLimiter, authenticate, confirmIdentity);
+// "Someone is using the app" ping (resets the idle clock while reading/scrolling).
+router.post('/activity', authenticate, activity);
+// Signed-in devices.
+router.get('/sessions', authenticate, listSessions);
+router.post('/sessions/revoke-others', authenticate, endOtherSessions);
+router.delete('/sessions/:id', authenticate, endSession);
 
 module.exports = router;

@@ -98,6 +98,9 @@ const refund = asyncHandler(async (req, res) => {
     staffId: req.user.id, action: 'update', entityType: 'payment', entityId: payment.id,
     before: { status: 'completed' }, after: { status: 'refunded' },
   });
+  require('../services/securityAlerts.service').largeMoney({
+    storeId: req.user.storeId, actor: { id: req.user.id, name: req.user.name }, kind: 'refund', amountCents: existing.amount, reference: `#${payment.id}`,
+  });
   res.json({ data: payment });
 });
 

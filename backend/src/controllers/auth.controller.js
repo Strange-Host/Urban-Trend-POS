@@ -6,6 +6,9 @@ const asyncHandler = require('../utils/asyncHandler');
 const authTokens = require('../services/authTokens.service');
 const twoFactor = require('../services/twoFactor.service');
 const permissionsService = require('../services/permissions.service');
+const sessionsService = require('../services/sessions.service');
+const loginGuard = require('../services/loginGuard.service');
+const { assertStrongPassword } = require('../utils/passwordPolicy');
 
 const REFRESH_COOKIE_NAME = 'ut_refresh_token';
 const REFRESH_TOKEN_EXPIRES_DAYS = Number(process.env.REFRESH_TOKEN_EXPIRES_DAYS) || 30;
@@ -21,38 +24,47 @@ const REFRESH_TOKEN_EXPIRES_DAYS = Number(process.env.REFRESH_TOKEN_EXPIRES_DAYS
 // HTTP would silently never send a `Secure` cookie at all.
 // path scoped to /api/auth — this cookie has no reason to be sent on any
 // other request, so it isn't.
-function refreshCookieOptions() {
-  return {
+// "Remember this device" decides the cookie's life: ticked = it survives closing the browser (until the session's
+// own maximum); unticked = a browser-session cookie that is dropped when the browser closes. The server enforces
+// the real limits either way (services/sessions.service.js), so this is the friendly half, not the only one.
+function refreshCookieOptions(session) {
+  const opts = {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'strict',
     path: '/api/auth',
-    maxAge: REFRESH_TOKEN_EXPIRES_DAYS * 24 * 60 * 60 * 1000,
   };
+  if (session && session.remember) {
+    const left = sessionsService.parseTs(session.absolute_expires_at) - Date.now();
+    opts.maxAge = Math.max(0, Math.min(REFRESH_TOKEN_EXPIRES_DAYS * 24 * 60 * 60 * 1000, left));
+  }
+  return opts;
 }
 
 // Short-lived on purpose — a leaked access token is only useful for a few
 // minutes. Staying logged in beyond that goes through the refresh token
 // (see authTokens.service.js), which is revocable and rotated on use.
-function signAccessToken(user) {
+function signAccessToken(user, session) {
   return jwt.sign(
-    { id: user.id, role: user.role, storeId: user.store_id, name: user.name, tokenVersion: user.token_version },
+    { id: user.id, role: user.role, storeId: user.store_id, name: user.name, tokenVersion: user.token_version, sid: session.id },
     process.env.JWT_SECRET,
     { expiresIn: process.env.ACCESS_TOKEN_EXPIRES_IN || '15m' }
   );
 }
 
 function toPublicUser(user) {
-  const { password_hash, pin_code_hash, token_version, ...safe } = user;
+  const { password_hash, pin_code_hash, token_version, failed_login_count, locked_until, pin_failed_count, pin_locked_until, ...safe } = user;
   // The role defaults plus any per-user override — the UI uses this to decide
   // what to show; the SERVER re-checks on every request regardless.
-  return { ...safe, permissions: permissionsService.effectiveKeys(user) };
+  // has_pin: lets the lock screen offer the PIN keypad (only cashiers without sign-in codes may use a PIN to unlock).
+  return { ...safe, has_pin: Boolean(pin_code_hash), permissions: permissionsService.effectiveKeys(user) };
 }
 
-function issueSession(user, res) {
-  const refreshToken = authTokens.issue(user.id);
-  res.cookie(REFRESH_COOKIE_NAME, refreshToken, refreshCookieOptions());
-  return { token: signAccessToken(user), user: toPublicUser(user) };
+function issueSession(user, req, res, { remember = false } = {}) {
+  const session = sessionsService.create(user, { remember: remember === true, ip: req.ip, userAgent: req.get('user-agent') });
+  const refreshToken = authTokens.issue(user.id, session.id);
+  res.cookie(REFRESH_COOKIE_NAME, refreshToken, refreshCookieOptions(session));
+  return { token: signAccessToken(user, session), user: toPublicUser(user), session: sessionsService.clientPolicy(user, session) };
 }
 
 // 2.2 — a precomputed hash of a value nobody will ever type, used so the
@@ -74,10 +86,13 @@ const login = asyncHandler(async (req, res) => {
   if (!email || !password) throw new ApiError(400, 'Email and password are required.');
 
   const user = db.prepare('SELECT * FROM users WHERE lower(email) = lower(?) AND is_active = 1').get(email.trim());
+  loginGuard.assertNotLocked(user, 'password');     // a locked account answers the same whether or not the password is right
   const passwordMatches = bcrypt.compareSync(password, user ? user.password_hash : DUMMY_HASH);
   if (!user || !passwordMatches) {
+    loginGuard.recordFailure(user, 'password', { ip: req.ip });
     throw new ApiError(401, 'Invalid email or password.');
   }
+  loginGuard.recordSuccess(user, 'password');
 
   // Accounts with sign-in codes switched on get a code by SMS and NO session
   // until it is verified (POST /api/auth/verify-otp).
@@ -85,15 +100,15 @@ const login = asyncHandler(async (req, res) => {
     return res.json(await twoFactor.start(user));
   }
 
-  res.json(issueSession(user, res));
+  res.json(issueSession(user, req, res, { remember: req.body.remember === true }));
 });
 
-// POST /api/auth/verify-otp  { challengeToken, code }
+// POST /api/auth/verify-otp  { challengeToken, code, remember }
 const verifyOtp = asyncHandler(async (req, res) => {
   const { challengeToken, code } = req.body;
   if (!challengeToken || !code) throw new ApiError(400, 'challengeToken and code are required.');
   const user = twoFactor.verify({ challengeToken, code });
-  res.json(issueSession(user, res));
+  res.json(issueSession(user, req, res, { remember: req.body.remember === true }));
 });
 
 // POST /api/auth/resend-otp  { challengeToken }
@@ -109,10 +124,13 @@ const pinLogin = asyncHandler(async (req, res) => {
   if (!userId || !pin) throw new ApiError(400, 'userId and pin are required.');
 
   const user = db.prepare('SELECT * FROM users WHERE id = ? AND is_active = 1').get(userId);
-  const pinMatches = bcrypt.compareSync(pin, user?.pin_code_hash || DUMMY_HASH);
+  loginGuard.assertNotLocked(user, 'pin');
+  const pinMatches = bcrypt.compareSync(String(pin), user?.pin_code_hash || DUMMY_HASH);
   if (!user || !user.pin_code_hash || !pinMatches) {
+    loginGuard.recordFailure(user, 'pin', { ip: req.ip });
     throw new ApiError(401, 'Invalid PIN.');
   }
+  loginGuard.recordSuccess(user, 'pin');
   // A PIN is a four-digit shortcut for a shared till. An account protected by
   // sign-in codes has chosen the opposite trade-off, so it can't use one.
   if (user.two_factor_enabled === 1) {
@@ -125,7 +143,8 @@ const pinLogin = asyncHandler(async (req, res) => {
     throw new ApiError(403, 'PIN login is only available to cashier accounts. Sign in with your email and password.', null, 'PIN_LOGIN_CASHIERS_ONLY');
   }
 
-  res.json(issueSession(user, res));
+  // A till is shared: a PIN sign-in is never "remembered".
+  res.json(issueSession(user, req, res, { remember: false }));
 });
 
 // POST /api/auth/refresh
@@ -133,9 +152,9 @@ const pinLogin = asyncHandler(async (req, res) => {
 // and rotates the refresh token itself (old one revoked, new one issued
 // and re-set as the cookie). No request body — the cookie IS the input.
 const refresh = asyncHandler(async (req, res) => {
-  const { user, refreshToken } = authTokens.rotate(req.cookies[REFRESH_COOKIE_NAME]);
-  res.cookie(REFRESH_COOKIE_NAME, refreshToken, refreshCookieOptions());
-  res.json({ token: signAccessToken(user), user: toPublicUser(user) });
+  const { user, refreshToken, session } = authTokens.rotate(req.cookies[REFRESH_COOKIE_NAME], { ip: req.ip });
+  res.cookie(REFRESH_COOKIE_NAME, refreshToken, refreshCookieOptions(session));
+  res.json({ token: signAccessToken(user, session), user: toPublicUser(user), session: sessionsService.clientPolicy(user, session) });
 });
 
 // POST /api/auth/logout
@@ -149,7 +168,7 @@ const logout = asyncHandler(async (req, res) => {
 const me = asyncHandler(async (req, res) => {
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
   if (!user) throw new ApiError(404, 'User not found.');
-  res.json({ user: toPublicUser(user) });
+  res.json({ user: toPublicUser(user), session: req.session ? sessionsService.clientPolicy(user, req.session) : null });
 });
 
 // POST /api/auth/change-password  { currentPassword, newPassword }
@@ -162,23 +181,86 @@ const me = asyncHandler(async (req, res) => {
 const changePassword = asyncHandler(async (req, res) => {
   const { currentPassword, newPassword } = req.body;
   if (!currentPassword || !newPassword) throw new ApiError(400, 'currentPassword and newPassword are required.');
-  if (newPassword.length < 8) throw new ApiError(400, 'newPassword must be at least 8 characters.');
   if (newPassword === currentPassword) throw new ApiError(400, 'New password must be different from the current one.');
 
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
+  loginGuard.assertNotLocked(user, 'password');
   if (!user || !bcrypt.compareSync(currentPassword, user.password_hash)) {
+    loginGuard.recordFailure(user, 'password', { ip: req.ip });
     throw new ApiError(401, 'Current password is incorrect.');
   }
+  assertStrongPassword(newPassword, { role: user.role, email: user.email, name: user.name, phone: user.phone });
 
   const newHash = bcrypt.hashSync(newPassword, 10);
   db.prepare(`
-    UPDATE users SET password_hash = ?, must_change_password = 0, token_version = token_version + 1, updated_at = datetime('now')
+    UPDATE users SET password_hash = ?, must_change_password = 0, token_version = token_version + 1,
+      password_changed_at = datetime('now'), updated_at = datetime('now')
     WHERE id = ?
   `).run(newHash, user.id);
 
-  authTokens.revoke(req.cookies[REFRESH_COOKIE_NAME]);
+  authTokens.revokeAllForUser(user.id);               // every device signs in again with the new password
   res.clearCookie(REFRESH_COOKIE_NAME, { path: '/api/auth' });
   res.status(200).json({ message: 'Password changed. Please log in again.' });
 });
 
-module.exports = { login, verifyOtp, resendOtp, pinLogin, refresh, logout, me, changePassword };
+// ---- Confirming it's you: unlocking the screen, and the "confirm" step before risky actions ----------------------
+// POST /api/auth/unlock  { password } or { pin }   (cashiers may use their PIN, everyone else their password)
+// Wrong attempts count towards the same lockout as signing in.
+const confirmIdentity = asyncHandler(async (req, res) => {
+  const { password, pin } = req.body || {};
+  if (!password && !pin) throw new ApiError(400, 'Enter your password or PIN.');
+  const user = db.prepare('SELECT * FROM users WHERE id = ? AND is_active = 1').get(req.user.id);
+  if (!user) throw new ApiError(401, 'Invalid or expired token.');
+
+  if (pin && !password) {
+    if (user.role !== 'cashier' || !user.pin_code_hash || user.two_factor_enabled === 1) {
+      throw new ApiError(403, 'Use your password to continue.', null, 'PIN_NOT_ALLOWED');
+    }
+    loginGuard.assertNotLocked(user, 'pin');
+    if (!bcrypt.compareSync(String(pin), user.pin_code_hash)) {
+      const r = loginGuard.recordFailure(user, 'pin', { ip: req.ip });
+      throw new ApiError(401, r.locked ? 'Too many wrong PINs. It is locked for a while.' : 'Incorrect PIN.');
+    }
+    loginGuard.recordSuccess(user, 'pin');
+  } else {
+    loginGuard.assertNotLocked(user, 'password');
+    if (!bcrypt.compareSync(String(password), user.password_hash)) {
+      const r = loginGuard.recordFailure(user, 'password', { ip: req.ip });
+      throw new ApiError(401, r.locked ? 'Too many wrong passwords. It is locked for a while.' : 'Incorrect password.');
+    }
+    loginGuard.recordSuccess(user, 'password');
+  }
+
+  const session = sessionsService.confirm(req.session.id);
+  res.json({ ok: true, session: sessionsService.clientPolicy(user, session) });
+});
+
+// POST /api/auth/activity - the app calls this (at most about once a minute) while a person is really using it.
+// The sign-in session's idle clock is reset by real actions only; this covers reading and scrolling.
+const activity = asyncHandler(async (req, res) => {
+  res.json({ ok: true });                      // authenticate has already counted it (POST + not marked background)
+});
+
+// ---- Signed-in devices ---------------------------------------------------------------------------------------------
+// GET /api/auth/sessions
+const listSessions = asyncHandler(async (req, res) => {
+  const user = db.prepare('SELECT id, role FROM users WHERE id = ?').get(req.user.id);
+  res.json({ sessions: sessionsService.listForUser(user, req.session.id) });
+});
+
+// DELETE /api/auth/sessions/:id  (your own only; ending the current one is the same as signing out)
+const endSession = asyncHandler(async (req, res) => {
+  const target = sessionsService.get(Number(req.params.id));
+  if (!target || target.user_id !== req.user.id) throw new ApiError(404, 'Device not found.');
+  sessionsService.revoke(target.id, 'signed_out_by_user');
+  if (target.id === req.session.id) res.clearCookie(REFRESH_COOKIE_NAME, { path: '/api/auth' });
+  res.json({ ok: true, current: target.id === req.session.id });
+});
+
+// POST /api/auth/sessions/revoke-others - "sign out everywhere else"
+const endOtherSessions = asyncHandler(async (req, res) => {
+  const ended = sessionsService.revokeAllForUser(req.user.id, { exceptSessionId: req.session.id, reason: 'signed_out_everywhere' });
+  res.json({ ok: true, ended });
+});
+
+module.exports = { login, verifyOtp, resendOtp, pinLogin, refresh, logout, me, changePassword, confirmIdentity, activity, listSessions, endSession, endOtherSessions, refreshCookieOptions, toPublicUser };

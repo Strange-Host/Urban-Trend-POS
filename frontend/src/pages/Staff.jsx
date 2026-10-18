@@ -7,7 +7,11 @@ import { useToast, useDialog } from '../context/UIContext';
 import StaffAccessModal from '../components/StaffAccessModal';
 import useModules from '../hooks/useModules';
 import Pager, { usePager } from '../components/Pager';
+import { Segmented } from '../components/Picker';
+import RemoveAccountSheet from '../components/RemoveAccountSheet';
+import { passwordHint } from '../utils/passwordRules';
 
+import Sheet from '../components/Sheet';
 const emptyForm = { name: '', phone: '', email: '', password: '', pin: '', role: 'cashier' };
 const ROLES = ['admin', 'manager', 'cashier'];
 
@@ -17,6 +21,9 @@ export default function Staff() {
   const { user: currentUser } = useAuth();
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('active');   // active | inactive | all
+  const [actionsFor, setActionsFor] = useState(null);           // the "more actions" sheet
+  const [removing, setRemoving] = useState(null);               // the "remove this account" sheet
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(emptyForm);
   const [error, setError] = useState('');
@@ -27,8 +34,8 @@ export default function Staff() {
 
   const pager = usePager(25);
   const { data, isLoading } = useQuery({
-    queryKey: ['staff', { search, roleFilter, page: pager.page, size: pager.pageSize }],
-    queryFn: () => staffApi.list({ ...pager.params, search: search || undefined, role: roleFilter || undefined }).then((r) => r.data),
+    queryKey: ['staff', { search, roleFilter, statusFilter, page: pager.page, size: pager.pageSize }],
+    queryFn: () => staffApi.list({ ...pager.params, search: search || undefined, role: roleFilter || undefined, status: statusFilter === 'all' ? undefined : statusFilter }).then((r) => r.data),
     placeholderData: keepPreviousData,
   });
   const staff = data?.data || [];
@@ -64,13 +71,33 @@ export default function Staff() {
     }
   }
 
-  async function handleDeactivate(s) {
-    if (!(await dialog.confirm({ message: `Deactivate ${s.name}? They'll no longer be able to sign in.`, danger: true }))) return;
+  async function handleReactivate(s) {
     try {
-      await staffApi.remove(s.id);
+      await staffApi.reactivate(s.id);
       queryClient.invalidateQueries({ queryKey: ['staff'] });
+      toast.success(`${s.name} can sign in again.`);
     } catch (err) {
-      toast.error(getErrorMessage(err, 'Could not deactivate staff member.'));
+      toast.error(getErrorMessage(err, 'Could not reactivate.'));
+    }
+  }
+
+  async function handleUnlock(s) {
+    try {
+      await staffApi.unlockAccount(s.id);
+      queryClient.invalidateQueries({ queryKey: ['staff'] });
+      toast.success(`${s.name}'s account is unlocked.`);
+    } catch (err) {
+      toast.error(getErrorMessage(err, 'Could not unlock.'));
+    }
+  }
+
+  async function handleSignOutEverywhere(s) {
+    if (!(await dialog.confirm({ message: `Sign ${s.name} out of every device they are using?`, danger: true }))) return;
+    try {
+      const { data } = await staffApi.signOutEverywhere(s.id);
+      toast.success(data.data.ended ? `Signed out of ${data.data.ended} device${data.data.ended === 1 ? '' : 's'}.` : `${s.name} was not signed in anywhere.`);
+    } catch (err) {
+      toast.error(getErrorMessage(err, 'Could not sign them out.'));
     }
   }
 
@@ -98,6 +125,11 @@ export default function Staff() {
           + Add staff
         </button>
       </div>
+
+      <Segmented
+        value={statusFilter} onChange={(v) => { setStatusFilter(v); pager.reset(); }} aria-label="Which accounts to show" className="mb-3 max-w-sm"
+        options={[{ value: 'active', label: 'Active' }, { value: 'inactive', label: 'Inactive' }, { value: 'all', label: 'All' }]}
+      />
 
       <div className="flex flex-wrap gap-2 mb-4">
         <input
@@ -140,20 +172,20 @@ export default function Staff() {
                 <td className="px-4 py-3 capitalize">{s.role}</td>
                 <td className="px-4 py-3">
                   <span className={`text-xs px-2 py-1 rounded-full ${s.status === 'active' ? 'bg-success-soft text-success' : 'bg-danger-soft text-danger'}`}>
-                    {s.status}
+                    {s.erased ? 'erased' : s.status}
                   </span>
+                  {s.locked && <span className="ml-1.5 text-xs px-2 py-1 rounded-full bg-accent/25 text-ink">locked</span>}
                 </td>
                 <td className="px-4 py-3 text-right whitespace-nowrap">
-                  <button onClick={() => openEdit(s)} className="text-xs text-text-muted hover:text-text mr-3">Edit</button>
-                  {modules.control && (
-                    <button onClick={() => setAccessFor(s)} className="text-xs text-text-muted hover:text-text mr-3">
-                    Access{s.two_factor_enabled === 1 ? ' 🔒' : ''}
-                  </button>
-                  )}
-                  <button onClick={() => handleResetPassword(s)} className="text-xs text-text-muted hover:text-text mr-3">Reset password</button>
-                  {s.id !== currentUser?.id && (
-                    <button onClick={() => handleDeactivate(s)} className="text-xs text-danger hover:opacity-70">Deactivate</button>
-                  )}
+                  <div className="flex gap-2 justify-start sm:justify-end">
+                    {!s.erased && s.status === 'inactive' && (
+                      <button onClick={() => handleReactivate(s)} className="min-h-[44px] sm:min-h-[36px] px-3 rounded-lg border border-line text-xs font-medium hover:border-text-muted">Reactivate</button>
+                    )}
+                    {!s.erased && (
+                      <button onClick={() => openEdit(s)} className="min-h-[44px] sm:min-h-[36px] px-3 rounded-lg border border-line text-xs font-medium hover:border-text-muted">Edit</button>
+                    )}
+                    <button onClick={() => setActionsFor(s)} className="min-h-[44px] sm:min-h-[36px] px-3 rounded-lg border border-line text-xs font-medium hover:border-text-muted" aria-label={`More actions for ${s.name}`}>More ▾</button>
+                  </div>
                 </td>
               </tr>
             ))}
@@ -164,12 +196,7 @@ export default function Staff() {
       <Pager pager={pager} data={data} noun="staff members" />
 
       {editing !== null && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setEditing(null)}>
-          <form
-            onSubmit={handleSave}
-            onClick={(e) => e.stopPropagation()}
-            className="bg-surface rounded-xl p-6 w-full max-w-sm max-h-[85vh] overflow-y-auto"
-          >
+        <Sheet onClose={() => setEditing(null)} size="sm" as="form" onSubmit={handleSave}>
             <h2 className="font-display font-700 text-lg mb-4">{editing.id ? 'Edit staff member' : 'New staff member'}</h2>
             {error && <div className="mb-3 px-3 py-2 rounded-lg bg-danger-soft text-danger text-sm">{error}</div>}
 
@@ -196,7 +223,8 @@ export default function Staff() {
               {editing.id ? 'New password (leave blank to keep current)' : 'Password'}
             </label>
             <input required={!editing.id} type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })}
-              className="w-full px-3 py-2 rounded-lg border border-line outline-none focus:border-accent mb-3" />
+              autoComplete="new-password" className="w-full px-3 py-2 rounded-lg border border-line outline-none focus:border-accent mb-1" />
+            <p className="text-xs text-text-muted mb-3">{passwordHint(form.role)}</p>
 
             <label className="block text-xs font-medium text-text-muted mb-1">
               {editing.id ? 'New register PIN (optional)' : 'Register PIN (optional, 4-6 digits)'}
@@ -210,15 +238,48 @@ export default function Staff() {
               <button type="button" onClick={() => setEditing(null)} className="flex-1 py-2.5 rounded-lg border border-line text-sm font-medium">Cancel</button>
               <button type="submit" className="flex-1 py-2.5 rounded-lg bg-ink text-white text-sm font-medium hover:bg-ink-soft">Save</button>
             </div>
-          </form>
-        </div>
+          </Sheet>
       )}
+
+      {actionsFor && (
+        <Sheet onClose={() => setActionsFor(null)} size="sm" label={`Actions for ${actionsFor.name}`}>
+          <h2 className="font-display font-700 text-lg mb-1">{actionsFor.name}</h2>
+          <p className="text-sm text-text-muted mb-3 capitalize">{actionsFor.erased ? 'Erased account' : `${actionsFor.role} · ${actionsFor.status}`}</p>
+          <div className="space-y-2 mb-4">
+            {(() => {
+              const s = actionsFor;
+              const act = (label, hint, fn, tone) => (
+                <button key={label} type="button" onClick={() => { setActionsFor(null); fn(); }}
+                  className={`w-full text-left min-h-[56px] px-4 py-2 rounded-xl border hover:border-text-muted ${tone === 'danger' ? 'border-danger/40' : 'border-line'}`}>
+                  <span className={`block text-sm font-medium ${tone === 'danger' ? 'text-danger' : ''}`}>{label}</span>
+                  <span className="block text-xs text-text-muted">{hint}</span>
+                </button>
+              );
+              return (
+                <>
+                  {s.locked && act('Unlock account', 'They were locked out after wrong passwords or PINs.', () => handleUnlock(s))}
+                  {!s.erased && s.status === 'active' && modules.control && act('Access & permissions', 'What they can see and do, and sign-in codes.', () => setAccessFor(s))}
+                  {!s.erased && s.status === 'active' && act('Reset password', 'Create a temporary password they must change.', () => handleResetPassword(s))}
+                  {!s.erased && act('Sign out of all devices', 'Ends every sign-in this person has right now.', () => handleSignOutEverywhere(s))}
+                  {!s.erased && s.status === 'inactive' && act('Reactivate', 'Let them sign in again.', () => handleReactivate(s))}
+                  {s.id !== currentUser?.id && !(s.erased) && act('Remove account…', 'Deactivate, delete (unused accounts) or erase personal data.', () => setRemoving(s), 'danger')}
+                  {s.erased && <p className="text-sm text-text-muted px-1">This account's personal data was erased. Their records are kept as “{s.name}”.</p>}
+                </>
+              );
+            })()}
+          </div>
+          <div className="flex gap-2">
+            <button type="button" onClick={() => setActionsFor(null)} className="flex-1 min-h-[44px] rounded-lg border border-line text-sm font-medium">Close</button>
+          </div>
+        </Sheet>
+      )}
+
+      {removing && <RemoveAccountSheet staff={removing} onClose={() => setRemoving(null)} />}
 
       {accessFor && modules.control && <StaffAccessModal staff={accessFor} isSelf={accessFor.id === currentUser?.id} onClose={() => setAccessFor(null)} />}
 
       {tempPassword && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setTempPassword(null)}>
-          <div onClick={(e) => e.stopPropagation()} className="bg-surface rounded-xl p-6 w-full max-w-sm">
+        <Sheet onClose={() => setTempPassword(null)} size="sm">
             <h2 className="font-display font-700 text-lg mb-3">Temporary password</h2>
             <p className="text-sm text-text-muted mb-3">
               Share this with {tempPassword.name} directly — it won't be shown again, and there's no email/SMS delivery in this build.
@@ -227,8 +288,7 @@ export default function Staff() {
               {tempPassword.password}
             </div>
             <button onClick={() => setTempPassword(null)} className="w-full py-2.5 rounded-lg bg-ink text-white text-sm font-medium">Done</button>
-          </div>
-        </div>
+          </Sheet>
       )}
     </div>
   );

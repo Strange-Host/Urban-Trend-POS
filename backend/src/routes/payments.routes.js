@@ -1,6 +1,6 @@
 const router = require('express').Router();
 const ctrl = require('../controllers/payments.controller');
-const { authenticate, requirePermission } = require('../middleware/auth');
+const { authenticate, requirePermission, requireRecentAuth } = require('../middleware/auth');
 const validate = require('../middleware/validate');
 const { createPaymentSchema } = require('../validation/payments.schema');
 
@@ -11,6 +11,6 @@ router.use(authenticate, requirePermission('payments.manage'));
 router.get('/summary', ctrl.summary);
 router.get('/', ctrl.list);
 router.post('/', validate(createPaymentSchema), ctrl.create);
-router.post('/:id/refund', ctrl.refund);
+router.post('/:id/refund', requireRecentAuth(), ctrl.refund);
 
 module.exports = router;
