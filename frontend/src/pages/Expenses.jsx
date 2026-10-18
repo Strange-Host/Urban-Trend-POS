@@ -6,6 +6,8 @@ import { getErrorMessage } from '../api/client';
 import { useToast, useDialog } from '../context/UIContext';
 import Pager, { usePager } from '../components/Pager';
 
+import Sheet from '../components/Sheet';
+import Picker from '../components/Picker';
 const emptyForm = { category_id: '', amount: '', description: '', expense_date: new Date().toISOString().slice(0, 10) };
 
 export default function Expenses() {
@@ -134,17 +136,16 @@ export default function Expenses() {
       <Pager pager={pager} data={data} noun="expenses" />
 
       {editing !== null && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setEditing(null)}>
-          <form onSubmit={handleSave} onClick={(e) => e.stopPropagation()}
-            className="bg-surface rounded-xl p-6 w-full max-w-sm max-h-[85vh] overflow-y-auto">
+        <Sheet onClose={() => setEditing(null)} size="sm" as="form" onSubmit={handleSave}>
             <h2 className="font-display font-700 text-lg mb-4">{editing.id ? 'Edit expense' : 'Record expense'}</h2>
             {error && <div className="mb-3 px-3 py-2 rounded-lg bg-danger-soft text-danger text-sm">{error}</div>}
 
             <label className="block text-xs font-medium text-text-muted mb-1">Category</label>
-            <select required value={form.category_id} onChange={(e) => setForm({ ...form, category_id: e.target.value })}
-              className="w-full px-3 py-2 rounded-lg border border-line outline-none focus:border-accent mb-3">
-              {categories?.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
+            <Picker
+              value={form.category_id} title="Expense category" aria-label="Expense category" className="mb-3"
+              onChange={(v) => setForm({ ...form, category_id: v })}
+              options={(categories || []).map((c) => ({ value: c.id, label: c.name }))}
+            />
 
             <label className="block text-xs font-medium text-text-muted mb-1">Amount (KES)</label>
             <input required type="number" step="0.01" min="0" value={form.amount}
@@ -163,8 +164,7 @@ export default function Expenses() {
               <button type="button" onClick={() => setEditing(null)} className="flex-1 py-2.5 rounded-lg border border-line text-sm font-medium">Cancel</button>
               <button type="submit" className="flex-1 py-2.5 rounded-lg bg-ink text-white text-sm font-medium hover:bg-ink-soft">Save</button>
             </div>
-          </form>
-        </div>
+          </Sheet>
       )}
     </div>
   );

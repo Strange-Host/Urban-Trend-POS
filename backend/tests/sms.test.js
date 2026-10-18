@@ -40,8 +40,8 @@ beforeAll(async () => {
 
   const store = db.prepare('SELECT id FROM stores LIMIT 1').get();
   db.prepare(`INSERT INTO users (store_id, name, email, password_hash, role, is_active) VALUES (?, 'Cashier C', 'cashier-sms@urbantrends.com', ?, 'cashier', 1)`)
-    .run(store.id, bcrypt.hashSync('CashierPass123!', 10));
-  const login = await request(app).post('/api/auth/login').send({ email: 'cashier-sms@urbantrends.com', password: 'CashierPass123!' });
+    .run(store.id, bcrypt.hashSync('Maple-Ember-6823', 10));
+  const login = await request(app).post('/api/auth/login').send({ email: 'cashier-sms@urbantrends.com', password: 'Maple-Ember-6823' });
   cashierToken = login.body.token;
 
   sendSpy = vi.spyOn(zettatel, 'sendSms');

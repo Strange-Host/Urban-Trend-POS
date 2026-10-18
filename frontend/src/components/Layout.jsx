@@ -86,7 +86,7 @@ function NavItem({ item, onNavigate, nested = false }) {
 }
 
 export default function Layout() {
-  const { user, logout, hasRole, can } = useAuth();
+  const { user, logout, lock, hasRole, can } = useAuth();
   const location = useLocation();
   const [navOpen, setNavOpen] = useState(false);
   const mainRef = useRef(null);
@@ -220,8 +220,20 @@ export default function Layout() {
             <div className="text-sm font-medium text-white">{user?.name}</div>
             <div className="text-xs text-white/50 capitalize">{user?.role}</div>
           </div>
+          <NavLink
+            to="/security" onClick={closeNav}
+            className="block w-full text-left px-3 py-2 text-sm text-white/60 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
+          >
+            Security &amp; devices
+          </NavLink>
           <button
-            onClick={logout}
+            onClick={lock}
+            className="w-full text-left px-3 py-2 text-sm text-white/60 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
+          >
+            Lock screen
+          </button>
+          <button
+            onClick={() => logout()}
             className="w-full text-left px-3 py-2 text-sm text-white/60 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
           >
             Sign out

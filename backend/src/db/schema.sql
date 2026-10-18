@@ -46,6 +46,13 @@ CREATE TABLE IF NOT EXISTS users (
   -- actually operate the account, only to set a real one.
   must_change_password INTEGER NOT NULL DEFAULT 0,
   two_factor_enabled INTEGER NOT NULL DEFAULT 0,  -- SMS sign-in code (twoFactor.service.js); opt-in per account
+  -- Login protection: after too many wrong passwords/PINs the account locks for a while (services/loginGuard.service.js).
+  failed_login_count INTEGER NOT NULL DEFAULT 0,
+  locked_until       TEXT,
+  pin_failed_count   INTEGER NOT NULL DEFAULT 0,   -- PIN attempts are counted and locked separately, so guessing a till PIN can't lock someone out of password sign-in
+  pin_locked_until   TEXT,
+  password_changed_at TEXT,                     -- used to refuse reusing the same password and to show 'last changed'
+  erased_at          TEXT,                      -- set when a former staff member's personal data was wiped (records kept)
 
   created_at     TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at     TEXT NOT NULL DEFAULT (datetime('now'))
@@ -71,10 +78,49 @@ CREATE TABLE IF NOT EXISTS refresh_tokens (
   expires_at      TEXT NOT NULL,
   revoked_at      TEXT,
   replaced_by_id  INTEGER REFERENCES refresh_tokens(id),
+  session_id      INTEGER REFERENCES auth_sessions(id),   -- every refresh token belongs to one sign-in (session)
   created_at      TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user ON refresh_tokens(user_id);
 CREATE INDEX IF NOT EXISTS idx_refresh_tokens_hash ON refresh_tokens(token_hash);
+CREATE INDEX IF NOT EXISTS idx_refresh_tokens_session ON refresh_tokens(session_id);
+
+-- ---------------------------------------------------------------------
+-- AUTH SESSIONS  (one row per sign-in on one device)
+-- ---------------------------------------------------------------------
+-- The session is what has an idle timeout and a hard maximum lifetime; refresh tokens rotate inside it
+-- but can never extend it past absolute_expires_at. All times are ISO-8601 UTC written by the app.
+CREATE TABLE IF NOT EXISTS auth_sessions (
+  id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id             INTEGER NOT NULL REFERENCES users(id),
+  remember            INTEGER NOT NULL DEFAULT 0,      -- 'remember this device' was ticked at sign-in
+  user_agent          TEXT,
+  ip                  TEXT,
+  created_at          TEXT NOT NULL,
+  last_activity_at    TEXT NOT NULL,                   -- real use of the app (not background polling)
+  reauth_at           TEXT NOT NULL,                   -- last time the password/PIN was typed: sensitive actions need this to be recent
+  absolute_expires_at TEXT NOT NULL,
+  revoked_at          TEXT,
+  revoked_reason      TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_auth_sessions_user ON auth_sessions(user_id, revoked_at);
+
+-- ---------------------------------------------------------------------
+-- SECURITY EVENTS  (what the Security page shows: lockouts, resets, erasures, large refunds...)
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS security_events (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  store_id    INTEGER,
+  type        TEXT NOT NULL,
+  severity    TEXT NOT NULL DEFAULT 'info' CHECK (severity IN ('info','warning','urgent')),
+  title       TEXT NOT NULL,
+  detail      TEXT,
+  actor_id    INTEGER,          -- who did it (no foreign key: a row must outlive a deleted account)
+  subject_id  INTEGER,          -- who it was done to / about
+  ip          TEXT,
+  created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_security_events_created ON security_events(id DESC);
 
 -- ---------------------------------------------------------------------
 -- SETTINGS  (simple key/value store for POS-wide configuration —
@@ -138,6 +184,8 @@ CREATE TABLE IF NOT EXISTS categories (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
   name        TEXT NOT NULL,
   parent_id   INTEGER REFERENCES categories(id),
+  is_archived INTEGER NOT NULL DEFAULT 0,   -- hidden from pickers but kept for old products/reports; can be restored
+  archived_at TEXT,
   created_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
