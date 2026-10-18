@@ -64,14 +64,11 @@ function listBackups() {
 // useless if the machine itself is lost, stolen, or its disk dies. Emailing
 // a copy off-machine on a slower cadence (24h, vs. 6h locally) gives cheap
 // off-site recovery without standing up real cloud backup infrastructure.
-// SMTP connection details (SMTP_HOST/PORT/USER/PASS/FROM) stay in .env —
-// like JWT_SECRET/ENCRYPTION_KEY, those are secrets and don't belong in the
-// database. The RECIPIENT LIST is different: not a secret, and genuinely
-// something an admin wants to change from Settings without editing a
-// server .env file and restarting — so it lives in Settings
-// (`backup_email_recipients`, comma-separated), with the old
-// BACKUP_EMAIL_TO env var kept as a fallback for anyone who set that up
-// before this existed.
+// How mail leaves the server (SMTP, or Resend over HTTPS) is configured in
+// Settings -> Email and handled entirely by mail.service.js. The RECIPIENT
+// LIST lives in Settings (`backup_email_recipients`, comma-separated), with
+// the old BACKUP_EMAIL_TO env var kept as a fallback for anyone who set that
+// up before this existed.
 
 function getRecipients() {
   const configured = settingsService.getAll().backup_email_recipients;
@@ -84,8 +81,6 @@ function getRecipients() {
 function emailConfigured() {
   return mailService.isConfigured() && getRecipients().length > 0;
 }
-
-const getTransport = () => mailService.getTransport();
 
 const LAST_EMAIL_SETTINGS_KEY = 'last_backup_email';
 
@@ -101,21 +96,19 @@ function getLastEmailStatus() {
   return row ? JSON.parse(row.value) : null;
 }
 
-/** Emails an existing backup file as an attachment. Throws if SMTP isn't configured or sending fails. */
+/** Emails an existing backup file as an attachment (SMTP or Resend, whichever Settings -> Email selects). Throws if email isn't configured or sending fails. */
 async function emailBackup(backupResult) {
   if (!emailConfigured()) {
     throw new ApiError(400, 'Email backups are not configured — fill in Settings → Email (outgoing mail) and add at least one recipient under Settings → Backups.');
   }
-  const transport = getTransport();
   // The copy that leaves the server is compressed and encrypted (utils/backupCrypto.js): an emailed database holds every
   // customer's name and phone number, so it must be useless to anyone who finds it without the passphrase.
   const { value: passphrase, source } = backupCrypto.passphraseFromEnv();
   const encryptedPath = path.join(os.tmpdir(), `${backupResult.file}.gz.enc`);
   await backupCrypto.encryptFile(backupResult.path, encryptedPath, passphrase);
   try {
-  await transport.sendMail({
-    from: mailService.fromAddress(),
-    to: getRecipients().join(', '),
+  await mailService.sendMail({
+    to: getRecipients(),
     subject: `Urban Trends POS backup (encrypted) — ${backupResult.file}`,
     text: `Automatic database backup attached. It is ENCRYPTED: open it with: node scripts/restore-backup.js <file> (needs your BACKUP_PASSPHRASE, or the server's ENCRYPTION_KEY if no passphrase was set).\n\nFile: ${backupResult.file}\nSize: ${(backupResult.sizeBytes / 1024).toFixed(0)} KB\nGenerated: ${new Date().toISOString()}\n\nThis backup contains the full database, including encrypted store credentials and user password hashes — keep this email as secure as you would the server itself.`,
     attachments: [{ filename: `${backupResult.file}.gz.enc`, path: encryptedPath }],
@@ -183,7 +176,7 @@ function scheduleBackups() {
 function scheduleEmailBackups() {
   if (emailIntervalHandle) return;
   if (!emailConfigured()) {
-    logger.info('[backup] email backups not yet configured — set SMTP_HOST in .env and add a recipient (Settings → backup_email_recipients or BACKUP_EMAIL_TO)');
+    logger.info('[backup] email backups not yet configured — set up Settings → Email (SMTP or Resend) and add a recipient under Settings → Backups');
   }
   emailIntervalHandle = setInterval(() => {
     if (!emailConfigured()) return; // still not configured — silently skip this cycle, not an error
