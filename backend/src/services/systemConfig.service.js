@@ -11,21 +11,15 @@ const { logStaffAction } = require('../utils/auditLog');
 // so installs that already have these in .env keep working untouched; a value saved in
 // Settings wins over .env.
 //
-// The email password and the Resend API key are the only secrets here: they are stored ENCRYPTED,
-// never returned by any endpoint (the UI only learns whether one is set), and written only via save().
+// The email password is the only secret here: it is stored ENCRYPTED, never returned by any
+// endpoint (the UI only learns whether one is set), and written only via save().
 
 const KEYS = [
   'public_base_url', 'smtp_host', 'smtp_port', 'smtp_secure', 'smtp_user', 'smtp_from',
   'allowed_origins', 'kcb_api_base_url_sandbox', 'kcb_api_base_url_production', 'kcb_token_path',
-  'mail_provider', 'resend_from',
 ];
 const SECRET_KEY = 'smtp_pass_enc';
-const RESEND_SECRET_KEY = 'resend_api_key_enc';
-const SECRET_KEYS = [SECRET_KEY, RESEND_SECRET_KEY];
-const MAIL_PROVIDERS = ['smtp', 'resend'];
-// What Resend lets anyone send from before they verify their own domain. It can only deliver to the
-// address the Resend account was opened with, which is enough for backups sent to the owner.
-const RESEND_DEFAULT_FROM = 'Urban Trends POS <onboarding@resend.dev>';
+const SECRET_KEYS = [SECRET_KEY];
 // Keys the generic PUT /api/settings must not write: they have their own validated path above.
 const MANAGED_KEYS = new Set([...KEYS, ...SECRET_KEYS, 'module_hr_enabled', 'module_control_enabled']);
 
@@ -61,26 +55,6 @@ function smtp() {
     pass: encPass ? decrypt(encPass) : (process.env.SMTP_PASS || null),
     from: firstSet(raw('smtp_from'), process.env.SMTP_FROM, raw('smtp_user'), process.env.SMTP_USER) || 'urban-trends-pos@localhost',
     source: useDb ? 'settings' : (host ? 'environment' : null),
-  };
-}
-
-/**
- * Which way outgoing mail leaves the server. 'resend' sends over HTTPS (port 443), which works on
- * hosts that block SMTP (Railway Free/Trial/Hobby). Saved choice wins; otherwise MAIL_PROVIDER;
- * otherwise 'resend' only when a RESEND_API_KEY is present in the environment; otherwise 'smtp'.
- */
-function mailProvider() {
-  const chosen = String(firstSet(raw('mail_provider'), process.env.MAIL_PROVIDER) || '').trim().toLowerCase();
-  if (MAIL_PROVIDERS.includes(chosen)) return chosen;
-  return process.env.RESEND_API_KEY && !raw('smtp_host') && !process.env.SMTP_HOST ? 'resend' : 'smtp';
-}
-
-function resend() {
-  const encKey = raw(RESEND_SECRET_KEY);
-  return {
-    apiKey: (encKey ? decrypt(encKey) : (process.env.RESEND_API_KEY || '')).trim() || null,
-    from: firstSet(raw('resend_from'), process.env.RESEND_FROM) || RESEND_DEFAULT_FROM,
-    usingDefaultFrom: !firstSet(raw('resend_from'), process.env.RESEND_FROM),
   };
 }
 
@@ -149,14 +123,7 @@ function validate(values) {
       case 'smtp_secure':
         out[key] = ['1', 'true', 'yes'].includes(text.toLowerCase()) ? '1' : '0';
         break;
-      case 'mail_provider': {
-        const v = text.toLowerCase();
-        if (!MAIL_PROVIDERS.includes(v)) throw new ApiError(400, 'The email method must be "smtp" or "resend".');
-        out[key] = v;
-        break;
-      }
       case 'smtp_from':
-      case 'resend_from':
         if (!/^[^<>@\s]+@[^<>@\s]+\.[^<>@\s]+$/.test(text) && !/^.+<[^<>@\s]+@[^<>@\s]+\.[^<>@\s]+>$/.test(text)) {
           throw new ApiError(400, 'The "from" address must look like shop@example.com (or Shop Name <shop@example.com>).');
         }
@@ -174,13 +141,10 @@ function validate(values) {
 /** What the Settings screen shows. Never includes the email password. */
 function describe() {
   const s = smtp();
-  const r = resend();
   const stored = Object.fromEntries(KEYS.map((k) => [k, raw(k) || '']));
   return {
     values: stored,
     effective: {
-      mail_provider: mailProvider(),
-      resend_from: r.from,
       public_base_url: publicBaseUrl() || '',
       smtp_host: s.host || '', smtp_port: s.port, smtp_secure: s.secure, smtp_user: s.user || '', smtp_from: s.from,
       allowed_origins: allowedOrigins(),
@@ -188,8 +152,6 @@ function describe() {
     },
     smtp_password_set: Boolean(raw(SECRET_KEY) || process.env.SMTP_PASS),
     smtp_source: s.source,
-    resend_api_key_set: Boolean(r.apiKey),
-    resend_source: raw(RESEND_SECRET_KEY) ? 'settings' : (process.env.RESEND_API_KEY ? 'environment' : null),
     // Settings still satisfied by backend/.env only - harmless, shown so nothing is a mystery.
     from_environment: KEYS.filter((k) => !raw(k) && ({
       public_base_url: process.env.APP_BASE_URL, allowed_origins: process.env.CORS_ORIGIN, smtp_host: process.env.SMTP_HOST,
@@ -201,10 +163,10 @@ function describe() {
 
 /**
  * values: any of KEYS (an empty string clears it, falling back to .env / the default).
- * smtp_password / resend_api_key: write-only; '' / undefined leaves the saved one alone.
- * clear_smtp_password / clear_resend_api_key: true removes it.
+ * smtp_password: write-only; '' / undefined leaves the saved one alone.
+ * clear_smtp_password: true removes it.
  */
-function save({ values = {}, smtpPassword, clearSmtpPassword, resendApiKey, clearResendApiKey, userId }) {
+function save({ values = {}, smtpPassword, clearSmtpPassword, userId }) {
   const clean = validate(values);
   const before = describe().values;
 
@@ -216,14 +178,12 @@ function save({ values = {}, smtpPassword, clearSmtpPassword, resendApiKey, clea
     for (const [k, v] of Object.entries(clean)) upsert.run(k, v, userId || null);
     if (clearSmtpPassword) db.prepare('DELETE FROM settings WHERE key = ?').run(SECRET_KEY);
     else if (smtpPassword) upsert.run(SECRET_KEY, encrypt(String(smtpPassword)), userId || null);
-    if (clearResendApiKey) db.prepare('DELETE FROM settings WHERE key = ?').run(RESEND_SECRET_KEY);
-    else if (resendApiKey) upsert.run(RESEND_SECRET_KEY, encrypt(String(resendApiKey).trim()), userId || null);
   })();
 
   // Audit WHAT changed, never the password itself.
   logStaffAction({
     staffId: userId, action: 'update', entityType: 'system_settings', entityId: userId || 1,
-    before, after: { ...describe().values, ...(smtpPassword ? { smtp_password: 'changed' } : {}), ...(clearSmtpPassword ? { smtp_password: 'removed' } : {}), ...(resendApiKey ? { resend_api_key: 'changed' } : {}), ...(clearResendApiKey ? { resend_api_key: 'removed' } : {}) },
+    before, after: { ...describe().values, ...(smtpPassword ? { smtp_password: 'changed' } : {}), ...(clearSmtpPassword ? { smtp_password: 'removed' } : {}), },
   });
   return describe();
 }
@@ -256,7 +216,7 @@ async function checkPublicUrl(candidate) {
 }
 
 module.exports = {
-  KEYS, MANAGED_KEYS, SECRET_KEY, RESEND_SECRET_KEY, SECRET_KEYS, MAIL_PROVIDERS, RESEND_DEFAULT_FROM,
-  publicBaseUrl, allowedOrigins, smtp, mailProvider, resend, kcb,
+  KEYS, MANAGED_KEYS, SECRET_KEY, SECRET_KEYS,
+  publicBaseUrl, allowedOrigins, smtp, kcb,
   describe, save, validate, checkPublicUrl,
 };

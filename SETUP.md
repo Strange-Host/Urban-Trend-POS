@@ -168,10 +168,23 @@ Runs against a throwaway temporary database — never touches `data/urban_trends
 
 The database backs itself up automatically every 6 hours once the backend is running (see
 Settings → Backups to check on this, or trigger one immediately). Files land in
-`backend/data/backups/`. This protects you against a corrupted database file, not against losing
-the whole machine — for real disaster recovery, copy that folder somewhere else (a second drive,
-cloud storage) on your own schedule, or set up Settings > Email (Resend over HTTPS, which also works where SMTP is blocked, or SMTP) - the older `SMTP_*`/`RESEND_API_KEY`/`BACKUP_EMAIL_TO` variables in `.env` still work
-(see `.env.example`) to also email a copy off-machine every 24 hours.
+`backend/data/backups/` (readable only by the server's user). Every backup is checked right after it is made, and
+a bad one is discarded rather than kept. The schedule is remembered in the database, so a restart or redeploy
+never skips a backup: anything overdue runs shortly after the server starts.
+
+This protects you against a corrupted database file, not against losing the whole machine (on Railway: the
+volume). For real disaster recovery, set up Settings → Email (SMTP) and add recipients under Settings → Backups
+to also email an **encrypted** copy off-machine every 24 hours. That needs two environment variables to be set
+(on Railway: Variables):
+
+- `BACKUP_PASSPHRASE` — 12+ characters, also kept in your password manager. Without it no copy is sent. It is
+  the only key to the emailed copies, and is deliberately not stored in the database that is being backed up.
+- `ENCRYPTION_KEY` — already used by the app. Keep a copy somewhere safe and separate: a restored database needs
+  it to read the saved SMS and payment-gateway credentials.
+
+Failures (a backup that did not work, an off-site copy that was not sent) show in the bell for admins as well as by
+email, so they are noticed even if email is not set up. The older `SMTP_*` / `BACKUP_EMAIL_TO` variables in `.env`
+still work (see `.env.example`). Outgoing SMTP is blocked on Railway's Free, Trial and Hobby plans.
 
 ## Production deployment notes
 

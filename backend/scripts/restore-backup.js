@@ -5,7 +5,9 @@
  *   cd backend
  *   BACKUP_PASSPHRASE="your passphrase" node scripts/restore-backup.js ~/Downloads/urban_trends-2026-10-20.db.gz.enc
  *
- * If BACKUP_PASSPHRASE is not set it uses ENCRYPTION_KEY from the environment/.env (the key the backups were made with).
+ * Use the BACKUP_PASSPHRASE the server was configured with. Backups made by older versions without one were encrypted
+ * with a key derived from ENCRYPTION_KEY, so if BACKUP_PASSPHRASE is not set this falls back to ENCRYPTION_KEY from the
+ * environment/.env, which still opens those older backups.
  * Writes the decrypted database next to the file (or to --out), then prints whether it is intact and what it holds.
  * It never touches your live database. To actually restore, stop the app and replace the live database file with it.
  */

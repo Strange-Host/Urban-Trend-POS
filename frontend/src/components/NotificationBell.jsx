@@ -16,6 +16,7 @@ const DESTINATIONS = {
   payment_notification: '/reconciliation',
   security_event: '/security',
   product: '/catalog',
+  backup: '/settings', // backup and off-site copy failure notices (admins)
 };
 
 const SEVERITY_DOT = {
