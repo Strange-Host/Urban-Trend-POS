@@ -2,7 +2,7 @@ import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createApp } from '../src/app.js';
 import { loadConfig } from '../src/config.js';
-import { runMigrations } from '../src/db/migrate.js';
+import { loadMigrationFiles, runMigrations } from '../src/db/migrate.js';
 import { createLogger } from '../src/logger.js';
 import { createPool, waitForDatabase } from '../src/db/pool.js';
 import { makeTestDb, type TestDb } from './helpers.js';
@@ -20,7 +20,7 @@ describe('app on Postgres', () => {
   it('reports healthy with the number of applied migrations', async () => {
     const res = await request(createApp({ pool: db.pool, logger })).get('/api/health');
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ status: 'ok', database: 'up', migrations: 1 });
+    expect(res.body).toEqual({ status: 'ok', database: 'up', migrations: loadMigrationFiles().length });
   });
 
   it('returns 503 in the standard error shape when the database is unreachable', async () => {
