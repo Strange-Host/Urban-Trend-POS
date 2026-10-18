@@ -422,6 +422,76 @@ function migrateLegacyShopifyEnvToIncomeSource() {
   console.log(`  + created income_sources row #${newSourceId} for "${normalizedShop}", re-pointed ${stagingUpdated} staging row(s) and ${productsUpdated} product(s) to it`);
 }
 
+// leads.converted_order_id was declared REFERENCES sales(id), but a converted
+// lead becomes a row in `orders`, not `sales`. With foreign keys ON that either
+// rejected a valid order id outright, or - worse - quietly linked the lead to an
+// unrelated sale that happened to share the same number. SQLite cannot change a
+// column's foreign key in place, so this is a table rebuild, done the same
+// careful way as the products rebuild above (new table under a temp name, copy,
+// then drop the old one and rename).
+//
+// Existing values are only kept when they can be proven: the order must exist
+// AND already point back at this lead through orders.lead_id. Anything else was
+// pointing at the wrong table and is cleared. Leads that do have an order
+// pointing at them get their link filled in. The counts are logged.
+function needsLeadsConvertedOrderRebuild() {
+  if (!tableExists('leads')) return false; // fresh install - schema.sql creates it correctly already
+  return db.prepare(`PRAGMA foreign_key_list(leads)`).all()
+    .some((fk) => fk.from === 'converted_order_id' && fk.table !== 'orders');
+}
+
+function rebuildLeadsConvertedOrderFk() {
+  console.log('  Rebuilding leads table so converted_order_id points at orders...');
+  const wasForeignKeysOn = db.pragma('foreign_keys', { simple: true }) === 1;
+  db.pragma('foreign_keys = OFF');
+
+  const tmp = 'leads_converted_order_fk_new';
+  const originalSql = db.prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='leads'`).get().sql;
+  const fixedSql = originalSql
+    .replace(/^\s*CREATE\s+TABLE\s+(IF\s+NOT\s+EXISTS\s+)?["`]?leads["`]?/i, `CREATE TABLE ${tmp}`)
+    .replace(/(converted_order_id\s+INTEGER\s+REFERENCES\s+)["`]?sales["`]?(\s*\(\s*id\s*\))/i, '$1orders$2');
+  if (!/converted_order_id\s+INTEGER\s+REFERENCES\s+orders/i.test(fixedSql) || !fixedSql.includes(tmp)) {
+    throw new Error('Could not rewrite the leads table definition safely; leaving it unchanged.');
+  }
+
+  let cleared = 0;
+  let linked = 0;
+  const txn = db.transaction(() => {
+    db.exec(`DROP TABLE IF EXISTS ${tmp}`);
+    db.exec(fixedSql);
+
+    const cols = db.prepare(`PRAGMA table_info(leads)`).all().map((c) => c.name).join(', ');
+    db.exec(`INSERT INTO ${tmp} (${cols}) SELECT ${cols} FROM leads`);
+
+    const ordersHasLeadId = tableExists('orders')
+      && db.prepare(`PRAGMA table_info(orders)`).all().some((c) => c.name === 'lead_id');
+    if (ordersHasLeadId) {
+      cleared = db.prepare(`
+        UPDATE ${tmp} SET converted_order_id = NULL
+        WHERE converted_order_id IS NOT NULL
+          AND NOT EXISTS (SELECT 1 FROM orders o WHERE o.id = ${tmp}.converted_order_id AND o.lead_id = ${tmp}.id)
+      `).run().changes;
+      linked = db.prepare(`
+        UPDATE ${tmp} SET converted_order_id = (SELECT MIN(o.id) FROM orders o WHERE o.lead_id = ${tmp}.id)
+        WHERE converted_order_id IS NULL AND EXISTS (SELECT 1 FROM orders o WHERE o.lead_id = ${tmp}.id)
+      `).run().changes;
+    } else {
+      cleared = db.prepare(`UPDATE ${tmp} SET converted_order_id = NULL WHERE converted_order_id IS NOT NULL`).run().changes;
+    }
+
+    db.exec('DROP TABLE leads');
+    db.exec(`ALTER TABLE ${tmp} RENAME TO leads`);
+  });
+  txn();
+
+  const violations = db.pragma('foreign_key_check');
+  if (violations.length > 0) {
+    throw new Error(`leads table rebuild left foreign key violations: ${JSON.stringify(violations)}`);
+  }
+  if (wasForeignKeysOn) db.pragma('foreign_keys = ON');
+  console.log(`  + leads rebuilt; ${cleared} unverifiable converted_order_id value(s) cleared, ${linked} link(s) restored from orders.lead_id`);
+}
+
 function migrate() {
   const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8');
 
@@ -431,6 +501,10 @@ function migrate() {
 
   if (needsInventoryMovementsRebuild()) {
     rebuildInventoryMovementsTable();
+  }
+
+  if (needsLeadsConvertedOrderRebuild()) {
+    rebuildLeadsConvertedOrderFk();
   }
 
   for (const [table, columns] of Object.entries(CURRENCY_COLUMNS)) {

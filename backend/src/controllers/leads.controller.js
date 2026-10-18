@@ -60,6 +60,18 @@ const changeStatus = asyncHandler(async (req, res) => {
   res.json({ data: lead });
 });
 
+// POST /api/leads/:id/convert — create the order from the lead and mark it converted, in one transaction
+const convert = asyncHandler(async (req, res) => {
+  const b = req.body;
+  const result = leadsService.convertToOrder({
+    leadId: req.params.id, storeId: req.user.storeId, role: req.user.role, userId: req.user.id, staffId: req.user.id,
+    items: b.items, city: b.city, discountTotal: b.discount_total, notes: b.notes,
+    paymentType: b.payment_type, courierType: b.courier_type, mergeIntoOrderId: b.merge_into_order_id,
+  });
+  const order = require('../services/orders.service').getOrderWithItems(result.orderId, req.user.storeId);
+  res.status(result.merged ? 200 : 201).json({ data: { lead: result.lead, order, merged: result.merged } });
+});
+
 // POST /api/leads/:id/activities
 const addActivity = asyncHandler(async (req, res) => {
   const activity = leadsService.addActivity({
@@ -77,4 +89,4 @@ const remove = asyncHandler(async (req, res) => {
   res.status(204).send();
 });
 
-module.exports = { list, stats, getById, create, update, changeStatus, addActivity, remove };
+module.exports = { list, stats, getById, create, update, changeStatus, convert, addActivity, remove };

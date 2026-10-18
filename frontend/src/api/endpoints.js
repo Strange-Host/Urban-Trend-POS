@@ -133,6 +133,7 @@ export const leadsApi = {
   create: (data) => client.post('/leads', data),
   update: (id, data) => client.patch(`/leads/${id}`, data),
   changeStatus: (id, status, followUpDate) => client.patch(`/leads/${id}/status`, { status, follow_up_date: followUpDate }),
+  convert: (id, data) => client.post(`/leads/${id}/convert`, data),
   addActivity: (id, data) => client.post(`/leads/${id}/activities`, data),
   remove: (id) => client.delete(`/leads/${id}`),
 };
