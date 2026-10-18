@@ -6,6 +6,7 @@ import { useAuth } from '../context/AuthContext';
 import { useToast, useDialog } from '../context/UIContext';
 import { StatusPill } from '../components/DataUI';
 
+import Sheet from '../components/Sheet';
 const empty = { name: '', phone: '', vehicle: '', courier_type: 'boda', notes: '' };
 const money = (c) => `KES ${((c || 0) / 100).toLocaleString('en-KE')}`;
 const inputCls = 'w-full px-3 py-2 rounded-lg border border-line outline-none focus:border-accent text-sm';
@@ -119,8 +120,7 @@ export default function Couriers() {
       </div>
 
       {editing !== null && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setEditing(null)}>
-          <form onSubmit={save} onClick={(e) => e.stopPropagation()} className="bg-surface rounded-xl p-6 w-full max-w-sm">
+        <Sheet onClose={() => setEditing(null)} size="sm" as="form" onSubmit={save}>
             <h2 className="font-display font-700 text-lg mb-4">{editing.id ? 'Edit courier' : 'New courier'}</h2>
             {error && <div className="mb-3 px-3 py-2 rounded-lg bg-danger-soft text-danger text-sm">{error}</div>}
             <label className="block text-xs font-medium text-text-muted mb-1">Name</label>
@@ -140,8 +140,7 @@ export default function Couriers() {
               <button type="button" onClick={() => setEditing(null)} className="flex-1 py-2.5 rounded-lg border border-line text-sm font-medium">Cancel</button>
               <button type="submit" disabled={saving} className="flex-1 py-2.5 rounded-lg bg-ink text-white text-sm font-medium hover:bg-ink-soft disabled:opacity-50">{saving ? 'Saving…' : 'Save'}</button>
             </div>
-          </form>
-        </div>
+          </Sheet>
       )}
     </div>
   );

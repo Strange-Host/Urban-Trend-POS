@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 
+import Sheet from '../components/Sheet';
 /* =============================== Toasts =============================== */
 // Replaces alert() for one-off notifications (errors, success confirmations).
 // Non-blocking, auto-dismissing, stacked bottom-right — unlike alert(),
@@ -95,8 +96,7 @@ function DialogModal({ state, onCancel, onSubmit }) {
   }
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 p-4" onMouseDown={(e) => e.target === e.currentTarget && onCancel()}>
-      <form onSubmit={handleSubmit} className="bg-surface border border-line rounded-xl shadow-xl w-full max-w-sm p-5">
+    <Sheet onClose={onCancel} size="sm" zIndex={100} as="form" onSubmit={handleSubmit}>
         {state.title && <h2 className="font-display font-700 text-lg mb-1">{state.title}</h2>}
         {state.message && <p className="text-sm text-text-muted whitespace-pre-line mb-4">{state.message}</p>}
 
@@ -146,8 +146,7 @@ function DialogModal({ state, onCancel, onSubmit }) {
             {state.confirmLabel || (state.type === 'confirm' ? 'Confirm' : 'OK')}
           </button>
         </div>
-      </form>
-    </div>
+    </Sheet>
   );
 }
 

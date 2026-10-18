@@ -8,12 +8,12 @@ beforeAll(async () => {
   adminToken = await loginAsAdmin();
 
   const createRepA = await request(app).post('/api/staff').set('Authorization', `Bearer ${adminToken}`)
-    .send({ name: 'Rep A', email: 'repa@urbantrends.com', phone: '0722000001', password: 'RepPass123!', role: 'cashier' });
-  const loginA = await request(app).post('/api/auth/login').send({ email: 'repa@urbantrends.com', password: 'RepPass123!' });
+    .send({ name: 'Rep A', email: 'repa@urbantrends.com', phone: '0722000001', password: 'Quartz-Meadow-7421', role: 'cashier' });
+  const loginA = await request(app).post('/api/auth/login').send({ email: 'repa@urbantrends.com', password: 'Quartz-Meadow-7421' });
   repAToken = loginA.body.token;
 
   const createRepB = await request(app).post('/api/staff').set('Authorization', `Bearer ${adminToken}`)
-    .send({ name: 'Rep B', email: 'repb@urbantrends.com', phone: '0722000002', password: 'RepPass123!', role: 'cashier' });
+    .send({ name: 'Rep B', email: 'repb@urbantrends.com', phone: '0722000002', password: 'Quartz-Meadow-7421', role: 'cashier' });
   repBId = createRepB.body.data.id;
 });
 

@@ -53,8 +53,9 @@ const notificationsRoutes = require('./routes/notifications.routes');
 const app = express();
 
 // Railway (like any host) puts a proxy in front of this app. Trust exactly one hop so req.ip - which the
-// rate limiters use - is the real visitor address instead of the proxy's.
-app.set('trust proxy', 1);
+// rate limiters and the lockout alerts use - is the real visitor address instead of the proxy's. Set TRUST_PROXY_HOPS=2
+// in Railway if you put Cloudflare in front (two proxies sit between the visitor and this app).
+app.set('trust proxy', Number(process.env.TRUST_PROXY_HOPS) || 1);   // 1 = Railway only; 2 = Cloudflare in front of Railway
 
 app.use(helmet());
 
@@ -123,6 +124,7 @@ app.use('/api/payments', paymentsRoutes);
 app.use('/api/staff-logs', staffLogsRoutes);
 app.use('/api/modules', modulesRoutes);
 app.use('/api/settings', settingsRoutes);
+app.use('/api/security', require('./routes/security.routes'));
 app.use('/api/settings/payment-gateways', paymentGatewayCredentialsRoutes);
 app.use('/api/income-sources', incomeSourcesRoutes);
 app.use('/api/backups', backupsRoutes);

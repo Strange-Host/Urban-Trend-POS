@@ -1,5 +1,6 @@
 import { useState } from 'react';
 
+import Sheet from './Sheet';
 // Shown before someone clocks out or closes their till when they still have
 // open items (ported from the older system's logout check, built on this
 // system's own data). It never blocks — leaving with open items is allowed — but
@@ -20,8 +21,7 @@ export default function HandoverModal({ summary, actionLabel, busy, onCancel, on
   const money = (c) => `KES ${((c || 0) / 100).toLocaleString('en-KE')}`;
 
   return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/40" role="dialog" aria-modal="true" aria-label="Open items before you leave">
-      <div className="w-full max-w-md bg-surface text-text rounded-xl shadow-xl border border-line p-5 max-h-[90vh] overflow-y-auto">
+    <Sheet onClose={onCancel} size="md" zIndex={70} dismissOnBackdrop={false} label="Open items before you leave">
         <h2 className="font-display font-700 text-lg mb-1">Before you go</h2>
         <p className="text-sm text-text-muted mb-4">You still have items open. You can leave, but your manager will see this — add a note for whoever picks it up.</p>
 
@@ -50,7 +50,6 @@ export default function HandoverModal({ summary, actionLabel, busy, onCancel, on
             {busy ? 'Working…' : actionLabel}
           </button>
         </div>
-      </div>
-    </div>
+    </Sheet>
   );
 }

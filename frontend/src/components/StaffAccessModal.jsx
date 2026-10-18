@@ -4,6 +4,7 @@ import { accessApi } from '../api/endpoints';
 import { getErrorMessage } from '../api/client';
 import { useToast } from '../context/UIContext';
 
+import Sheet from './Sheet';
 // One person's access: which individual permissions differ from their role's
 // defaults, and whether sign-in needs an SMS code. Admins cannot be restricted
 // (the server enforces it) — that is what guarantees nobody can lock themselves out.
@@ -73,8 +74,7 @@ export default function StaffAccessModal({ staff, isSelf, onClose }) {
   const groups = data ? [...new Set(data.permissions.map((p) => p.group))] : [];
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={onClose}>
-      <div onClick={(e) => e.stopPropagation()} className="bg-surface rounded-xl w-full max-w-lg max-h-[88vh] flex flex-col" role="dialog" aria-modal="true" aria-label={`Access for ${staff.name}`}>
+    <Sheet onClose={onClose} size="lg" bare className="flex flex-col" label={`Access for ${staff.name}`}>
         <div className="px-6 pt-6 pb-3">
           <h2 className="font-display font-700 text-lg">Access for {staff.name}</h2>
           <p className="text-xs text-text-muted capitalize mt-0.5">{staff.role}</p>
@@ -136,7 +136,6 @@ export default function StaffAccessModal({ staff, isSelf, onClose }) {
             {saving ? 'Saving…' : changed.length ? `Save ${changed.length} change${changed.length === 1 ? '' : 's'}` : 'No changes'}
           </button>
         </div>
-      </div>
-    </div>
+    </Sheet>
   );
 }
