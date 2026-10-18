@@ -11,9 +11,9 @@ beforeAll(async () => {
   product = productsRes.body.data[0];
 
   const createRep = await request(app).post('/api/staff').set('Authorization', `Bearer ${token}`)
-    .send({ name: 'Report Rep', email: 'reportrep@urbantrends.com', phone: '0722200001', password: 'RepPass123!', role: 'cashier' });
+    .send({ name: 'Report Rep', email: 'reportrep@urbantrends.com', phone: '0722200001', password: 'Indigo-Prairie-2569', role: 'cashier' });
   repId = createRep.body.data.id;
-  const repLogin = await request(app).post('/api/auth/login').send({ email: 'reportrep@urbantrends.com', password: 'RepPass123!' });
+  const repLogin = await request(app).post('/api/auth/login').send({ email: 'reportrep@urbantrends.com', password: 'Indigo-Prairie-2569' });
   await request(app).post('/api/attendance/clock-in').set('Authorization', `Bearer ${repLogin.body.token}`);
 
   today = require('../src/utils/storeTime').localDate(); // the shop's day, not the UTC date

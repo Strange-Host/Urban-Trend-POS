@@ -21,6 +21,20 @@ const ADDITIVE_COLUMNS = {
     // SMS one-time code at login (see services/twoFactor.service.js). Opt-in
     // per account, default off — nobody is affected until an admin enables it.
     `two_factor_enabled INTEGER NOT NULL DEFAULT 0`,
+    // Login protection / staff removal (see services/loginGuard.service.js and users.service.js)
+    `failed_login_count INTEGER NOT NULL DEFAULT 0`,
+    `locked_until TEXT`,
+    `pin_failed_count INTEGER NOT NULL DEFAULT 0`,
+    `pin_locked_until TEXT`,
+    `password_changed_at TEXT`,
+    `erased_at TEXT`,
+  ],
+  categories: [
+    `is_archived INTEGER NOT NULL DEFAULT 0`,
+    `archived_at TEXT`,
+  ],
+  refresh_tokens: [
+    `session_id INTEGER REFERENCES auth_sessions(id)`,
   ],
   leads: [
     // Web-form intake (services/leadIntake.service.js): the form's own entry
@@ -439,6 +453,12 @@ function migrate() {
     for (const columnDef of columns) {
       ensureColumn(table, columnDef);
     }
+  }
+
+  // Sessions now carry an idle timeout and a hard maximum (services/sessions.service.js). A refresh token that
+  // predates that has no session to enforce them, so it is retired: everyone signs in once after this update.
+  if (tableExists('refresh_tokens')) {
+    db.exec(`UPDATE refresh_tokens SET revoked_at = datetime('now') WHERE session_id IS NULL AND revoked_at IS NULL`);
   }
 
   // customers.phone_normalized is additive — backfill it for any pre-existing
