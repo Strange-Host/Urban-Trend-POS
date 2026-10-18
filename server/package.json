@@ -10,6 +10,8 @@
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/db/migrate-cli.js && node dist/server.js",
     "migrate": "tsx src/db/migrate-cli.ts",
+    "integrity": "tsx src/integrity/cli.ts",
+    "integrity:prod": "node dist/integrity/cli.js",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },

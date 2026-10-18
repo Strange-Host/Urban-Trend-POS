@@ -1,5 +1,6 @@
 import express, { type ErrorRequestHandler } from 'express';
 import type { Pool } from './db/pool.js';
+import { HttpError } from './errors.js';
 import type { Logger } from './logger.js';
 
 export interface AppDeps {
@@ -7,12 +8,7 @@ export interface AppDeps {
   logger: Logger;
 }
 
-// The shape of every error the API returns, same contract as the legacy backend: { error: { code, message } }.
-export class HttpError extends Error {
-  constructor(public status: number, public code: string, message: string, public details?: unknown) {
-    super(message);
-  }
-}
+export { HttpError };
 
 export function createApp({ pool, logger }: AppDeps) {
   const app = express();

@@ -6,6 +6,10 @@ const schema = z.object({
   DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
   // Railway's private network needs no TLS; a public connection string does. Opt in explicitly.
   DATABASE_SSL: z.enum(['true', 'false']).default('false'),
+  // Scrambles order references. Required only when references are issued (phase 3). NEVER change it once references exist.
+  ORDER_REF_KEY: z.string().min(32, 'ORDER_REF_KEY must be at least 32 characters').optional(),
+  INTEGRITY_JOB: z.enum(['true', 'false']).default('true'),
+  INTEGRITY_HOUR: z.coerce.number().int().min(0).max(23).default(2), // shop time (East Africa Time)
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
 });
 
