@@ -9,6 +9,7 @@ const couriersService = require('./couriers.service');
 const notificationsService = require('./notifications.service');
 const { determineDeliveryZone, suggestCourier, computeDeliveryFee } = require('../utils/delivery');
 const telesalesDistribution = require('./telesalesDistribution.service');
+const { assertLineDiscount, assertSaleDiscount } = require('../utils/discounts');
 
 // State machine — see schema.sql's CHECK on orders.status for the full
 // list. Stock deduction happens on the ONE transition into
@@ -96,11 +97,13 @@ function computeTotals(items, discountTotal = 0) {
 
     const unitPrice = product.sell_price;
     const discount = item.discount || 0;
+    assertLineDiscount({ discount, unitPrice, quantity: item.quantity, productName: product.name });
     const lineTotal = unitPrice * item.quantity - discount;
     subtotal += lineTotal;
     lineItems.push({ product_id: product.id, quantity: item.quantity, unit_price: unitPrice, discount, line_total: lineTotal });
   }
 
+  assertSaleDiscount({ discountTotal, subtotal });
   return { subtotal, total: subtotal - discountTotal, lineItems };
 }
 
