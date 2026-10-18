@@ -2,7 +2,8 @@ const router = require('express').Router();
 const rateLimit = require('express-rate-limit');
 const { RATE_LIMITS } = require('../config/limits');
 const ctrl = require('../controllers/incomeSources.controller');
-const { authenticate, requireRole } = require('../middleware/auth');
+const { authenticate, requireRole, requireRecentAuth } = require('../middleware/auth');
+const alertOnChange = require('../middleware/alertOnChange');
 
 // connect/test/sync-* all make outbound calls to a third-party API
 // (Shopify/WooCommerce) on our behalf. Unlimited access here could be used
@@ -23,10 +24,10 @@ router.use(authenticate, requireRole('admin'));
 
 router.get('/', ctrl.list);
 router.get('/:id', ctrl.getById);
-router.post('/', ctrl.create);
-router.patch('/:id', ctrl.update);
-router.delete('/:id', ctrl.remove);
-router.post('/:id/connect', syncLimiter, ctrl.connect);
+router.post('/', requireRecentAuth(), alertOnChange('Online store connection'), ctrl.create);
+router.patch('/:id', requireRecentAuth(), alertOnChange('Online store connection'), ctrl.update);
+router.delete('/:id', requireRecentAuth(), alertOnChange('Online store connection (removed)'), ctrl.remove);
+router.post('/:id/connect', requireRecentAuth(), syncLimiter, alertOnChange('Online store login details'), ctrl.connect);
 router.post('/:id/test', syncLimiter, ctrl.testConnection);
 router.post('/:id/sync-products', syncLimiter, ctrl.syncProducts);
 router.post('/:id/sync-sales', syncLimiter, ctrl.syncSales);

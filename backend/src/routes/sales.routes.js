@@ -2,7 +2,7 @@ const router = require('express').Router();
 const rateLimit = require('express-rate-limit');
 const { RATE_LIMITS } = require('../config/limits');
 const ctrl = require('../controllers/sales.controller');
-const { authenticate, requirePermission } = require('../middleware/auth');
+const { authenticate, requirePermission, requireRecentAuth } = require('../middleware/auth');
 const validate = require('../middleware/validate');
 const { checkoutSchema } = require('../validation/sales.schema');
 
@@ -17,6 +17,6 @@ router.post('/', checkoutLimiter, validate(checkoutSchema), ctrl.checkout);
 router.get('/', ctrl.list);
 router.get('/:id', ctrl.getById);
 router.get('/:id/receipt', require('../controllers/receipts.controller').saleReceipt);
-router.post('/:id/void', requirePermission('sales.void'), ctrl.voidSale);
+router.post('/:id/void', requirePermission('sales.void'), requireRecentAuth(), ctrl.voidSale);
 
 module.exports = router;

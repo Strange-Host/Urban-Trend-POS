@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { getErrorMessage } from '../api/client';
+import { getErrorMessage, takeFlash } from '../api/client';
 import { authApi } from '../api/endpoints';
 
 export default function Login() {
@@ -16,6 +16,11 @@ export default function Login() {
   const [challenge, setChallenge] = useState(null); // { challengeToken, phoneHint }
   const [code, setCode] = useState('');
   const [resendNote, setResendNote] = useState('');
+  // "Keep me signed in on this device": only for your own phone or computer. Unticked, the sign-in ends when the
+  // browser is closed (and sooner if it is left idle). Never tick it on a shared till.
+  const [remember, setRemember] = useState(false);
+  // Why we landed here (e.g. "signed out because the session ended"), left by the page that signed you out.
+  const [notice] = useState(() => takeFlash());
 
   function describe(err, fallback) {
     if (!err.response) {
@@ -32,7 +37,7 @@ export default function Login() {
     setError('');
     setLoading(true);
     try {
-      const result = await login(email.trim().toLowerCase(), password);
+      const result = await login(email.trim().toLowerCase(), password, remember);
       if (result.twoFactorRequired) {
         setChallenge(result);
         setPassword('');
@@ -51,7 +56,7 @@ export default function Login() {
     setError('');
     setLoading(true);
     try {
-      await verifyOtp(challenge.challengeToken, code.trim());
+      await verifyOtp(challenge.challengeToken, code.trim(), remember);
       navigate('/');
     } catch (err) {
       setError(describe(err, 'That code did not work.'));
@@ -138,8 +143,11 @@ export default function Login() {
           <h1 className="font-display font-700 text-2xl mb-1">Sign in</h1>
           <p className="text-text-muted text-sm mb-8">Use your Urban Trends staff account.</p>
 
+          {notice && !error && (
+            <div className="mb-4 px-3 py-2.5 rounded-lg bg-paper border border-line text-sm" role="status">{notice}</div>
+          )}
           {error && (
-            <div className="mb-4 px-3 py-2.5 rounded-lg bg-danger-soft text-danger text-sm">
+            <div className="mb-4 px-3 py-2.5 rounded-lg bg-danger-soft text-danger text-sm" role="alert">
               {error}
             </div>
           )}
@@ -163,9 +171,18 @@ export default function Login() {
             required
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="w-full px-3.5 py-2.5 rounded-lg border border-line bg-surface focus:border-accent outline-none mb-6"
+            className="w-full px-3.5 py-2.5 rounded-lg border border-line bg-surface focus:border-accent outline-none mb-4"
             placeholder="••••••••"
+            autoComplete="current-password"
           />
+
+          <label className="flex items-start gap-3 mb-6 min-h-[44px] cursor-pointer">
+            <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} className="mt-0.5 w-5 h-5 shrink-0 accent-[var(--color-ink)]" />
+            <span className="text-sm">
+              <span className="font-medium">Keep me signed in on this device</span>
+              <span className="block text-xs text-text-muted">Only on your own phone or computer. On a shared till, leave this off.</span>
+            </span>
+          </label>
 
           <button
             type="submit"
