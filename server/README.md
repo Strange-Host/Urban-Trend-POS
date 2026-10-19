@@ -48,3 +48,30 @@ Amounts are integer cents; debits are positive, credits negative. Use `postEntry
 **Nightly integrity job** runs at 02:00 East Africa Time, stores each result in `integrity_runs`, and logs an error naming every violation. It also reports if a protection trigger has been disabled or removed. A database lock keeps multiple instances from running it twice.
 
 **Not protected by the database:** a Postgres superuser or table owner can still disable triggers. That is why the nightly job checks the data and the triggers themselves.
+
+## Orders and payments (phase 3)
+
+Code in `src/orders/`, tables in `migrations/0003_orders_and_payments.sql`. No HTTP endpoints or screens yet: the new server has no login, products, customers or leads until later phases, so this phase is the tested core that those will call.
+
+**Orders.** `createOrder` allocates the permanent reference, stores the lines, logs a `created` event and books what is owed (customer receivable / sales) in one transaction. A discount can never exceed its line or the sale. A phone number can have only one active order (a database index, so two people creating at once cannot both succeed). An order's reference, customer, amounts and lines never change; only its status and assignment do, along the legal paths (`awaiting_dispatch` to `dispatched` or `cancelled`; `dispatched` to `delivered` or `returning`). Every change is an append-only `order_events` row.
+
+**Delivery attempts.** `recordDeliveryAttempt` keeps every attempt. Delivered completes the order; rescheduled needs a date and keeps it out; not claimed and refused send it back. A reason is required unless delivered.
+
+**Payment matching** (`ingestPaybillPayment`):
+
+| Case | Result |
+| --- | --- |
+| Reference found, amount equals what is owed | `applied`, receipt issued |
+| Reference found, amount is less | `part_paid`, balance reduced, receipt issued |
+| Reference found, amount is more | `excess`: owed part applied, the rest in suspense |
+| No reference, or one that matches nothing | `suspense`: all of it waits for a person |
+| Transaction code already recorded | rejected as a duplicate; returns the first result |
+| Cash at the shop | `recordShopCash`: needs a reason, cannot exceed what is owed |
+
+An order's balance is its customer-receivable balance in the ledger, and "paid" is derived from receipts, never a stored counter (Rule 2). An order can never be paid past what it owes (Rule 6): the excess goes to suspense. Money in suspense is resolved by `applySuspenseToOrder` (with `suggestMatches` to help a person choose) or `refundSuspense`.
+
+**Money at risk** (`moneyAtRisk`): dispatched with no outcome, delivered but unpaid, unmatched payments, and returns not yet back, each with its age, amount and owner. This is the data for the manager's daily page.
+
+**Integrity job** now also checks Rule 2 (receipts match the ledger), Rule 3 (money without an order reference, and suspense reconciling to its items) and Rule 6 (no order overpaid).
+
+**Not in this phase:** stock deduction at dispatch (no inventory in the new server yet), courier fees and payouts (phase 4), the return inspection process, and Convert to order (it needs leads, which arrive with the data import).
