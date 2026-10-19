@@ -90,6 +90,7 @@ describe('receipts are tied to the order reference and the ledger entry', () => 
     await pay();
     await expect(db.pool.query(`UPDATE payment_receipts SET amount_cents = amount_cents + 1`)).rejects.toThrow(/immutable/);
     await expect(db.pool.query(`DELETE FROM payment_receipts`)).rejects.toThrow(/immutable/);
-    await expect(db.pool.query(`TRUNCATE payment_receipts`)).rejects.toThrow(/immutable/);
+    // Refused either by our trigger or, now that paybill payments reference receipts, by Postgres's own foreign-key rule.
+    await expect(db.pool.query(`TRUNCATE payment_receipts`)).rejects.toThrow(/immutable|cannot truncate/);
   });
 });

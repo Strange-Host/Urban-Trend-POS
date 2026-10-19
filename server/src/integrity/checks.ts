@@ -5,11 +5,12 @@ import { isValidRef } from '../ledger/orderRef.js';
 // the data itself, and catches the case where the guards were switched off or bypassed (a restored backup, a hand-run
 // script, a disabled trigger).
 //
-// Rules checked so far are the ones that exist after phase 2: 1 (entries balance), 7 (records immutable),
-// 10 (order references unique, immutable). Later phases add the rest of the twelve.
+// Rules checked so far: 1 (entries balance), 2 (paid amount comes from receipts, never a counter), 3 (money without an
+// order reference sits in suspense), 6 (payments never exceed what is owed), 7 (records immutable), 10 (order
+// references unique, immutable). Later phases add the rest of the twelve.
 
 export interface Violation {
-  rule: 1 | 7 | 10 | null; // the rule number in the plan; null for supporting checks
+  rule: 1 | 2 | 3 | 6 | 7 | 10 | null; // the rule number in the plan; null for supporting checks
   check: string;
   message: string;
   ref?: string;
@@ -19,7 +20,7 @@ export interface IntegrityReport {
   ok: boolean;
   checkedAt: Date;
   durationMs: number;
-  counts: { entries: number; lines: number; orderRefs: number; receipts: number };
+  counts: { entries: number; lines: number; orderRefs: number; receipts: number; orders: number; payments: number };
   violations: Violation[];
 }
 
@@ -36,6 +37,14 @@ const GUARD_TRIGGERS: { table: string; trigger: string }[] = [
   { table: 'payment_receipts', trigger: 'payment_receipts_immutable' },
   { table: 'payment_receipts', trigger: 'payment_receipts_no_truncate' },
   { table: 'payment_receipts', trigger: 'receipts_match_entry' },
+  { table: 'orders', trigger: 'orders_guard' },
+  { table: 'orders', trigger: 'orders_no_truncate' },
+  { table: 'order_items', trigger: 'order_items_immutable' },
+  { table: 'order_events', trigger: 'order_events_immutable' },
+  { table: 'delivery_attempts', trigger: 'delivery_attempts_immutable' },
+  { table: 'paybill_payments', trigger: 'paybill_payments_immutable' },
+  { table: 'payment_exceptions', trigger: 'payment_exceptions_immutable' },
+  { table: 'exception_resolutions', trigger: 'exception_resolutions_immutable' },
 ];
 
 const MAX_REPORTED_PER_CHECK = 50; // a systemic problem should not produce a million-row alert
@@ -128,6 +137,58 @@ async function receiptsConsistent(db: Queryable): Promise<Violation[]> {
   return out;
 }
 
+async function ordersNeverOverpaid(db: Queryable): Promise<Violation[]> {
+  const { rows } = await db.query<{ order_ref: string; total: number; balance: number }>(
+    `SELECT o.order_ref, o.total_cents AS total,
+            COALESCE((SELECT sum(l.amount_cents) FROM journal_lines l JOIN journal_entries e ON e.id = l.entry_id JOIN accounts a ON a.id = l.account_id
+                       WHERE a.code = 'CUSTOMER_RECEIVABLE' AND e.order_ref = o.order_ref), 0)::bigint AS balance
+       FROM orders o
+     WHERE COALESCE((SELECT sum(l.amount_cents) FROM journal_lines l JOIN journal_entries e ON e.id = l.entry_id JOIN accounts a ON a.id = l.account_id
+                       WHERE a.code = 'CUSTOMER_RECEIVABLE' AND e.order_ref = o.order_ref), 0) NOT BETWEEN 0 AND o.total_cents
+     ORDER BY o.id LIMIT ${MAX_REPORTED_PER_CHECK}`);
+  return rows.map((r) => ({
+    rule: 6 as const, check: 'order_within_total', ref: r.order_ref,
+    message: `Order ${r.order_ref} owes ${r.balance} cents against a total of ${r.total}: it has been paid more than it owes, or its receivable went negative.`,
+  }));
+}
+
+async function paidMatchesReceipts(db: Queryable): Promise<Violation[]> {
+  const { rows } = await db.query<{ order_ref: string; paid: number; expected: number }>(
+    `SELECT o.order_ref,
+            COALESCE((SELECT sum(r.amount_cents) FROM payment_receipts r WHERE r.order_ref = o.order_ref), 0)::bigint AS paid,
+            (o.total_cents - COALESCE((SELECT sum(l.amount_cents) FROM journal_lines l JOIN journal_entries e ON e.id = l.entry_id JOIN accounts a ON a.id = l.account_id
+                                        WHERE a.code = 'CUSTOMER_RECEIVABLE' AND e.order_ref = o.order_ref), 0))::bigint AS expected
+       FROM orders o WHERE o.status <> 'cancelled'
+     ORDER BY o.id`);
+  return rows.filter((r) => r.paid !== r.expected).slice(0, MAX_REPORTED_PER_CHECK).map((r) => ({
+    rule: 2 as const, check: 'paid_matches_receipts', ref: r.order_ref,
+    message: `Order ${r.order_ref}: receipts add up to ${r.paid} cents but the ledger says ${r.expected} has been paid.`,
+  }));
+}
+
+async function moneyHasReference(db: Queryable): Promise<Violation[]> {
+  const { rows } = await db.query<{ id: number }>(
+    `SELECT DISTINCT e.id FROM journal_entries e JOIN journal_lines l ON l.entry_id = e.id JOIN accounts a ON a.id = l.account_id
+      WHERE e.order_ref IS NULL AND a.code = 'CUSTOMER_RECEIVABLE' ORDER BY e.id LIMIT ${MAX_REPORTED_PER_CHECK}`);
+  return rows.map((r) => ({
+    rule: 3 as const, check: 'money_has_reference',
+    message: `Journal entry ${r.id} moves customer money but carries no order reference. Money with no reference must sit in suspense.`,
+  }));
+}
+
+async function suspenseReconciles(db: Queryable): Promise<Violation[]> {
+  const { rows } = await db.query<{ ledger: number; open: number }>(
+    `SELECT COALESCE((SELECT sum(l.amount_cents) FROM journal_lines l JOIN accounts a ON a.id = l.account_id WHERE a.code = 'SUSPENSE'), 0)::bigint AS ledger,
+            COALESCE((SELECT sum(x.amount_cents) FROM payment_exceptions x), 0)::bigint
+          - COALESCE((SELECT sum(r.amount_cents) FROM exception_resolutions r), 0)::bigint AS open`);
+  const r = rows[0]!;
+  // Suspense is a liability: money held for someone else is a credit (negative).
+  return r.ledger === -r.open ? [] : [{
+    rule: 3, check: 'suspense_reconciles',
+    message: `The ledger holds ${-r.ledger} cents in suspense but the unresolved suspense items add up to ${r.open} cents.`,
+  }];
+}
+
 export async function runIntegrityChecks(db: Queryable): Promise<IntegrityReport> {
   const started = Date.now();
   const violations = [
@@ -138,10 +199,15 @@ export async function runIntegrityChecks(db: Queryable): Promise<IntegrityReport
     ...(await orderRefsValid(db)),
     ...(await entryRefsExist(db)),
     ...(await receiptsConsistent(db)),
+    ...(await ordersNeverOverpaid(db)),
+    ...(await paidMatchesReceipts(db)),
+    ...(await moneyHasReference(db)),
+    ...(await suspenseReconciles(db)),
   ];
-  const c = await db.query<{ e: number; l: number; o: number; r: number }>(
+  const c = await db.query<{ e: number; l: number; o: number; r: number; ord: number; pay: number }>(
     `SELECT (SELECT count(*) FROM journal_entries)::bigint AS e, (SELECT count(*) FROM journal_lines)::bigint AS l,
-            (SELECT count(*) FROM order_refs)::bigint AS o, (SELECT count(*) FROM payment_receipts)::bigint AS r`);
-  const counts = { entries: c.rows[0]!.e, lines: c.rows[0]!.l, orderRefs: c.rows[0]!.o, receipts: c.rows[0]!.r };
+            (SELECT count(*) FROM order_refs)::bigint AS o, (SELECT count(*) FROM payment_receipts)::bigint AS r,
+            (SELECT count(*) FROM orders)::bigint AS ord, (SELECT count(*) FROM paybill_payments)::bigint AS pay`);
+  const counts = { entries: c.rows[0]!.e, lines: c.rows[0]!.l, orderRefs: c.rows[0]!.o, receipts: c.rows[0]!.r, orders: c.rows[0]!.ord, payments: c.rows[0]!.pay };
   return { ok: violations.length === 0, checkedAt: new Date(), durationMs: Date.now() - started, counts, violations };
 }

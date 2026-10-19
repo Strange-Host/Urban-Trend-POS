@@ -146,8 +146,13 @@ export function postEntry(pool: Pool, input: PostEntryInput): Promise<PostResult
  * (post a fresh, correct entry instead).
  */
 export function reverseEntry(pool: Pool, opts: { entryId: number; reason: string; actor: string }): Promise<Entry> {
-  if (!opts.reason?.trim()) return Promise.reject(new HttpError(422, 'LEDGER_REASON_REQUIRED', 'A reversal needs a reason.'));
-  return withTransaction(pool, async (client) => {
+  return withTransaction(pool, (client) => reverseEntryTx(client, opts)).catch(mapDbError);
+}
+
+/** Same as reverseEntry, inside a transaction the caller already has open (so it commits or rolls back with their other work). */
+export async function reverseEntryTx(client: pg.PoolClient, opts: { entryId: number; reason: string; actor: string }): Promise<Entry> {
+  if (!opts.reason?.trim()) throw new HttpError(422, 'LEDGER_REASON_REQUIRED', 'A reversal needs a reason.');
+  try {
     const found = await client.query<EntryRow>(
       `SELECT id, order_ref, reverses_entry_id FROM journal_entries WHERE id = $1 FOR UPDATE`, [opts.entryId]);
     const original = found.rows[0];
@@ -166,7 +171,7 @@ export function reverseEntry(pool: Pool, opts: { entryId: number; reason: string
       lines: orig.lines.map((l) => ({ account: l.account, amountCents: -l.amountCents })),
     }, { reversesEntryId: opts.entryId, reason: opts.reason.trim() });
     return entry;
-  }).catch(mapDbError);
+  } catch (e) { return mapDbError(e); }
 }
 
 /** Signed balance of one account (debit positive) over every entry, or only those for one order. */
