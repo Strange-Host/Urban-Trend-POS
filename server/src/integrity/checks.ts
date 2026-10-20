@@ -5,12 +5,14 @@ import { isValidRef } from '../ledger/orderRef.js';
 // the data itself, and catches the case where the guards were switched off or bypassed (a restored backup, a hand-run
 // script, a disabled trigger).
 //
-// Rules checked so far: 1 (entries balance), 2 (paid amount comes from receipts, never a counter), 3 (money without an
-// order reference sits in suspense), 6 (payments never exceed what is owed), 7 (records immutable), 10 (order
-// references unique, immutable). Later phases add the rest of the twelve.
+// Rules checked so far: 1 (entries balance), 2 (paid amount comes from payments, never a counter), 3 (money without an
+// order reference sits in suspense), 4 (a courier's payable is what is earned and unpaid), 5 (an organization's
+// receivable is what it collected and has not remitted), 6 (payments never exceed what is owed), 7 (records immutable),
+// 10 (order references unique, immutable), 11 (every dispatch has a package fee line), 12 (fees and costs never
+// combined). Rules 8 and 9 (commission, payroll) arrive with payroll.
 
 export interface Violation {
-  rule: 1 | 2 | 3 | 6 | 7 | 10 | null; // the rule number in the plan; null for supporting checks
+  rule: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 10 | 11 | 12 | null; // the rule number in the plan; null for supporting checks
   check: string;
   message: string;
   ref?: string;
@@ -20,7 +22,7 @@ export interface IntegrityReport {
   ok: boolean;
   checkedAt: Date;
   durationMs: number;
-  counts: { entries: number; lines: number; orderRefs: number; receipts: number; orders: number; payments: number };
+  counts: { entries: number; lines: number; orderRefs: number; receipts: number; orders: number; payments: number; couriers: number };
   violations: Violation[];
 }
 
@@ -45,7 +47,20 @@ const GUARD_TRIGGERS: { table: string; trigger: string }[] = [
   { table: 'paybill_payments', trigger: 'paybill_payments_immutable' },
   { table: 'payment_exceptions', trigger: 'payment_exceptions_immutable' },
   { table: 'exception_resolutions', trigger: 'exception_resolutions_immutable' },
+  { table: 'couriers', trigger: 'couriers_guard' },
+  { table: 'orders', trigger: 'orders_dispatch_needs_fee' },
+  { table: 'package_fees', trigger: 'package_fees_immutable' },
+  { table: 'courier_costs', trigger: 'courier_costs_guard' },
+  { table: 'courier_payouts', trigger: 'courier_payouts_immutable' },
+  { table: 'payout_items', trigger: 'payout_items_immutable' },
+  { table: 'org_collections', trigger: 'org_collections_immutable' },
+  { table: 'org_statements', trigger: 'org_statements_immutable' },
+  { table: 'org_statement_lines', trigger: 'org_statement_lines_immutable' },
+  { table: 'custody_records', trigger: 'custody_guard' },
 ];
+
+const guardRule = (trigger: string): 1 | 7 | 10 | 11 =>
+  trigger.includes('balanced') ? 1 : trigger.startsWith('order_refs') ? 10 : trigger === 'orders_dispatch_needs_fee' ? 11 : 7;
 
 const MAX_REPORTED_PER_CHECK = 50; // a systemic problem should not produce a million-row alert
 
@@ -94,8 +109,8 @@ async function guardsInPlace(db: Queryable): Promise<Violation[]> {
   const out: Violation[] = [];
   for (const g of GUARD_TRIGGERS) {
     const enabled = state.get(`${g.table}.${g.trigger}`);
-    if (enabled === undefined) out.push({ rule: g.trigger.includes('balanced') ? 1 : g.trigger.startsWith('order_refs') ? 10 : 7, check: 'guard_present', message: `Protection trigger ${g.trigger} on ${g.table} is missing.` });
-    else if (enabled === 'D') out.push({ rule: g.trigger.includes('balanced') ? 1 : g.trigger.startsWith('order_refs') ? 10 : 7, check: 'guard_enabled', message: `Protection trigger ${g.trigger} on ${g.table} is DISABLED.` });
+    if (enabled === undefined) out.push({ rule: guardRule(g.trigger), check: 'guard_present', message: `Protection trigger ${g.trigger} on ${g.table} is missing.` });
+    else if (enabled === 'D') out.push({ rule: guardRule(g.trigger), check: 'guard_enabled', message: `Protection trigger ${g.trigger} on ${g.table} is DISABLED.` });
   }
   return out;
 }
@@ -155,14 +170,15 @@ async function ordersNeverOverpaid(db: Queryable): Promise<Violation[]> {
 async function paidMatchesReceipts(db: Queryable): Promise<Violation[]> {
   const { rows } = await db.query<{ order_ref: string; paid: number; expected: number }>(
     `SELECT o.order_ref,
-            COALESCE((SELECT sum(r.amount_cents) FROM payment_receipts r WHERE r.order_ref = o.order_ref), 0)::bigint AS paid,
+            (COALESCE((SELECT sum(r.amount_cents) FROM payment_receipts r WHERE r.order_ref = o.order_ref), 0)
+             + COALESCE((SELECT sum(k.amount_cents) FROM org_collections k WHERE k.order_ref = o.order_ref), 0))::bigint AS paid,
             (o.total_cents - COALESCE((SELECT sum(l.amount_cents) FROM journal_lines l JOIN journal_entries e ON e.id = l.entry_id JOIN accounts a ON a.id = l.account_id
                                         WHERE a.code = 'CUSTOMER_RECEIVABLE' AND e.order_ref = o.order_ref), 0))::bigint AS expected
        FROM orders o WHERE o.status <> 'cancelled'
      ORDER BY o.id`);
   return rows.filter((r) => r.paid !== r.expected).slice(0, MAX_REPORTED_PER_CHECK).map((r) => ({
     rule: 2 as const, check: 'paid_matches_receipts', ref: r.order_ref,
-    message: `Order ${r.order_ref}: receipts add up to ${r.paid} cents but the ledger says ${r.expected} has been paid.`,
+    message: `Order ${r.order_ref}: receipts and organization collections add up to ${r.paid} cents but the ledger says ${r.expected} has been paid.`,
   }));
 }
 
@@ -189,6 +205,86 @@ async function suspenseReconciles(db: Queryable): Promise<Violation[]> {
   }];
 }
 
+async function dispatchesHaveFees(db: Queryable): Promise<Violation[]> {
+  const { rows } = await db.query<{ order_ref: string }>(
+    `SELECT o.order_ref FROM orders o
+      WHERE o.status IN ('dispatched', 'delivered', 'returning') AND NOT EXISTS (SELECT 1 FROM package_fees f WHERE f.order_id = o.id)
+      ORDER BY o.id LIMIT ${MAX_REPORTED_PER_CHECK}`);
+  return rows.map((r) => ({ rule: 11 as const, check: 'dispatch_has_fee', ref: r.order_ref, message: `Order ${r.order_ref} was dispatched but has no package fee line.` }));
+}
+
+async function feesAndCostsNeverCombined(db: Queryable): Promise<Violation[]> {
+  const out: Violation[] = [];
+  const mixed = await db.query<{ id: number }>(
+    `SELECT e.id FROM journal_entries e
+      WHERE EXISTS (SELECT 1 FROM journal_lines l JOIN accounts a ON a.id = l.account_id WHERE l.entry_id = e.id AND a.code = 'COURIER_PACKAGE_FEES')
+        AND EXISTS (SELECT 1 FROM journal_lines l JOIN accounts a ON a.id = l.account_id WHERE l.entry_id = e.id AND a.code = 'COURIER_COSTS')
+      ORDER BY e.id LIMIT ${MAX_REPORTED_PER_CHECK}`);
+  for (const r of mixed.rows) out.push({ rule: 12, check: 'fees_costs_combined', message: `Journal entry ${r.id} mixes package fees and courier costs in one entry.` });
+  const items = await db.query<{ id: number }>(
+    `SELECT id FROM payout_items WHERE (package_fee_id IS NOT NULL) = (courier_cost_id IS NOT NULL) ORDER BY id LIMIT ${MAX_REPORTED_PER_CHECK}`);
+  for (const r of items.rows) out.push({ rule: 12, check: 'payout_line_combined', message: `Payout line ${r.id} is not exactly one package fee or one courier cost.` });
+  // The expense a fee or cost posted must match its own record, and be of its own kind.
+  const feeMismatch = await db.query<{ id: number }>(
+    `SELECT f.id FROM package_fees f JOIN journal_entries e ON e.id = f.entry_id
+      WHERE f.amount_cents <> COALESCE((SELECT sum(l.amount_cents) FROM journal_lines l JOIN accounts a ON a.id = l.account_id WHERE l.entry_id = e.id AND a.code = 'COURIER_PACKAGE_FEES'), 0)
+      ORDER BY f.id LIMIT ${MAX_REPORTED_PER_CHECK}`);
+  for (const r of feeMismatch.rows) out.push({ rule: 12, check: 'fee_entry_matches', message: `Package fee ${r.id} does not match the package fees posted for it in the ledger.` });
+  const costMismatch = await db.query<{ id: number }>(
+    `SELECT c.id FROM courier_costs c JOIN journal_entries e ON e.id = c.entry_id
+      WHERE c.amount_cents <> COALESCE((SELECT sum(l.amount_cents) FROM journal_lines l JOIN accounts a ON a.id = l.account_id WHERE l.entry_id = e.id AND a.code = 'COURIER_COSTS'), 0)
+      ORDER BY c.id LIMIT ${MAX_REPORTED_PER_CHECK}`);
+  for (const r of costMismatch.rows) out.push({ rule: 12, check: 'cost_entry_matches', message: `Courier cost ${r.id} does not match the courier costs posted for it in the ledger.` });
+  return out;
+}
+
+async function courierPayableMatchesUnpaid(db: Queryable): Promise<Violation[]> {
+  const out: Violation[] = [];
+  const noCourier = await db.query<{ id: number }>(
+    `SELECT DISTINCT e.id FROM journal_entries e JOIN journal_lines l ON l.entry_id = e.id JOIN accounts a ON a.id = l.account_id
+      WHERE a.code IN ('COURIER_PAYABLE', 'ORG_RECEIVABLE') AND e.courier_id IS NULL ORDER BY e.id LIMIT ${MAX_REPORTED_PER_CHECK}`);
+  for (const r of noCourier.rows) out.push({ rule: 4, check: 'courier_entry_has_courier', message: `Journal entry ${r.id} touches a courier balance but names no courier.` });
+
+  const { rows } = await db.query<{ id: number; name: string; ledger: number; unpaid: number }>(
+    `SELECT c.id, c.name,
+            COALESCE(-(SELECT sum(l.amount_cents) FROM journal_lines l JOIN journal_entries e ON e.id = l.entry_id JOIN accounts a ON a.id = l.account_id
+                        WHERE a.code = 'COURIER_PAYABLE' AND e.courier_id = c.id), 0)::bigint AS ledger,
+            (COALESCE((SELECT sum(f.amount_cents) FROM package_fees f WHERE f.courier_id = c.id AND f.amount_cents > 0
+                        AND NOT EXISTS (SELECT 1 FROM payout_items i WHERE i.package_fee_id = f.id)), 0)
+           + COALESCE((SELECT sum(k.amount_cents) FROM courier_costs k WHERE k.courier_id = c.id AND k.status = 'approved'
+                        AND NOT EXISTS (SELECT 1 FROM payout_items i WHERE i.courier_cost_id = k.id)), 0))::bigint AS unpaid
+       FROM couriers c ORDER BY c.id`);
+  for (const r of rows.filter((x) => x.ledger !== x.unpaid).slice(0, MAX_REPORTED_PER_CHECK)) {
+    out.push({ rule: 4, check: 'courier_payable_matches', message: `Courier ${r.name} (#${r.id}): the ledger says we owe ${r.ledger} cents but unpaid fees and approved costs add up to ${r.unpaid}.` });
+  }
+  return out;
+}
+
+async function organizationReceivableMatches(db: Queryable): Promise<Violation[]> {
+  const { rows } = await db.query<{ id: number; name: string; ledger: number; expected: number }>(
+    `SELECT c.id, c.name,
+            COALESCE((SELECT sum(l.amount_cents) FROM journal_lines l JOIN journal_entries e ON e.id = l.entry_id JOIN accounts a ON a.id = l.account_id
+                       WHERE a.code = 'ORG_RECEIVABLE' AND e.courier_id = c.id), 0)::bigint AS ledger,
+            (COALESCE((SELECT sum(k.amount_cents) FROM org_collections k WHERE k.courier_id = c.id), 0)
+           - COALESCE((SELECT sum(s.remitted_cents + s.fees_cents) FROM org_statements s WHERE s.courier_id = c.id), 0))::bigint AS expected
+       FROM couriers c WHERE c.kind = 'organization' ORDER BY c.id`);
+  return rows.filter((r) => r.ledger !== r.expected).slice(0, MAX_REPORTED_PER_CHECK).map((r) => ({
+    rule: 5 as const, check: 'org_receivable_matches',
+    message: `Organization ${r.name} (#${r.id}): the ledger says it holds ${r.ledger} cents but collections minus settlements is ${r.expected}.`,
+  }));
+}
+
+async function custodyReconciles(db: Queryable): Promise<Violation[]> {
+  const { rows } = await db.query<{ ledger: number; open: number }>(
+    `SELECT COALESCE((SELECT sum(l.amount_cents) FROM journal_lines l JOIN accounts a ON a.id = l.account_id WHERE a.code = 'STAFF_CASH_IN_HAND'), 0)::bigint AS ledger,
+            COALESCE((SELECT sum(amount_cents) FROM custody_records WHERE status = 'open'), 0)::bigint AS open`);
+  const r = rows[0]!;
+  return r.ledger === r.open ? [] : [{
+    rule: null, check: 'custody_reconciles',
+    message: `The ledger shows ${r.ledger} cents of staff cash in hand but open custody records add up to ${r.open} cents.`,
+  }];
+}
+
 export async function runIntegrityChecks(db: Queryable): Promise<IntegrityReport> {
   const started = Date.now();
   const violations = [
@@ -203,11 +299,17 @@ export async function runIntegrityChecks(db: Queryable): Promise<IntegrityReport
     ...(await paidMatchesReceipts(db)),
     ...(await moneyHasReference(db)),
     ...(await suspenseReconciles(db)),
+    ...(await dispatchesHaveFees(db)),
+    ...(await feesAndCostsNeverCombined(db)),
+    ...(await courierPayableMatchesUnpaid(db)),
+    ...(await organizationReceivableMatches(db)),
+    ...(await custodyReconciles(db)),
   ];
-  const c = await db.query<{ e: number; l: number; o: number; r: number; ord: number; pay: number }>(
+  const c = await db.query<{ e: number; l: number; o: number; r: number; ord: number; pay: number; cou: number }>(
     `SELECT (SELECT count(*) FROM journal_entries)::bigint AS e, (SELECT count(*) FROM journal_lines)::bigint AS l,
             (SELECT count(*) FROM order_refs)::bigint AS o, (SELECT count(*) FROM payment_receipts)::bigint AS r,
-            (SELECT count(*) FROM orders)::bigint AS ord, (SELECT count(*) FROM paybill_payments)::bigint AS pay`);
-  const counts = { entries: c.rows[0]!.e, lines: c.rows[0]!.l, orderRefs: c.rows[0]!.o, receipts: c.rows[0]!.r, orders: c.rows[0]!.ord, payments: c.rows[0]!.pay };
+            (SELECT count(*) FROM orders)::bigint AS ord, (SELECT count(*) FROM paybill_payments)::bigint AS pay,
+            (SELECT count(*) FROM couriers)::bigint AS cou`);
+  const counts = { entries: c.rows[0]!.e, lines: c.rows[0]!.l, orderRefs: c.rows[0]!.o, receipts: c.rows[0]!.r, orders: c.rows[0]!.ord, payments: c.rows[0]!.pay, couriers: c.rows[0]!.cou };
   return { ok: violations.length === 0, checkedAt: new Date(), durationMs: Date.now() - started, counts, violations };
 }

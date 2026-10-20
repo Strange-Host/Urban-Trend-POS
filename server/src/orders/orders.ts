@@ -4,6 +4,7 @@ import { withTransaction, type Queryable } from '../db/tx.js';
 import { HttpError } from '../errors.js';
 import { accountBalance, cr, dr, postEntryTx, reverseEntryTx } from '../ledger/ledger.js';
 import { allocateOrderRef, resolveOrderRef } from '../ledger/refs.js';
+import { organizationStanding } from '../couriers/organizations.js';
 
 export interface OrderCtx {
   pool: Pool;
@@ -125,8 +126,12 @@ export interface OrderView {
   totalCents: number;
   /** What the customer still owes: the order's customer-receivable balance in the ledger. */
   balanceCents: number;
-  /** What has been receipted against this order. Derived, never a stored counter (Rule 2). */
+  /** What has been paid against this order: receipted payments plus money collected by an organization. Derived, never a stored counter (Rule 2). */
   paidCents: number;
+  /** Of the paid amount, what an organization collected and has not yet remitted (not yet in the shop's hands). */
+  collectedByOrganizationCents: number;
+  /** Who it was dispatched with and the package fee entered for it; null until dispatch. */
+  dispatch: { courierId: number; courierName: string; packageFeeCents: number; zeroReason: string | null } | null;
   paymentStatus: 'unpaid' | 'part_paid' | 'paid' | 'cancelled';
   items: { sku: string | null; name: string; quantity: number; unitPriceCents: number; discountCents: number; lineTotalCents: number }[];
   attempts: { attemptNo: number; outcome: DeliveryOutcome; reason: string | null; rescheduleFor: string | null; recordedAt: Date }[];
@@ -146,19 +151,23 @@ export async function getOrderTx(db: Queryable, orderRef: string): Promise<Order
   const o = await db.query<OrderRow>(`SELECT * FROM orders WHERE order_ref = $1`, [orderRef]);
   const r = o.rows[0];
   if (!r) return null;
-  const [items, attempts, events, paid, balance] = await Promise.all([
+  const [items, attempts, events, paid, orgPaid, fee, balance] = await Promise.all([
     db.query(`SELECT sku, name, quantity, unit_price_cents, discount_cents, line_total_cents FROM order_items WHERE order_id = $1 ORDER BY id`, [r.id]),
     db.query(`SELECT attempt_no, outcome, reason, to_char(reschedule_for, 'YYYY-MM-DD') AS reschedule_for, recorded_at FROM delivery_attempts WHERE order_id = $1 ORDER BY attempt_no`, [r.id]),
     db.query(`SELECT type, actor, at, data FROM order_events WHERE order_id = $1 ORDER BY id`, [r.id]),
     db.query<{ s: number }>(`SELECT COALESCE(sum(amount_cents), 0)::bigint AS s FROM payment_receipts WHERE order_ref = $1`, [orderRef]),
+    db.query<{ s: number }>(`SELECT COALESCE(sum(amount_cents), 0)::bigint AS s FROM org_collections WHERE order_ref = $1`, [orderRef]),
+    db.query<{ courier_id: number; name: string; amount_cents: number; zero_reason: string | null }>(
+      `SELECT f.courier_id, c.name, f.amount_cents, f.zero_reason FROM package_fees f JOIN couriers c ON c.id = f.courier_id WHERE f.order_id = $1`, [r.id]),
     accountBalance(db, 'CUSTOMER_RECEIVABLE', { orderRef }),
   ]);
-  const paidCents = paid.rows[0]!.s;
+  const paidCents = paid.rows[0]!.s + orgPaid.rows[0]!.s;
   const paymentStatus = r.status === 'cancelled' ? 'cancelled' : paidCents === 0 ? 'unpaid' : balance === 0 ? 'paid' : 'part_paid';
   return {
     id: r.id, orderRef: r.order_ref, status: r.status, customerName: r.customer_name, customerPhone: r.customer_phone,
     subtotalCents: r.subtotal_cents, discountCents: r.discount_cents, totalCents: r.total_cents,
-    balanceCents: balance, paidCents, paymentStatus,
+    balanceCents: balance, paidCents, collectedByOrganizationCents: orgPaid.rows[0]!.s, paymentStatus,
+    dispatch: fee.rows[0] ? { courierId: fee.rows[0].courier_id, courierName: fee.rows[0].name, packageFeeCents: fee.rows[0].amount_cents, zeroReason: fee.rows[0].zero_reason } : null,
     items: items.rows.map((i) => ({ sku: i.sku, name: i.name, quantity: i.quantity, unitPriceCents: i.unit_price_cents, discountCents: i.discount_cents, lineTotalCents: i.line_total_cents })),
     attempts: attempts.rows.map((a) => ({ attemptNo: a.attempt_no, outcome: a.outcome, reason: a.reason, rescheduleFor: a.reschedule_for, recordedAt: a.recorded_at })),
     events: events.rows.map((e) => ({ type: e.type, actor: e.actor, at: e.at, data: e.data })),
@@ -187,13 +196,55 @@ function requireActor(actor: string): void {
 const wrongState = (o: OrderRow, action: string) =>
   new HttpError(409, 'ORDER_WRONG_STATE', `An order that is ${o.status.replace('_', ' ')} cannot be ${action}.`);
 
-export async function dispatchOrder(ctx: OrderCtx, input: { orderRef: string; actor: string; courierLabel?: string }): Promise<OrderView> {
+/**
+ * Dispatches an order with a courier, and records the package fee for the dispatch in the same transaction. A dispatch
+ * cannot complete without a fee line; a zero fee needs a reason (Rule 11). The fee is owed from this moment, whether or
+ * not the customer claims the parcel. Staff enter the amount by hand: there is no default fee.
+ */
+export async function dispatchOrder(ctx: OrderCtx, input: {
+  orderRef: string; actor: string; courierId: number;
+  packageFee: { amountCents: number; zeroReason?: string };
+}): Promise<OrderView> {
   requireActor(input.actor);
+  if (!Number.isSafeInteger(input.courierId)) throw new HttpError(422, 'DISPATCH_NEEDS_COURIER', 'Choose the rider or organization this is being dispatched with.');
+  const fee = input.packageFee;
+  if (!fee || !Number.isSafeInteger(fee.amountCents) || fee.amountCents < 0) {
+    throw new HttpError(422, 'DISPATCH_NEEDS_FEE', 'Enter the package fee for this dispatch. A dispatch cannot complete without one.');
+  }
+  if (fee.amountCents === 0 && !fee.zeroReason?.trim()) {
+    throw new HttpError(422, 'FEE_ZERO_NEEDS_REASON', 'A zero package fee needs a reason.');
+  }
   return withTransaction(ctx.pool, async (c) => {
     const o = await lockOrder(c, input.orderRef);
     if (o.status !== 'awaiting_dispatch') throw wrongState(o, 'dispatched');
+
+    const courier = await c.query<{ id: number; name: string; active: boolean; kind: string; collects_payment: boolean }>(
+      `SELECT id, name, active, kind, collects_payment FROM couriers WHERE id = $1`, [input.courierId]);
+    const cur = courier.rows[0];
+    if (!cur) throw new HttpError(404, 'COURIER_NOT_FOUND', 'Courier not found.');
+    if (!cur.active) throw new HttpError(409, 'COURIER_INACTIVE', `${cur.name} is deactivated and cannot take new dispatches.`);
+    if (cur.kind === 'organization' && cur.collects_payment) {
+      const standing = await organizationStanding(c, cur.id);
+      if (standing.paused) {
+        throw new HttpError(409, 'ORG_PAUSED', `${cur.name} has overdue balances above its limit. New collect-on-delivery parcels are paused until it remits.`,
+          { overdueCents: standing.overdueCents, limitCents: standing.limitCents });
+      }
+    }
+
+    let entryId: number | null = null;
+    if (fee.amountCents > 0) {
+      const { entry } = await postEntryTx(c, {
+        description: `Package fee for ${o.order_ref}`, actor: input.actor, orderRef: o.order_ref, courierId: cur.id,
+        idempotencyKey: `package-fee:${o.order_ref}`,
+        lines: [dr('COURIER_PACKAGE_FEES', fee.amountCents), cr('COURIER_PAYABLE', fee.amountCents)],
+      });
+      entryId = entry.id;
+    }
+    await c.query(
+      `INSERT INTO package_fees (order_id, order_ref, courier_id, amount_cents, zero_reason, entry_id, recorded_by) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [o.id, o.order_ref, cur.id, fee.amountCents, fee.amountCents === 0 ? fee.zeroReason!.trim() : null, entryId, input.actor.trim()]);
     await c.query(`UPDATE orders SET status = 'dispatched', dispatched_at = now(), updated_at = now() WHERE id = $1`, [o.id]);
-    await addEvent(c, o, 'dispatched', input.actor, { courier: input.courierLabel ?? null });
+    await addEvent(c, o, 'dispatched', input.actor, { courier_id: cur.id, courier: cur.name, package_fee_cents: fee.amountCents });
     return (await getOrderTx(c, o.order_ref))!;
   });
 }
