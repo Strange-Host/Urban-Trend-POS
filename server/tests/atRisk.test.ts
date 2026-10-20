@@ -1,8 +1,9 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { dispatchOrder, recordDeliveryAttempt } from '../src/orders/orders.js';
+import { createPayout } from '../src/couriers/payables.js';
+import { recordDeliveryAttempt } from '../src/orders/orders.js';
 import { moneyAtRisk } from '../src/orders/atRisk.js';
 import { ingestPaybillPayment } from '../src/orders/payments.js';
-import { makeEnv, newOrder, type Env } from './orderHelpers.js';
+import { defaultRider, dispatch, makeEnv, newOrder, type Env } from './orderHelpers.js';
 
 let env: Env;
 beforeAll(async () => { env = await makeEnv(); });
@@ -14,27 +15,31 @@ describe('money at risk', () => {
   it('is empty for a healthy, fresh system', async () => {
     const o = await newOrder(env);
     await ingestPaybillPayment({ pool: env.db.pool }, { transCode: 'FRESH00001', amountCents: o.totalCents, accountRef: o.orderRef });
-    await dispatchOrder(env.ctx, { orderRef: o.orderRef, actor: 'a' });
+    await dispatch(env, o.orderRef, 'a');
     await recordDeliveryAttempt(env.ctx, { orderRef: o.orderRef, outcome: 'delivered', actor: 'r' });
     expect(await moneyAtRisk(env.db.pool)).toEqual([]);
-    expect(await moneyAtRisk(env.db.pool, { now: days(30) })).toEqual([]); // paid and delivered: never a risk, however old
+    // The customer side is fine however old it gets, but the rider's fee, unpaid for a month, becomes a risk of its own...
+    expect((await moneyAtRisk(env.db.pool, { now: days(30) })).map((i) => i.kind)).toEqual(['courier_unpaid']);
+    // ...and goes away once the rider is paid.
+    await createPayout({ pool: env.db.pool }, { courierId: await defaultRider(env), method: 'mpesa', paymentRef: 'QWE0000001', actor: 'manager' });
+    expect(await moneyAtRisk(env.db.pool, { now: days(30) })).toEqual([]);
   });
 
   it('flags every kind of trouble with its age and amount, oldest first', async () => {
     const stuck = await newOrder(env, { assignedTo: 'dispatcher-1' });                       // dispatched, never heard from
-    await dispatchOrder(env.ctx, { orderRef: stuck.orderRef, actor: 'a' });
+    await dispatch(env, stuck.orderRef, 'a');
 
     const unpaid = await newOrder(env, { items: [{ name: 'X', quantity: 1, unitPriceCents: 120_000 }] }); // delivered, not paid
-    await dispatchOrder(env.ctx, { orderRef: unpaid.orderRef, actor: 'a' });
+    await dispatch(env, unpaid.orderRef, 'a');
     await recordDeliveryAttempt(env.ctx, { orderRef: unpaid.orderRef, outcome: 'delivered', actor: 'r' });
 
     const coming = await newOrder(env);                                                        // refused, on its way back
-    await dispatchOrder(env.ctx, { orderRef: coming.orderRef, actor: 'a' });
+    await dispatch(env, coming.orderRef, 'a');
     await recordDeliveryAttempt(env.ctx, { orderRef: coming.orderRef, outcome: 'refused', reason: 'no money', actor: 'r' });
 
     const paidFine = await newOrder(env);                                                      // fully healthy: must NOT appear
     await ingestPaybillPayment({ pool: env.db.pool }, { transCode: 'HEALTHY001', amountCents: paidFine.totalCents, accountRef: paidFine.orderRef });
-    await dispatchOrder(env.ctx, { orderRef: paidFine.orderRef, actor: 'a' });
+    await dispatch(env, paidFine.orderRef, 'a');
     await recordDeliveryAttempt(env.ctx, { orderRef: paidFine.orderRef, outcome: 'delivered', actor: 'r' });
 
     await ingestPaybillPayment({ pool: env.db.pool }, { transCode: 'LOST000001', amountCents: 7_777, accountRef: 'garbage' }); // unmatched

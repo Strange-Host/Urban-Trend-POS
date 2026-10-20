@@ -75,3 +75,25 @@ An order's balance is its customer-receivable balance in the ledger, and "paid" 
 **Integrity job** now also checks Rule 2 (receipts match the ledger), Rule 3 (money without an order reference, and suspense reconciling to its items) and Rule 6 (no order overpaid).
 
 **Not in this phase:** stock deduction at dispatch (no inventory in the new server yet), courier fees and payouts (phase 4), the return inspection process, and Convert to order (it needs leads, which arrive with the data import).
+
+## Couriers, payables and organizations (phase 4)
+
+Code in `src/couriers/` and `src/orders/custody.ts`, tables in `migrations/0004_couriers.sql`. Like phase 3, this is the tested core with no HTTP endpoints or screens yet.
+
+**One registry, two kinds.** `addRider` and `addOrganization` (couriers are deactivated, never deleted; a kind never changes). Riders never collect money and never log in: staff record outcomes from the rider's report (a database rule, not just code). Organizations may collect the customer's payment, have optional named agents, and can carry an overdue limit.
+
+**Ledger entries now carry a courier.** `journal_entries.courier_id` means "what we owe this rider" and "what this organization holds" are read from the ledger itself and cannot drift from a separate counter.
+
+**Package fee at dispatch (Rule 11).** `dispatchOrder` needs a courier and a fee entered by hand; there is no default. A zero fee needs a reason. The fee is owed from dispatch whether or not the customer claims the parcel. A database trigger refuses to mark an order dispatched without a fee line, even if the code is bypassed. A deactivated courier cannot take dispatches.
+
+**Courier costs, kept apart from fees (Rule 12).** `recordCourierCost` then `approveCourierCost` by someone else (the database refuses self-approval). Costs and fees post to different accounts and a payout lists each as its own line, so reports can show them side by side without mixing them.
+
+**Payouts.** `createPayout` lists what is unpaid for a courier, closes those items and posts one entry. The total is the sum of the items (never typed in), each item can be paid once, M-Pesa and bank payments need a reference, and cash comes out of the till. Zero fees owe nothing.
+
+**Organizations that collect (Rule 5).** `recordOrgCollection` moves the money from the customer's account to the organization's: the order counts as paid but is not yet in the shop's hands. `createStatement` settles it: the organization remits cash, the fees we owe it for those parcels are netted off, and anything not covered stays owing. Expected, charged (as the organization states it, and as our own fee records show) and received are all kept, with both variances. `organizationStanding` ages what an organization holds (0-7, 8-14, 15-30, over 30 days), settling the oldest first. When the overdue part passes the organization's limit, new collect-on-delivery parcels are **paused** until it remits.
+
+**Custody of shop cash.** Cash taken at the shop opens a custody record naming who holds it; `depositCustody` moves it to the till. Cash held for days shows as money at risk.
+
+**Integrity job** now also checks Rule 4 (a courier's payable equals unpaid fees and approved costs), Rule 5 (an organization's receivable equals collected minus settled), Rule 11 (every dispatch has a fee line), Rule 12 (fees and costs never combined) and custody. **Money at risk** adds unpaid courier money, dispatches with no fee line, overdue organizations and cash not deposited.
+
+**Not in this phase:** correcting a wrongly entered package fee (a fee line is immutable; there is no correction flow yet), commission and payroll (phase 5), and screens.

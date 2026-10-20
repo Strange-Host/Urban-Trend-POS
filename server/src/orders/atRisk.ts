@@ -1,10 +1,12 @@
 import type { Queryable } from '../db/tx.js';
+import { organizationStanding } from '../couriers/organizations.js';
 
 // "Money at risk": every place where money or goods could be going missing, with the age and whose it is.
-// This is the data behind the manager's daily page. Items from later phases (courier fees, organization balances,
-// dispatches without a fee) are added here as those phases arrive.
+// This is the data behind the manager's daily page. Later phases add their own kinds here (payroll, discounts).
 
-export type RiskKind = 'dispatched_no_outcome' | 'delivered_unpaid' | 'unmatched_payment' | 'returning';
+export type RiskKind =
+  | 'dispatched_no_outcome' | 'delivered_unpaid' | 'unmatched_payment' | 'returning'
+  | 'courier_unpaid' | 'dispatch_no_fee' | 'organization_overdue' | 'cash_not_deposited';
 
 export interface RiskItem {
   kind: RiskKind;
@@ -25,6 +27,10 @@ export interface RiskOptions {
   deliveredUnpaidDays?: number;
   /** An order that failed delivery and has not come back for this long is flagged. */
   returningDays?: number;
+  /** Package fees and approved costs we owe a courier, unpaid for this long, are flagged. */
+  courierUnpaidDays?: number;
+  /** Shop cash held by a staff member and not deposited for this long is flagged. */
+  cashHeldDays?: number;
 }
 
 export async function moneyAtRisk(db: Queryable, opts: RiskOptions = {}): Promise<RiskItem[]> {
@@ -32,6 +38,8 @@ export async function moneyAtRisk(db: Queryable, opts: RiskOptions = {}): Promis
   const noOutcomeDays = opts.dispatchedNoOutcomeDays ?? 3;
   const unpaidDays = opts.deliveredUnpaidDays ?? 2;
   const returningDays = opts.returningDays ?? 3;
+  const courierUnpaidDays = opts.courierUnpaidDays ?? 7;
+  const cashHeldDays = opts.cashHeldDays ?? 2;
 
   const { rows } = await db.query<{ kind: RiskKind; order_ref: string | null; amount: number; since: Date; owner: string | null; detail: string }>(
     `WITH owed AS (
@@ -65,7 +73,45 @@ export async function moneyAtRisk(db: Queryable, opts: RiskOptions = {}): Promis
         AND COALESCE((SELECT max(ev.at) FROM order_events ev WHERE ev.order_id = o.id AND ev.type = 'returning'), o.updated_at) < $1::timestamptz - make_interval(days => $4::int)`,
     [now, noOutcomeDays, unpaidDays, returningDays]);
 
-  return rows
+  const extra: typeof rows = [];
+
+  // Courier money we owe and have not paid: one line per courier, aged by their oldest unpaid item.
+  const unpaid = await db.query<{ id: number; name: string; amount: number; since: Date; n: number }>(
+    `WITH items AS (
+       SELECT f.courier_id, f.amount_cents AS amt, f.recorded_at AS at FROM package_fees f
+        WHERE f.amount_cents > 0 AND NOT EXISTS (SELECT 1 FROM payout_items i WHERE i.package_fee_id = f.id)
+       UNION ALL
+       SELECT k.courier_id, k.amount_cents, k.decided_at FROM courier_costs k
+        WHERE k.status = 'approved' AND NOT EXISTS (SELECT 1 FROM payout_items i WHERE i.courier_cost_id = k.id))
+     SELECT c.id, c.name, sum(items.amt)::bigint AS amount, min(items.at) AS since, count(*)::bigint AS n
+       FROM items JOIN couriers c ON c.id = items.courier_id GROUP BY c.id, c.name
+     HAVING min(items.at) < $1::timestamptz - make_interval(days => $2::int)`, [now, courierUnpaidDays]);
+  for (const u of unpaid.rows) extra.push({ kind: 'courier_unpaid', order_ref: null, amount: u.amount, since: u.since, owner: null, detail: `We owe ${u.name} for ${u.n} unpaid item(s)` });
+
+  // A dispatch with no package fee line (for example one brought in from the old system).
+  const noFee = await db.query<{ order_ref: string; amount: number; since: Date; owner: string | null }>(
+    `SELECT o.order_ref, o.total_cents AS amount, COALESCE(o.dispatched_at, o.updated_at) AS since, o.assigned_to AS owner
+       FROM orders o WHERE o.status IN ('dispatched', 'delivered', 'returning') AND NOT EXISTS (SELECT 1 FROM package_fees f WHERE f.order_id = o.id)`);
+  for (const n of noFee.rows) extra.push({ kind: 'dispatch_no_fee', order_ref: n.order_ref, amount: n.amount, since: n.since, owner: n.owner, detail: 'Dispatched with no package fee line' });
+
+  // Organizations holding customer money past their overdue limit.
+  const orgs = await db.query<{ id: number; name: string }>(`SELECT id, name FROM couriers WHERE kind = 'organization' AND collects_payment`);
+  for (const o of orgs.rows) {
+    const st = await organizationStanding(db, o.id, now);
+    if (st.overdueCents > 0) {
+      const oldest = await db.query<{ d: Date }>(`SELECT min(collected_on)::timestamptz AS d FROM org_collections WHERE courier_id = $1`, [o.id]);
+      extra.push({ kind: 'organization_overdue', order_ref: null, amount: st.overdueCents, since: oldest.rows[0]!.d, owner: null,
+        detail: `${o.name} holds overdue money${st.paused ? ' and is paused for new collect-on-delivery parcels' : ''}` });
+    }
+  }
+
+  // Shop cash still in someone's hands.
+  const cash = await db.query<{ order_ref: string; amount: number; since: Date; holder: string }>(
+    `SELECT order_ref, amount_cents AS amount, opened_at AS since, holder FROM custody_records
+      WHERE status = 'open' AND opened_at < $1::timestamptz - make_interval(days => $2::int)`, [now, cashHeldDays]);
+  for (const k of cash.rows) extra.push({ kind: 'cash_not_deposited', order_ref: k.order_ref, amount: k.amount, since: k.since, owner: k.holder, detail: `Shop cash held by ${k.holder}, not yet deposited` });
+
+  return [...rows, ...extra]
     .map((r) => ({
       kind: r.kind, orderRef: r.order_ref, amountCents: r.amount, since: r.since,
       ageDays: Math.floor((now.getTime() - r.since.getTime()) / 86_400_000), owner: r.owner, detail: r.detail,

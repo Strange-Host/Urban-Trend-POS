@@ -1,9 +1,9 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { runIntegrityChecks } from '../src/integrity/checks.js';
 import { accountBalance, trialBalance } from '../src/ledger/ledger.js';
-import { dispatchOrder, getOrderTx, recordDeliveryAttempt, cancelOrder } from '../src/orders/orders.js';
+import { getOrderTx, recordDeliveryAttempt, cancelOrder } from '../src/orders/orders.js';
 import { applySuspenseToOrder, ingestPaybillPayment, listSuspense, recordShopCash, refundSuspense, suggestMatches } from '../src/orders/payments.js';
-import { makeEnv, newOrder, freshPhone, type Env } from './orderHelpers.js';
+import { dispatch, makeEnv, newOrder, freshPhone, type Env } from './orderHelpers.js';
 
 let env: Env;
 beforeAll(async () => { env = await makeEnv(); });
@@ -32,7 +32,7 @@ describe('PHASE 3 DONE WHEN: a test order runs from creation to a matched paybil
     expect(afterPay.paidCents).toBe(250_000);
     expect(afterPay.events.map((e) => e.type)).toEqual(['created', 'payment_received']);
 
-    await dispatchOrder(env.ctx, { orderRef: created.orderRef, actor: 'dispatcher' });
+    await dispatch(env, created.orderRef, 'dispatcher');
     const delivered = await recordDeliveryAttempt(env.ctx, { orderRef: created.orderRef, outcome: 'delivered', actor: 'rider' });
     expect(delivered.status).toBe('delivered');
     expect(delivered.paymentStatus).toBe('paid');

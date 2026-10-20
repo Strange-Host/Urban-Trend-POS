@@ -1,8 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { accountBalance, trialBalance } from '../src/ledger/ledger.js';
 import { isValidRef } from '../src/ledger/orderRef.js';
-import { cancelOrder, dispatchOrder, findOrder, getOrderTx, recordDeliveryAttempt } from '../src/orders/orders.js';
-import { freshPhone, makeEnv, newOrder, type Env } from './orderHelpers.js';
+import { cancelOrder, findOrder, getOrderTx, recordDeliveryAttempt } from '../src/orders/orders.js';
+import { dispatch, freshPhone, makeEnv, newOrder, type Env } from './orderHelpers.js';
 
 let env: Env;
 beforeAll(async () => { env = await makeEnv(); });
@@ -101,7 +101,7 @@ describe('orders are protected in the database', () => {
   it('a status can only move along the legal paths', async () => {
     const o = await newOrder(env);
     await expect(env.db.pool.query(`UPDATE orders SET status = 'delivered' WHERE id = $1`, [o.id])).rejects.toThrow(/cannot move from awaiting_dispatch to delivered/);
-    await dispatchOrder(env.ctx, { orderRef: o.orderRef, actor: 'a' });
+    await dispatch(env, o.orderRef, 'a');
     await expect(env.db.pool.query(`UPDATE orders SET status = 'cancelled' WHERE id = $1`, [o.id])).rejects.toThrow(/cannot move from dispatched to cancelled/);
     await recordDeliveryAttempt(env.ctx, { orderRef: o.orderRef, outcome: 'delivered', actor: 'a' });
     await expect(env.db.pool.query(`UPDATE orders SET status = 'dispatched' WHERE id = $1`, [o.id])).rejects.toThrow(/cannot move from delivered/);
@@ -111,7 +111,7 @@ describe('orders are protected in the database', () => {
 describe('dispatch and delivery attempts', () => {
   it('delivers: dispatch, then a delivered attempt', async () => {
     const o = await newOrder(env);
-    const d = await dispatchOrder(env.ctx, { orderRef: o.orderRef, actor: 'dispatcher', courierLabel: 'Rider Sam' });
+    const d = await dispatch(env, o.orderRef, 'dispatcher');
     expect(d.status).toBe('dispatched');
     expect(d.dispatchedAt).not.toBeNull();
     const done = await recordDeliveryAttempt(env.ctx, { orderRef: o.orderRef, outcome: 'delivered', actor: 'rider' });
@@ -123,7 +123,7 @@ describe('dispatch and delivery attempts', () => {
 
   it('keeps EVERY attempt: rescheduled twice, then delivered', async () => {
     const o = await newOrder(env);
-    await dispatchOrder(env.ctx, { orderRef: o.orderRef, actor: 'a' });
+    await dispatch(env, o.orderRef, 'a');
     await recordDeliveryAttempt(env.ctx, { orderRef: o.orderRef, outcome: 'rescheduled', reason: 'not home', rescheduleFor: '2026-11-01', actor: 'rider' });
     const mid = await recordDeliveryAttempt(env.ctx, { orderRef: o.orderRef, outcome: 'rescheduled', reason: 'phone off', rescheduleFor: '2026-11-03', actor: 'rider' });
     expect(mid.status).toBe('dispatched');
@@ -133,7 +133,7 @@ describe('dispatch and delivery attempts', () => {
 
   it.each(['not_claimed', 'refused'] as const)('%s sends the order back (returning)', async (outcome) => {
     const o = await newOrder(env);
-    await dispatchOrder(env.ctx, { orderRef: o.orderRef, actor: 'a' });
+    await dispatch(env, o.orderRef, 'a');
     const r = await recordDeliveryAttempt(env.ctx, { orderRef: o.orderRef, outcome, reason: 'customer said no', actor: 'rider' });
     expect(r.status).toBe('returning');
     expect(r.events.map((e) => e.type)).toContain('returning');
@@ -141,7 +141,7 @@ describe('dispatch and delivery attempts', () => {
 
   it('needs a reason unless delivered, and a date exactly when rescheduled', async () => {
     const o = await newOrder(env);
-    await dispatchOrder(env.ctx, { orderRef: o.orderRef, actor: 'a' });
+    await dispatch(env, o.orderRef, 'a');
     const ref = o.orderRef;
     await expect(recordDeliveryAttempt(env.ctx, { orderRef: ref, outcome: 'refused', actor: 'r' })).rejects.toMatchObject({ code: 'ATTEMPT_REASON_REQUIRED' });
     await expect(recordDeliveryAttempt(env.ctx, { orderRef: ref, outcome: 'rescheduled', reason: 'x', actor: 'r' })).rejects.toMatchObject({ code: 'ATTEMPT_DATE_REQUIRED' });
@@ -152,16 +152,16 @@ describe('dispatch and delivery attempts', () => {
   it('refuses actions in the wrong state', async () => {
     const o = await newOrder(env);
     await expect(recordDeliveryAttempt(env.ctx, { orderRef: o.orderRef, outcome: 'delivered', actor: 'r' })).rejects.toMatchObject({ code: 'ORDER_WRONG_STATE' }); // not dispatched yet
-    await dispatchOrder(env.ctx, { orderRef: o.orderRef, actor: 'a' });
-    await expect(dispatchOrder(env.ctx, { orderRef: o.orderRef, actor: 'a' })).rejects.toMatchObject({ code: 'ORDER_WRONG_STATE' });
+    await dispatch(env, o.orderRef, 'a');
+    await expect(dispatch(env, o.orderRef, 'a')).rejects.toMatchObject({ code: 'ORDER_WRONG_STATE' });
     await recordDeliveryAttempt(env.ctx, { orderRef: o.orderRef, outcome: 'delivered', actor: 'r' });
     await expect(recordDeliveryAttempt(env.ctx, { orderRef: o.orderRef, outcome: 'delivered', actor: 'r' })).rejects.toMatchObject({ code: 'ORDER_WRONG_STATE' });
-    await expect(dispatchOrder(env.ctx, { orderRef: 'UT-22222222', actor: 'a' })).rejects.toMatchObject({ code: 'ORDER_NOT_FOUND' });
+    await expect(dispatch(env, 'UT-22222222', 'a')).rejects.toMatchObject({ code: 'ORDER_NOT_FOUND' });
   });
 
   it('delivery attempts cannot be edited or deleted', async () => {
     const o = await newOrder(env);
-    await dispatchOrder(env.ctx, { orderRef: o.orderRef, actor: 'a' });
+    await dispatch(env, o.orderRef, 'a');
     await recordDeliveryAttempt(env.ctx, { orderRef: o.orderRef, outcome: 'refused', reason: 'no', actor: 'r' });
     await expect(env.db.pool.query(`UPDATE delivery_attempts SET outcome = 'delivered'`)).rejects.toThrow(/immutable/);
     await expect(env.db.pool.query(`DELETE FROM delivery_attempts`)).rejects.toThrow(/immutable/);
@@ -186,10 +186,10 @@ describe('cancelling', () => {
     await expect(cancelOrder(env.ctx, { orderRef: o.orderRef, reason: ' ', actor: 'a' })).rejects.toMatchObject({ code: 'ORDER_REASON_REQUIRED' });
     await cancelOrder(env.ctx, { orderRef: o.orderRef, reason: 'x', actor: 'a' });
     await expect(cancelOrder(env.ctx, { orderRef: o.orderRef, reason: 'x', actor: 'a' })).rejects.toMatchObject({ code: 'ORDER_WRONG_STATE' });
-    await expect(dispatchOrder(env.ctx, { orderRef: o.orderRef, actor: 'a' })).rejects.toMatchObject({ code: 'ORDER_WRONG_STATE' });
+    await expect(dispatch(env, o.orderRef, 'a')).rejects.toMatchObject({ code: 'ORDER_WRONG_STATE' });
 
     const sent = await newOrder(env);
-    await dispatchOrder(env.ctx, { orderRef: sent.orderRef, actor: 'a' });
+    await dispatch(env, sent.orderRef, 'a');
     await expect(cancelOrder(env.ctx, { orderRef: sent.orderRef, reason: 'x', actor: 'a' })).rejects.toMatchObject({ code: 'ORDER_WRONG_STATE' });
   });
 });

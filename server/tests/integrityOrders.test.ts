@@ -2,8 +2,7 @@ import type pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { runIntegrityChecks } from '../src/integrity/checks.js';
 import { ingestPaybillPayment } from '../src/orders/payments.js';
-import { dispatchOrder } from '../src/orders/orders.js';
-import { makeEnv, newOrder, type Env } from './orderHelpers.js';
+import { dispatch, makeEnv, newOrder, type Env } from './orderHelpers.js';
 
 const envs: Env[] = [];
 afterAll(async () => { for (const e of envs) await e.db.drop(); });
@@ -14,7 +13,7 @@ async function healthy(): Promise<{ env: Env; ref: string }> {
   const o = await newOrder(env, { items: [{ name: 'X', quantity: 1, unitPriceCents: 100_000 }] });
   await ingestPaybillPayment({ pool: env.db.pool }, { transCode: 'INTEG00001', amountCents: 40_000, accountRef: o.orderRef });
   await ingestPaybillPayment({ pool: env.db.pool }, { transCode: 'INTEG00002', amountCents: 5_000, accountRef: 'unknown' });
-  await dispatchOrder(env.ctx, { orderRef: o.orderRef, actor: 'a' });
+  await dispatch(env, o.orderRef, 'a');
   return { env, ref: o.orderRef };
 }
 
