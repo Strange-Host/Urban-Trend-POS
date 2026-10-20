@@ -248,6 +248,9 @@ export async function recordShopCash(ctx: PaymentCtx, input: { orderRef: string;
       lines: [dr('STAFF_CASH_IN_HAND', input.amountCents), cr('CUSTOMER_RECEIVABLE', input.amountCents)],
     });
     const receipt = await issueReceiptTx(c, { orderRef: order.order_ref, journalEntryId: entry.id, amountCents: input.amountCents, method: 'cash', actor: input.actor });
+    // The cash is now in this person's hands: a custody record stays open until it is deposited (see depositCustody).
+    await c.query(`INSERT INTO custody_records (holder, order_ref, amount_cents, receipt_no, entry_id) VALUES ($1, $2, $3, $4, $5)`,
+      [input.actor.trim(), order.order_ref, input.amountCents, receipt.receiptNo, entry.id]);
     await c.query(`INSERT INTO order_events (order_id, order_ref, type, data, actor) VALUES ($1, $2, 'shop_cash_recorded', $3, $4)`,
       [order.id, order.order_ref, JSON.stringify({ amount_cents: input.amountCents, reason: input.reason.trim(), receipt_no: receipt.receiptNo }), input.actor]);
     return { receiptNo: receipt.receiptNo, balanceCents: balance - input.amountCents };

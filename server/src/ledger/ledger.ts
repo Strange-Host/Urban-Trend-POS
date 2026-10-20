@@ -17,6 +17,8 @@ export interface PostEntryInput {
   description: string;
   actor: string;
   orderRef?: string | null;
+  /** The courier this entry concerns. Required for anything touching COURIER_PAYABLE or ORG_RECEIVABLE, so each courier's balance is read from the ledger. */
+  courierId?: number | null;
   lines: LineInput[];
   /** Makes the post safe to retry: the same key and content returns the original entry instead of posting twice. */
   idempotencyKey?: string;
@@ -27,6 +29,7 @@ export interface Entry {
   postedAt: Date;
   description: string;
   orderRef: string | null;
+  courierId: number | null;
   actor: string;
   reversesEntryId: number | null;
   reason: string | null;
@@ -51,22 +54,22 @@ function validateLines(lines: LineInput[]): void {
 }
 
 const hashRequest = (i: PostEntryInput) =>
-  createHash('sha256').update(JSON.stringify([i.description, i.orderRef ?? null, i.lines])).digest('hex');
+  createHash('sha256').update(JSON.stringify([i.description, i.orderRef ?? null, i.courierId ?? null, i.lines])).digest('hex');
 
 interface EntryRow {
-  id: number; posted_at: Date; description: string; order_ref: string | null; actor: string;
+  id: number; posted_at: Date; description: string; order_ref: string | null; courier_id: number | null; actor: string;
   reverses_entry_id: number | null; reason: string | null; idempotency_hash?: string | null;
 }
 
 export async function getEntry(db: Queryable, id: number): Promise<Entry | null> {
   const e = await db.query<EntryRow>(
-    `SELECT id, posted_at, description, order_ref, actor, reverses_entry_id, reason FROM journal_entries WHERE id = $1`, [id]);
+    `SELECT id, posted_at, description, order_ref, courier_id, actor, reverses_entry_id, reason FROM journal_entries WHERE id = $1`, [id]);
   if (!e.rows[0]) return null;
   const l = await db.query<{ code: string; amount_cents: number }>(
     `SELECT a.code, l.amount_cents FROM journal_lines l JOIN accounts a ON a.id = l.account_id WHERE l.entry_id = $1 ORDER BY l.id`, [id]);
   const r = e.rows[0];
   return {
-    id: r.id, postedAt: r.posted_at, description: r.description, orderRef: r.order_ref, actor: r.actor,
+    id: r.id, postedAt: r.posted_at, description: r.description, orderRef: r.order_ref, courierId: r.courier_id, actor: r.actor,
     reversesEntryId: r.reverses_entry_id, reason: r.reason,
     lines: l.rows.map((x) => ({ account: x.code, amountCents: x.amount_cents })),
   };
@@ -90,12 +93,12 @@ async function insertEntry(
 
   const hash = input.idempotencyKey ? hashRequest(input) : null;
   const ins = await client.query<{ id: number }>(
-    `INSERT INTO journal_entries (description, order_ref, actor, reverses_entry_id, reason, idempotency_key, idempotency_hash)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)
+    `INSERT INTO journal_entries (description, order_ref, actor, reverses_entry_id, reason, idempotency_key, idempotency_hash, courier_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
      ON CONFLICT (idempotency_key) DO NOTHING
      RETURNING id`,
     [input.description.trim(), input.orderRef ?? null, input.actor.trim(), extra.reversesEntryId ?? null, extra.reason ?? null,
-     input.idempotencyKey ?? null, hash],
+     input.idempotencyKey ?? null, hash, input.courierId ?? null],
   );
 
   if (!ins.rows[0]) {
@@ -127,6 +130,7 @@ function mapDbError(err: unknown): never {
   const e = err as { code?: string; message?: string; constraint?: string };
   if (e.code === '23514') throw new HttpError(422, 'LEDGER_UNBALANCED', e.message ?? 'Entry does not balance.');
   if (e.code === '23503' && e.constraint?.includes('order_ref')) throw new HttpError(422, 'LEDGER_UNKNOWN_ORDER_REF', 'That order reference does not exist.');
+  if (e.code === '23503' && e.constraint?.includes('courier')) throw new HttpError(422, 'LEDGER_UNKNOWN_COURIER', 'That courier does not exist.');
   throw err;
 }
 
@@ -154,7 +158,7 @@ export async function reverseEntryTx(client: pg.PoolClient, opts: { entryId: num
   if (!opts.reason?.trim()) throw new HttpError(422, 'LEDGER_REASON_REQUIRED', 'A reversal needs a reason.');
   try {
     const found = await client.query<EntryRow>(
-      `SELECT id, order_ref, reverses_entry_id FROM journal_entries WHERE id = $1 FOR UPDATE`, [opts.entryId]);
+      `SELECT id, order_ref, courier_id, reverses_entry_id FROM journal_entries WHERE id = $1 FOR UPDATE`, [opts.entryId]);
     const original = found.rows[0];
     if (!original) throw new HttpError(404, 'LEDGER_ENTRY_NOT_FOUND', 'Journal entry not found.');
     if (original.reverses_entry_id !== null) {
@@ -168,6 +172,7 @@ export async function reverseEntryTx(client: pg.PoolClient, opts: { entryId: num
       description: `Reversal of entry ${opts.entryId}: ${opts.reason.trim()}`,
       actor: opts.actor,
       orderRef: original.order_ref,
+      courierId: original.courier_id,
       lines: orig.lines.map((l) => ({ account: l.account, amountCents: -l.amountCents })),
     }, { reversesEntryId: opts.entryId, reason: opts.reason.trim() });
     return entry;
