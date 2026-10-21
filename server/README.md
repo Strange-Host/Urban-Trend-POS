@@ -97,3 +97,21 @@ Code in `src/couriers/` and `src/orders/custody.ts`, tables in `migrations/0004_
 **Integrity job** now also checks Rule 4 (a courier's payable equals unpaid fees and approved costs), Rule 5 (an organization's receivable equals collected minus settled), Rule 11 (every dispatch has a fee line), Rule 12 (fees and costs never combined) and custody. **Money at risk** adds unpaid courier money, dispatches with no fee line, overdue organizations and cash not deposited.
 
 **Not in this phase:** correcting a wrongly entered package fee (a fee line is immutable; there is no correction flow yet), commission and payroll (phase 5), and screens.
+
+## Staff, commission and payroll (phase 5)
+
+Code in `src/payroll/`, tables in `migrations/0005_payroll.sql`. Like phases 3 and 4 this is the tested core: no screens or HTTP endpoints yet, and the permission rules (`payroll.view`; approval and payment admin-only) arrive with login. Staff are identified by the same text key used elsewhere (`orders.assigned_to`, actor names) until user accounts replace it.
+
+**The formulas are the existing system's, made exact** (whole seconds and integer arithmetic, so exactly 08:00:00 is never charged as late): a retainer for every day clocked in; a late fee for every hour or part of an hour after the start time; an absence fee for a day recorded as absent (never also late or short); a missing-hours fee for every hour or part of an hour short of the expected day; commission **per unit sold**, at a rate set by how much of the period's target was reached (under 70%, 70-80%, 80%+); bonuses added; advances and loss deductions taken off. If deductions exceed earnings the person is paid nothing and the shortfall is shown (it is not carried forward). All times are shop time (East Africa Time).
+
+**Pay profiles and commission plans are versioned, never edited.** A change is a new row with an effective date; the profile in force on the last day of a pay period applies to the whole period, so changes should start on the first day of a period.
+
+**Rule 8: commission only on secure money** (`commission.ts`). An order counts only when its whole total is secure and it is dispatched. Matched paybill money (including suspense a person matched) and bank receipts are secure on receipt; shop cash only once **deposited**; organization money only once the organization has **remitted** (a statement records how much of each parcel it secured, oldest first, and a parcel counts only when covered in full). An order counts in the pay period in which it became fully secure, not when it was ordered or dispatched.
+
+**Rule 9: a locked payroll run never changes.** `generateDraft` calculates a period (regenerating replaces the draft). `approveRun` **locks** it: it recalculates and refuses if anything has changed since the draft ("stale"), so what is frozen is exactly what was reviewed and is true now; it records every order commissioned (an order can earn commission once, ever); and it stores a fingerprint of every figure. `markRunPaid` records payment. Locked runs cannot be edited or deleted in the database; two locked runs can never cover the same day; and attendance, absences and adjustments dated inside a locked period are refused. The nightly integrity check recomputes each locked run's fingerprint, so a change made around the guards is caught.
+
+**Reports** (`reports.ts`): the salary table for any period (live, or the frozen figures once locked), one person's full breakdown, a plain-text payslip and a CSV export. Payslips and CSV come **only from a locked run**, so they can always be reproduced exactly. The CSV defuses spreadsheet formulas in staff names.
+
+**Integrity job** now checks all twelve rules: it adds Rule 8 (commission only on secure money, and each statement's secured amounts add up to what it settled) and Rule 9 (locked runs unchanged).
+
+**Not in this phase:** posting payroll to the ledger (salary and commission expense are not yet ledger entries), an approval workflow for advances (they are recorded directly), corrections to attendance (a clock-out is set once), and a way to top up an organization shortfall so its short parcels can start earning commission.

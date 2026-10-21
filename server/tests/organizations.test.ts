@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { courierPayableCents } from '../src/couriers/couriers.js';
 import { createStatement, organizationStanding, recordOrgCollection } from '../src/couriers/organizations.js';
 import { createPayout, unpaidItems } from '../src/couriers/payables.js';
+import { shopDate } from '../src/payroll/time.js';
 import { runIntegrityChecks } from '../src/integrity/checks.js';
 import { accountBalance, trialBalance } from '../src/ledger/ledger.js';
 import { getOrderTx, recordDeliveryAttempt } from '../src/orders/orders.js';
@@ -11,7 +12,8 @@ let env: Env;
 beforeAll(async () => { env = await makeEnv(); });
 afterAll(() => env.db.drop());
 const ctx = () => ({ pool: env.db.pool });
-const ago = (days: number) => new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10);
+// The shop's date (East Africa Time), not the UTC date: they differ between 21:00 and midnight UTC.
+const ago = (days: number) => shopDate(new Date(Date.now() - days * 86_400_000));
 const today = () => ago(0);
 
 // An order of `total` cents, dispatched with `courierId` at `fee`.
@@ -239,6 +241,19 @@ describe('ageing and the pause rule', () => {
     const nonCollecting = await newOrg(env, { collectsPayment: false, overdueLimitCents: 1 });
     const p = await newOrder(env);
     expect((await dispatch(env, p.orderRef, 'a', { courierId: nonCollecting.id })).status).toBe('dispatched');
+  });
+
+  it('ages on the SHOP\'s calendar, so just before midnight UTC (already tomorrow in Nairobi) nothing looks a day too young', async () => {
+    // 23:30 UTC on 20 October is 02:30 on 21 October in Nairobi. The shop's "today" is the 21st.
+    const now = new Date('2026-10-20T23:30:00Z');
+    const org = await newOrg(env, { overdueAfterDays: 7 });
+    for (const date of ['2026-10-21', '2026-10-14', '2026-10-13']) {            // ages in shop days: 0, 7, 8
+      const o = await dispatched(org.id, 100_000, 10_000);
+      await recordOrgCollection(ctx(), { courierId: org.id, orderRef: o.orderRef, amountCents: 100_000, collectedOn: date, actor: 'c' });
+    }
+    const s = await organizationStanding(env.db.pool, org.id, now);
+    expect(s.buckets).toEqual([{ label: '0-7', cents: 200_000 }, { label: '8-14', cents: 100_000 }, { label: '15-30', cents: 0 }, { label: '30+', cents: 0 }]);
+    expect(s.overdueCents).toBe(100_000); // only the 8-day-old money is past 7 days
   });
 
   it('an organization with nothing outstanding has an empty ageing; an unknown one is a 404', async () => {

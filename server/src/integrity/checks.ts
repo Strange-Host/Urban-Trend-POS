@@ -1,5 +1,8 @@
 import type { Queryable } from '../db/tx.js';
 import { isValidRef } from '../ledger/orderRef.js';
+import { securedOrders } from '../payroll/commission.js';
+import { runFingerprint } from '../payroll/runs.js';
+import { shopDayEnd } from '../payroll/time.js';
 
 // The nightly integrity job. The database already refuses to break these rules; this job proves it by looking at
 // the data itself, and catches the case where the guards were switched off or bypassed (a restored backup, a hand-run
@@ -9,10 +12,10 @@ import { isValidRef } from '../ledger/orderRef.js';
 // order reference sits in suspense), 4 (a courier's payable is what is earned and unpaid), 5 (an organization's
 // receivable is what it collected and has not remitted), 6 (payments never exceed what is owed), 7 (records immutable),
 // 10 (order references unique, immutable), 11 (every dispatch has a package fee line), 12 (fees and costs never
-// combined). Rules 8 and 9 (commission, payroll) arrive with payroll.
+// combined), 8 (commission only on secure money) and 9 (a locked payroll run never changes). That is all twelve.
 
 export interface Violation {
-  rule: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 10 | 11 | 12 | null; // the rule number in the plan; null for supporting checks
+  rule: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | null; // the rule number in the plan; null for supporting checks
   check: string;
   message: string;
   ref?: string;
@@ -57,10 +60,20 @@ const GUARD_TRIGGERS: { table: string; trigger: string }[] = [
   { table: 'org_statements', trigger: 'org_statements_immutable' },
   { table: 'org_statement_lines', trigger: 'org_statement_lines_immutable' },
   { table: 'custody_records', trigger: 'custody_guard' },
+  { table: 'commission_plans', trigger: 'commission_plans_immutable' },
+  { table: 'pay_profiles', trigger: 'pay_profiles_immutable' },
+  { table: 'attendance_records', trigger: 'attendance_guard' },
+  { table: 'payroll_adjustments', trigger: 'payroll_adjustments_immutable' },
+  { table: 'payroll_runs', trigger: 'payroll_runs_guard' },
+  { table: 'payroll_items', trigger: 'payroll_items_locked' },
+  { table: 'payroll_item_lines', trigger: 'payroll_item_lines_locked' },
+  { table: 'commissioned_orders', trigger: 'commissioned_orders_locked' },
+  { table: 'commissioned_orders', trigger: 'commissioned_orders_immutable' },
 ];
 
-const guardRule = (trigger: string): 1 | 7 | 10 | 11 =>
-  trigger.includes('balanced') ? 1 : trigger.startsWith('order_refs') ? 10 : trigger === 'orders_dispatch_needs_fee' ? 11 : 7;
+const guardRule = (trigger: string): 1 | 7 | 9 | 10 | 11 =>
+  trigger.includes('balanced') ? 1 : trigger.startsWith('order_refs') ? 10 : trigger === 'orders_dispatch_needs_fee' ? 11
+  : trigger.startsWith('payroll_runs') || trigger.startsWith('payroll_items') || trigger.startsWith('payroll_item_lines') || trigger.startsWith('commissioned_orders') ? 9 : 7;
 
 const MAX_REPORTED_PER_CHECK = 50; // a systemic problem should not produce a million-row alert
 
@@ -285,6 +298,50 @@ async function custodyReconciles(db: Queryable): Promise<Violation[]> {
   }];
 }
 
+// RULE 9: a locked payroll run never changes. Its figures were fingerprinted when it was approved; recompute the
+// fingerprint from what is stored now. A difference means someone altered a locked run, with the guards off or around them.
+async function lockedRunsUnchanged(db: Queryable): Promise<Violation[]> {
+  const { rows } = await db.query<{ id: number; checksum: string; period_start: string; period_end: string }>(
+    `SELECT id, checksum, to_char(period_start, 'YYYY-MM-DD') AS period_start, to_char(period_end, 'YYYY-MM-DD') AS period_end
+       FROM payroll_runs WHERE status <> 'draft' ORDER BY id`);
+  const out: Violation[] = [];
+  for (const r of rows) {
+    if ((await runFingerprint(db, r.id)) !== r.checksum) {
+      out.push({ rule: 9, check: 'locked_run_unchanged', message: `Payroll run ${r.id} (${r.period_start} to ${r.period_end}) is locked but its figures no longer match what was approved.` });
+    }
+  }
+  return out.slice(0, MAX_REPORTED_PER_CHECK);
+}
+
+// RULE 8: commission only on secure money. Every order commissioned in a locked run must (still) be fully secure, and must
+// have become secure no later than the end of that run's period.
+async function commissionOnSecureMoney(db: Queryable): Promise<Violation[]> {
+  const out: Violation[] = [];
+  const { rows } = await db.query<{ order_ref: string; run_id: number; period_end: string }>(
+    `SELECT c.order_ref, c.run_id, to_char(r.period_end, 'YYYY-MM-DD') AS period_end FROM commissioned_orders c JOIN payroll_runs r ON r.id = c.run_id ORDER BY c.order_ref`);
+  if (rows.length === 0) return out;
+  const secure = new Map((await securedOrders(db, { orderRefs: rows.map((r) => r.order_ref) })).map((o) => [o.orderRef, o]));
+  for (const r of rows) {
+    const o = secure.get(r.order_ref);
+    if (!o) out.push({ rule: 8, check: 'commission_secure', ref: r.order_ref, message: `Order ${r.order_ref} earned commission in payroll run ${r.run_id} but its money is not fully secure.` });
+    else if (o.securedAt >= shopDayEnd(r.period_end)) out.push({ rule: 8, check: 'commission_secure_in_period', ref: r.order_ref, message: `Order ${r.order_ref} earned commission in payroll run ${r.run_id} before its money was secure.` });
+  }
+  // Each commission line in a locked run must match a commissioned_orders row, and vice versa.
+  const unmatched = await db.query<{ order_ref: string; run_id: number }>(
+    `SELECT l.ref_text AS order_ref, i.run_id FROM payroll_item_lines l JOIN payroll_items i ON i.id = l.item_id JOIN payroll_runs r ON r.id = i.run_id
+      WHERE l.kind = 'commission_order' AND r.status <> 'draft' AND NOT EXISTS (SELECT 1 FROM commissioned_orders c WHERE c.order_ref = l.ref_text AND c.run_id = i.run_id)`);
+  for (const u of unmatched.rows) out.push({ rule: 8, check: 'commission_line_recorded', ref: u.order_ref, message: `Commission for order ${u.order_ref} in payroll run ${u.run_id} is not recorded as commissioned.` });
+  return out.slice(0, MAX_REPORTED_PER_CHECK);
+}
+
+async function statementSecuredAddsUp(db: Queryable): Promise<Violation[]> {
+  const { rows } = await db.query<{ id: number; secured: number; settled: number }>(
+    `SELECT s.id, COALESCE(sum(l.secured_cents), 0)::bigint AS secured, (s.remitted_cents + s.fees_cents)::bigint AS settled
+       FROM org_statements s LEFT JOIN org_statement_lines l ON l.statement_id = s.id GROUP BY s.id
+     HAVING COALESCE(sum(l.secured_cents), 0) <> s.remitted_cents + s.fees_cents ORDER BY s.id LIMIT ${MAX_REPORTED_PER_CHECK}`);
+  return rows.map((r) => ({ rule: 8 as const, check: 'statement_secured_adds_up', message: `Organization statement ${r.id} secured ${r.secured} cents across its parcels but settled ${r.settled} cents.` }));
+}
+
 export async function runIntegrityChecks(db: Queryable): Promise<IntegrityReport> {
   const started = Date.now();
   const violations = [
@@ -304,6 +361,9 @@ export async function runIntegrityChecks(db: Queryable): Promise<IntegrityReport
     ...(await courierPayableMatchesUnpaid(db)),
     ...(await organizationReceivableMatches(db)),
     ...(await custodyReconciles(db)),
+    ...(await lockedRunsUnchanged(db)),
+    ...(await commissionOnSecureMoney(db)),
+    ...(await statementSecuredAddsUp(db)),
   ];
   const c = await db.query<{ e: number; l: number; o: number; r: number; ord: number; pay: number; cou: number }>(
     `SELECT (SELECT count(*) FROM journal_entries)::bigint AS e, (SELECT count(*) FROM journal_lines)::bigint AS l,
