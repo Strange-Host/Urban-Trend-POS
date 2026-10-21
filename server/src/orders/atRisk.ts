@@ -6,7 +6,8 @@ import { organizationStanding } from '../couriers/organizations.js';
 
 export type RiskKind =
   | 'dispatched_no_outcome' | 'delivered_unpaid' | 'unmatched_payment' | 'returning'
-  | 'courier_unpaid' | 'dispatch_no_fee' | 'organization_overdue' | 'cash_not_deposited';
+  | 'courier_unpaid' | 'dispatch_no_fee' | 'organization_overdue' | 'cash_not_deposited'
+  | 'till_variance_unsigned' | 'till_session_left_open';
 
 export interface RiskItem {
   kind: RiskKind;
@@ -31,6 +32,8 @@ export interface RiskOptions {
   courierUnpaidDays?: number;
   /** Shop cash held by a staff member and not deposited for this long is flagged. */
   cashHeldDays?: number;
+  /** A till session still open after this many hours is flagged (it should have been closed out). */
+  sessionOpenHours?: number;
 }
 
 export async function moneyAtRisk(db: Queryable, opts: RiskOptions = {}): Promise<RiskItem[]> {
@@ -40,6 +43,7 @@ export async function moneyAtRisk(db: Queryable, opts: RiskOptions = {}): Promis
   const returningDays = opts.returningDays ?? 3;
   const courierUnpaidDays = opts.courierUnpaidDays ?? 7;
   const cashHeldDays = opts.cashHeldDays ?? 2;
+  const sessionOpenHours = opts.sessionOpenHours ?? 20;
 
   const { rows } = await db.query<{ kind: RiskKind; order_ref: string | null; amount: number; since: Date; owner: string | null; detail: string }>(
     `WITH owed AS (
@@ -110,6 +114,17 @@ export async function moneyAtRisk(db: Queryable, opts: RiskOptions = {}): Promis
     `SELECT order_ref, amount_cents AS amount, opened_at AS since, holder FROM custody_records
       WHERE status = 'open' AND opened_at < $1::timestamptz - make_interval(days => $2::int)`, [now, cashHeldDays]);
   for (const k of cash.rows) extra.push({ kind: 'cash_not_deposited', order_ref: k.order_ref, amount: k.amount, since: k.since, owner: k.holder, detail: `Shop cash held by ${k.holder}, not yet deposited` });
+
+  // A till close-out with a large difference that no manager has signed off.
+  const unsigned = await db.query<{ id: number; cashier: string; amount: number; since: Date }>(
+    `SELECT s.id, s.cashier, COALESCE((SELECT sum(abs(variance_cents)) FROM cash_session_counts c WHERE c.session_id = s.id), 0)::bigint AS amount, s.closed_at AS since
+       FROM cash_sessions s WHERE s.status = 'closed' AND s.signoff_required`);
+  for (const u of unsigned.rows) extra.push({ kind: 'till_variance_unsigned', order_ref: null, amount: u.amount, since: u.since, owner: u.cashier, detail: `Till session ${u.id} closed out of balance and is waiting for a manager's sign-off` });
+
+  // A till session left open.
+  const open = await db.query<{ id: number; cashier: string; since: Date }>(
+    `SELECT id, cashier, opened_at AS since FROM cash_sessions WHERE status = 'open' AND opened_at < $1::timestamptz - make_interval(hours => $2::int)`, [now, sessionOpenHours]);
+  for (const o of open.rows) extra.push({ kind: 'till_session_left_open', order_ref: null, amount: 0, since: o.since, owner: o.cashier, detail: `Till session ${o.id} has been open since ${o.since.toISOString().slice(0, 16)}Z and has not been closed out` });
 
   return [...rows, ...extra]
     .map((r) => ({

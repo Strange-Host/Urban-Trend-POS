@@ -115,3 +115,21 @@ Code in `src/payroll/`, tables in `migrations/0005_payroll.sql`. Like phases 3 a
 **Integrity job** now checks all twelve rules: it adds Rule 8 (commission only on secure money, and each statement's secured amounts add up to what it settled) and Rule 9 (locked runs unchanged).
 
 **Not in this phase:** posting payroll to the ledger (salary and commission expense are not yet ledger entries), an approval workflow for advances (they are recorded directly), corrections to attendance (a clock-out is set once), and a way to top up an organization shortfall so its short parcels can start earning commission.
+
+## POS sales, discounts and the till (phase 6)
+
+Code in `src/pos/`, tables in `migrations/0006_pos_and_till.sql`. Like phases 3 to 5 this is the tested core: no screens or HTTP endpoints yet. Roles (`cashier`, `manager`, `admin`) are passed in by the caller and checked against the policy tables; real permission enforcement arrives with login.
+
+**Checkout** (`checkout`) needs an open till session. It posts the payment method(s) in, any discount to its own `SALES_DISCOUNTS` account, and gross sales out, in one transaction with its audit rows. Payments must add up to the total (checked by a deferred database trigger too). A retried or queued sale is safe: the same `clientSaleId` returns the first sale. Card and mobile-money payments need their reference.
+
+**Discount controls**, in this order: a discount can never exceed its line or the sale (a database rule as well as a service rule); any discount needs an active **reason code**; a discount above the cashier's **role limit** (default: cashier 5%, manager 20%, admin 100%, as a share of the sale) needs a **manager or admin who is not the cashier**, whose own ceiling (manager 50%, admin 100%) covers it. Limits are versioned policy rows, never edited. Percentages are compared in exact integer arithmetic, so exactly at the limit is allowed and one cent over is not. `discountsByStaff` ranks cashiers by how much, how often, how many needed approval, and why.
+
+**The till.** One open session per cashier. Cash moves in and out only as **cash movements** (paid-out, drop, top-up), each with a reason and a **second person's approval** (the database refuses self-approval), and never more cash than the drawer should hold. **Close-out** (`closeSession`): the cashier counts cash, card and mobile money separately; any difference needs a reason; the difference is **posted to the ledger** (over and short) so the books match the count; and a total difference above KES 500 needs a manager's `signOffSession` (the cashier cannot sign off their own).
+
+**Void and refund.** Both need a reason and a manager's approval. A **void** reverses the sale's ledger entry exactly, and is only allowed while the session is open and nothing has been refunded; after close-out the cash has been counted, so **refund** instead. A **refund** pays back by a method the customer used, from the refunder's own open drawer, never more than was sold or paid; amounts use cumulative rounding so refunding every unit in pieces returns exactly what was paid.
+
+**Audit.** Every checkout, discount, void, refund, cash movement and session open/close writes an `audit_log` row in the same transaction as the action, with who, how much and a risk level. `riskyActions` ranks people by voids, refunds, approved discounts, paid-outs and till differences.
+
+**Integrity job** now also checks: each sale matches its ledger entry; nothing is refunded more than was sold or paid; every closed session still reconciles and its difference was posted; a discount above a cashier's limit has a manager's approval. **Money at risk** adds out-of-balance close-outs awaiting sign-off and sessions left open.
+
+**Not in this phase:** stock (there is no inventory in the new server, so sales, voids and refunds do not move stock), card settlement into the bank, the offline-queue client, and audit rows for earlier phases' actions. Logins and permission changes are audited when login exists.
