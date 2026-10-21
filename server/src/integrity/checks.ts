@@ -1,6 +1,7 @@
 import type { Queryable } from '../db/tx.js';
 import { isValidRef } from '../ledger/orderRef.js';
 import { securedOrders } from '../payroll/commission.js';
+import { expectedByMethod, METHOD_ACCOUNT, METHODS } from '../pos/sessions.js';
 import { runFingerprint } from '../payroll/runs.js';
 import { shopDayEnd } from '../payroll/time.js';
 
@@ -25,7 +26,7 @@ export interface IntegrityReport {
   ok: boolean;
   checkedAt: Date;
   durationMs: number;
-  counts: { entries: number; lines: number; orderRefs: number; receipts: number; orders: number; payments: number; couriers: number };
+  counts: { entries: number; lines: number; orderRefs: number; receipts: number; orders: number; payments: number; couriers: number; sales: number };
   violations: Violation[];
 }
 
@@ -69,6 +70,19 @@ const GUARD_TRIGGERS: { table: string; trigger: string }[] = [
   { table: 'payroll_item_lines', trigger: 'payroll_item_lines_locked' },
   { table: 'commissioned_orders', trigger: 'commissioned_orders_locked' },
   { table: 'commissioned_orders', trigger: 'commissioned_orders_immutable' },
+  { table: 'audit_log', trigger: 'audit_log_immutable' },
+  { table: 'discount_policies', trigger: 'discount_policies_immutable' },
+  { table: 'cash_sessions', trigger: 'cash_sessions_guard' },
+  { table: 'cash_session_counts', trigger: 'cash_session_counts_immutable' },
+  { table: 'cash_movements', trigger: 'cash_movements_immutable' },
+  { table: 'sales', trigger: 'sales_guard' },
+  { table: 'sales', trigger: 'sale_payments_match_total' },
+  { table: 'sale_items', trigger: 'sale_items_immutable' },
+  { table: 'sale_payments', trigger: 'sale_payments_immutable' },
+  { table: 'discount_approvals', trigger: 'discount_approvals_immutable' },
+  { table: 'sale_refunds', trigger: 'sale_refunds_immutable' },
+  { table: 'sale_refund_items', trigger: 'sale_refund_items_immutable' },
+  { table: 'sale_refund_items', trigger: 'sale_refund_items_within_sold' },
 ];
 
 const guardRule = (trigger: string): 1 | 7 | 9 | 10 | 11 =>
@@ -342,6 +356,82 @@ async function statementSecuredAddsUp(db: Queryable): Promise<Violation[]> {
   return rows.map((r) => ({ rule: 8 as const, check: 'statement_secured_adds_up', message: `Organization statement ${r.id} secured ${r.secured} cents across its parcels but settled ${r.settled} cents.` }));
 }
 
+// Phase 6: the shop floor. Every sale's ledger entry must say what the sale says; nothing is refunded more than it was sold or
+// paid; every closed till session must still reconcile; a discount above the cashier's limit must have a manager's approval.
+async function salesMatchLedger(db: Queryable): Promise<Violation[]> {
+  const { rows } = await db.query<{ id: number; sale_no: string; sales_cr: number; disc_dr: number; paid: number; pay_dr: number }>(
+    `SELECT s.id, s.sale_no,
+            COALESCE(-(SELECT sum(l.amount_cents) FROM journal_lines l JOIN accounts a ON a.id = l.account_id WHERE l.entry_id = s.entry_id AND a.code = 'SALES'), 0)::bigint AS sales_cr,
+            COALESCE((SELECT sum(l.amount_cents) FROM journal_lines l JOIN accounts a ON a.id = l.account_id WHERE l.entry_id = s.entry_id AND a.code = 'SALES_DISCOUNTS'), 0)::bigint AS disc_dr,
+            (SELECT COALESCE(sum(amount_cents), 0) FROM sale_payments WHERE sale_id = s.id)::bigint AS paid,
+            COALESCE((SELECT sum(l.amount_cents) FROM journal_lines l JOIN accounts a ON a.id = l.account_id
+                       WHERE l.entry_id = s.entry_id AND a.code IN ('TILL', 'CARD_CLEARING', 'MOBILE_MONEY_TILL')), 0)::bigint AS pay_dr
+       FROM sales s ORDER BY s.id`);
+  const out: Violation[] = [];
+  for (const r of rows) {
+    const s = await db.query<{ gross: number; disc: number; total: number }>(`SELECT gross_cents AS gross, line_discount_cents + sale_discount_cents AS disc, total_cents AS total FROM sales WHERE id = $1`, [r.id]);
+    const x = s.rows[0]!;
+    if (r.sales_cr !== x.gross || r.disc_dr !== x.disc || r.pay_dr !== x.total || r.paid !== x.total) {
+      out.push({ rule: null, check: 'sale_matches_ledger', ref: r.sale_no, message: `Sale ${r.sale_no} says gross ${x.gross}, discount ${x.disc}, total ${x.total}, but its ledger entry shows sales ${r.sales_cr}, discounts ${r.disc_dr}, payments ${r.pay_dr} and its payment rows add up to ${r.paid}.` });
+    }
+    if (out.length >= MAX_REPORTED_PER_CHECK) break;
+  }
+  return out;
+}
+
+async function refundsWithinSold(db: Queryable): Promise<Violation[]> {
+  const out: Violation[] = [];
+  const items = await db.query<{ id: number; sale_no: string; sold: number; refunded: number }>(
+    `SELECT i.id, s.sale_no, i.quantity AS sold, COALESCE(sum(ri.quantity), 0)::int AS refunded FROM sale_items i JOIN sales s ON s.id = i.sale_id
+       LEFT JOIN sale_refund_items ri ON ri.sale_item_id = i.id GROUP BY i.id, s.sale_no HAVING COALESCE(sum(ri.quantity), 0) > i.quantity ORDER BY i.id LIMIT ${MAX_REPORTED_PER_CHECK}`);
+  for (const r of items.rows) out.push({ rule: null, check: 'refund_within_sold', ref: r.sale_no, message: `Sale ${r.sale_no} item ${r.id}: ${r.refunded} refunded but only ${r.sold} sold.` });
+  const money = await db.query<{ sale_no: string; method: string; paid: number; refunded: number }>(
+    `SELECT s.sale_no, p.method, p.amount_cents AS paid, COALESCE(sum(r.amount_cents), 0)::bigint AS refunded FROM sale_payments p JOIN sales s ON s.id = p.sale_id
+       LEFT JOIN sale_refunds r ON r.sale_id = p.sale_id AND r.method = p.method GROUP BY s.sale_no, p.method, p.amount_cents HAVING COALESCE(sum(r.amount_cents), 0) > p.amount_cents`);
+  for (const r of money.rows) out.push({ rule: null, check: 'refund_within_paid', ref: r.sale_no, message: `Sale ${r.sale_no}: ${r.refunded} cents refunded by ${r.method} but only ${r.paid} was paid that way.` });
+  const entries = await db.query<{ id: number; sale_no: string; amount: number; posted: number }>(
+    `SELECT r.id, s.sale_no, r.amount_cents AS amount,
+            COALESCE(-(SELECT sum(l.amount_cents) FROM journal_lines l JOIN accounts a ON a.id = l.account_id
+                        WHERE l.entry_id = r.entry_id AND a.code = CASE r.method WHEN 'cash' THEN 'TILL' WHEN 'card' THEN 'CARD_CLEARING' ELSE 'MOBILE_MONEY_TILL' END), 0)::bigint AS posted
+       FROM sale_refunds r JOIN sales s ON s.id = r.sale_id ORDER BY r.id`);
+  for (const r of entries.rows.filter((x) => x.amount !== x.posted)) out.push({ rule: null, check: 'refund_matches_ledger', ref: r.sale_no, message: `Refund ${r.id} on sale ${r.sale_no} says ${r.amount} cents but the ledger paid out ${r.posted}.` });
+  return out.slice(0, MAX_REPORTED_PER_CHECK);
+}
+
+async function closedSessionsReconcile(db: Queryable): Promise<Violation[]> {
+  const out: Violation[] = [];
+  const sessions = await db.query<{ id: number; cashier: string }>(`SELECT id, cashier FROM cash_sessions WHERE status <> 'open' ORDER BY id`);
+  for (const s of sessions.rows) {
+    const counts = await db.query<{ method: string; expected: number; counted: number; variance: number; entry_id: number | null }>(
+      `SELECT method, expected_cents AS expected, counted_cents AS counted, variance_cents AS variance, entry_id FROM cash_session_counts WHERE session_id = $1`, [s.id]);
+    if (counts.rows.length !== METHODS.length) { out.push({ rule: null, check: 'session_counts_complete', message: `Till session ${s.id} is closed but has ${counts.rows.length} of ${METHODS.length} method counts.` }); continue; }
+    // closed-session figures are recomputed from the sales, refunds and movements; the float, sales and movements cannot have changed since
+    const expected = await expectedByMethod(db, s.id);
+    for (const c of counts.rows) {
+      const m = c.method as (typeof METHODS)[number];
+      if (c.expected !== expected[m]) out.push({ rule: null, check: 'session_expected_matches', message: `Till session ${s.id} (${s.cashier}), ${m}: closed expecting ${c.expected} cents but the sales, refunds and movements now say ${expected[m]}.` });
+      if (c.variance !== 0) {
+        const posted = c.entry_id === null ? 0 : (await db.query<{ v: number }>(
+          `SELECT COALESCE(sum(l.amount_cents), 0)::bigint AS v FROM journal_lines l JOIN accounts a ON a.id = l.account_id WHERE l.entry_id = $1 AND a.code = $2`, [c.entry_id, METHOD_ACCOUNT[m]])).rows[0]!.v;
+        if (posted !== c.variance) out.push({ rule: null, check: 'session_variance_posted', message: `Till session ${s.id}, ${m}: the count was ${c.variance} cents out but the ledger recorded ${posted}.` });
+      }
+    }
+  }
+  return out.slice(0, MAX_REPORTED_PER_CHECK);
+}
+
+async function discountsHaveApproval(db: Queryable): Promise<Violation[]> {
+  const { rows } = await db.query<{ sale_no: string; role: string; disc: number; gross: number; free: number | null }>(
+    `SELECT s.sale_no, s.cashier_role AS role, (s.line_discount_cents + s.sale_discount_cents) AS disc, s.gross_cents AS gross,
+            (SELECT p.free_limit_bp FROM discount_policies p WHERE p.role = s.cashier_role AND p.effective_from <= (s.created_at AT TIME ZONE 'Africa/Nairobi')::date
+              ORDER BY p.effective_from DESC LIMIT 1) AS free
+       FROM sales s WHERE s.line_discount_cents + s.sale_discount_cents > 0 AND NOT EXISTS (SELECT 1 FROM discount_approvals a WHERE a.sale_id = s.id) ORDER BY s.id`);
+  return rows
+    .filter((r) => r.free === null || BigInt(r.disc) * 10_000n > BigInt(r.free) * BigInt(r.gross))
+    .slice(0, MAX_REPORTED_PER_CHECK)
+    .map((r) => ({ rule: null, check: 'discount_has_approval', ref: r.sale_no, message: `Sale ${r.sale_no} gave a discount above a ${r.role}'s limit with no manager approval on record.` }));
+}
+
 export async function runIntegrityChecks(db: Queryable): Promise<IntegrityReport> {
   const started = Date.now();
   const violations = [
@@ -364,12 +454,16 @@ export async function runIntegrityChecks(db: Queryable): Promise<IntegrityReport
     ...(await lockedRunsUnchanged(db)),
     ...(await commissionOnSecureMoney(db)),
     ...(await statementSecuredAddsUp(db)),
+    ...(await salesMatchLedger(db)),
+    ...(await refundsWithinSold(db)),
+    ...(await closedSessionsReconcile(db)),
+    ...(await discountsHaveApproval(db)),
   ];
-  const c = await db.query<{ e: number; l: number; o: number; r: number; ord: number; pay: number; cou: number }>(
+  const c = await db.query<{ e: number; l: number; o: number; r: number; ord: number; pay: number; cou: number; sal: number }>(
     `SELECT (SELECT count(*) FROM journal_entries)::bigint AS e, (SELECT count(*) FROM journal_lines)::bigint AS l,
             (SELECT count(*) FROM order_refs)::bigint AS o, (SELECT count(*) FROM payment_receipts)::bigint AS r,
             (SELECT count(*) FROM orders)::bigint AS ord, (SELECT count(*) FROM paybill_payments)::bigint AS pay,
-            (SELECT count(*) FROM couriers)::bigint AS cou`);
-  const counts = { entries: c.rows[0]!.e, lines: c.rows[0]!.l, orderRefs: c.rows[0]!.o, receipts: c.rows[0]!.r, orders: c.rows[0]!.ord, payments: c.rows[0]!.pay, couriers: c.rows[0]!.cou };
+            (SELECT count(*) FROM couriers)::bigint AS cou, (SELECT count(*) FROM sales)::bigint AS sal`);
+  const counts = { entries: c.rows[0]!.e, lines: c.rows[0]!.l, orderRefs: c.rows[0]!.o, receipts: c.rows[0]!.r, orders: c.rows[0]!.ord, payments: c.rows[0]!.pay, couriers: c.rows[0]!.cou, sales: c.rows[0]!.sal };
   return { ok: violations.length === 0, checkedAt: new Date(), durationMs: Date.now() - started, counts, violations };
 }

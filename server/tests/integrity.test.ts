@@ -52,7 +52,7 @@ describe('integrity checks on healthy data', () => {
     const report = await runIntegrityChecks(db.pool);
     expect(report.violations).toEqual([]);
     expect(report.ok).toBe(true);
-    expect(report.counts).toEqual({ entries: 5, lines: 10, orderRefs: 3, receipts: 3, orders: 0, payments: 0, couriers: 0 });
+    expect(report.counts).toEqual({ entries: 5, lines: 10, orderRefs: 3, receipts: 3, orders: 0, payments: 0, couriers: 0, sales: 0 });
   });
 
   it('pass on an empty database', async () => {
