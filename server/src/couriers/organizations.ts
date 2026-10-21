@@ -3,6 +3,7 @@ import { withTransaction, type Queryable } from '../db/tx.js';
 import { HttpError } from '../errors.js';
 import { accountBalance, cr, dr, postEntryTx } from '../ledger/ledger.js';
 import { resolveOrderRef } from '../ledger/refs.js';
+import { shopDate } from '../payroll/time.js';
 
 // Organizations that collect the customer's payment and remit it afterwards (plan path 2).
 //   1. recordOrgCollection   the organization collected for an order: customer receivable down, receivable FROM the organization up
@@ -98,7 +99,7 @@ export async function createStatement(ctx: OrgCtx, input: {
     const cols = await c.query<{ id: number; order_ref: string; amount_cents: number; courier_id: number; collected_on: string; on_statement: boolean }>(
       `SELECT k.id, k.order_ref, k.amount_cents, k.courier_id, to_char(k.collected_on, 'YYYY-MM-DD') AS collected_on,
               EXISTS (SELECT 1 FROM org_statement_lines l WHERE l.collection_id = k.id) AS on_statement
-         FROM org_collections k WHERE k.id = ANY($1)`, [input.collectionIds]);
+         FROM org_collections k WHERE k.id = ANY($1) ORDER BY k.collected_on, k.id`, [input.collectionIds]);
     if (cols.rows.length !== input.collectionIds.length) throw new HttpError(404, 'COLLECTION_NOT_FOUND', 'One of the listed parcels does not exist.');
     for (const k of cols.rows) {
       if (k.courier_id !== input.courierId) throw new HttpError(409, 'STATEMENT_WRONG_ORGANIZATION', `Parcel ${k.order_ref} was collected by a different organization.`);
@@ -150,7 +151,14 @@ export async function createStatement(ctx: OrgCtx, input: {
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING id`,
       [input.courierId, input.periodStart, input.periodEnd, collections, input.chargeEnteredCents, feesTotal, input.remittedCents,
        chargeVariance, cashVariance, input.remittanceRef?.trim() ?? null, payoutId, entry.id, input.actor.trim()]);
-    for (const k of cols.rows) await c.query(`INSERT INTO org_statement_lines (statement_id, collection_id) VALUES ($1, $2)`, [st.rows[0]!.id, k.id]);
+    // What this statement actually secured (cash remitted + fees netted) is credited to its parcels oldest-first, the same
+    // order ageing uses. A parcel is fully secure only when covered in full; this is what commission is allowed to count (Rule 8).
+    let toSecure = settled;
+    for (const k of cols.rows) {
+      const secured = Math.min(k.amount_cents, toSecure);
+      toSecure -= secured;
+      await c.query(`INSERT INTO org_statement_lines (statement_id, collection_id, secured_cents) VALUES ($1, $2, $3)`, [st.rows[0]!.id, k.id, secured]);
+    }
 
     return {
       id: st.rows[0]!.id, courierId: input.courierId, collectionsCents: collections, chargeEnteredCents: input.chargeEnteredCents, feesCents: feesTotal,
@@ -195,7 +203,9 @@ export async function organizationStanding(db: Queryable, courierId: number, now
   if (outstanding > 0) {
     const cols = await db.query<{ amount_cents: number; collected_on: string }>(
       `SELECT amount_cents, to_char(collected_on, 'YYYY-MM-DD') AS collected_on FROM org_collections WHERE courier_id = $1 ORDER BY collected_on DESC, id DESC`, [courierId]);
-    const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+    // Collection dates are the shop's dates (East Africa Time), so "today" must be too: in UTC, between 21:00 and midnight,
+    // every balance would look a day younger than it is.
+    const today = Date.parse(`${shopDate(now)}T00:00:00Z`);
     let remaining = outstanding;
     for (const k of cols.rows) {
       if (remaining <= 0) break;
