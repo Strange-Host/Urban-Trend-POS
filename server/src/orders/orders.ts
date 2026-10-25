@@ -5,6 +5,8 @@ import { HttpError } from '../errors.js';
 import { accountBalance, cr, dr, postEntryTx, reverseEntryTx } from '../ledger/ledger.js';
 import { allocateOrderRef, resolveOrderRef } from '../ledger/refs.js';
 import { organizationStanding } from '../couriers/organizations.js';
+import { ensureCustomer } from '../customers/customers.js';
+import { lockAndCheck, needs, postMovements, resolveLines } from '../stock/stock.js';
 
 export interface OrderCtx {
   pool: Pool;
@@ -53,6 +55,18 @@ async function addEvent(db: Queryable, order: { id: number; order_ref: string },
  * line or the sale, and a phone number can have only one active order at a time.
  */
 export async function createOrder(ctx: OrderCtx, input: CreateOrderInput): Promise<OrderView> {
+  const prepared = prepareOrder(input);
+  return withTransaction(ctx.pool, (c) => createOrderTx(c, ctx.refKey, input, prepared));
+}
+
+export interface PreparedOrder {
+  phone: string;
+  lines: { sku?: string; name: string; quantity: number; unitPriceCents: number; discount: number; lineTotal: number }[];
+  subtotal: number; saleDiscount: number; total: number;
+}
+
+/** Checks everything that can be checked without the database. Throws a 422 naming the problem. */
+export function prepareOrder(input: CreateOrderInput): PreparedOrder {
   const { items } = input;
   if (!input.customerName?.trim()) throw new HttpError(422, 'ORDER_NO_CUSTOMER', 'A customer name is required.');
   const phone = normalizePhone(input.customerPhone ?? '');
@@ -77,42 +91,52 @@ export async function createOrder(ctx: OrderCtx, input: CreateOrderInput): Promi
   if (saleDiscount > subtotal) throw new HttpError(422, 'DISCOUNT_EXCEEDS_SALE', 'The discount cannot be more than the sale value.');
   const total = subtotal - saleDiscount;
   if (total <= 0) throw new HttpError(422, 'ORDER_TOTAL_NOT_POSITIVE', 'An order must have something to pay.');
+  return { phone, lines, subtotal, saleDiscount, total };
+}
 
-  return withTransaction(ctx.pool, async (c) => {
-    const ref = await allocateOrderRef(c, { key: ctx.refKey, legacyRef: input.legacyRef });
-    let order: { id: number; order_ref: string };
-    // A savepoint, because a failed INSERT poisons the whole transaction until it is rolled back to a known point;
-    // without it, looking up the existing order below would itself fail.
-    await c.query('SAVEPOINT insert_order');
-    try {
-      const { rows } = await c.query<{ id: number; order_ref: string }>(
-        `INSERT INTO orders (order_ref, customer_name, customer_phone, phone_normalized, subtotal_cents, discount_cents, total_cents, notes, assigned_to, created_by)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id, order_ref`,
-        [ref.ref, input.customerName.trim(), input.customerPhone.trim(), phone, subtotal, saleDiscount, total, input.notes ?? null, input.assignedTo ?? null, input.actor.trim()]);
-      order = rows[0]!;
-    } catch (err) {
-      if ((err as { code?: string; constraint?: string }).constraint === 'orders_one_active_per_phone') {
-        await c.query('ROLLBACK TO SAVEPOINT insert_order');
-        const existing = await c.query<{ order_ref: string }>(
-          `SELECT order_ref FROM orders WHERE phone_normalized = $1 AND status IN ('awaiting_dispatch', 'dispatched')`, [phone]);
-        throw new HttpError(409, 'DUPLICATE_ACTIVE_ORDER', 'This phone number already has an active order.', { existingOrderRef: existing.rows[0]?.order_ref });
-      }
-      throw err;
-    }
+/**
+ * The transactional part of creating an order, so other flows (converting a lead) can do it inside their own transaction.
+ * Stock is checked first: a tracked item needs enough that is neither sold nor already promised to another order.
+ */
+export async function createOrderTx(c: pg.PoolClient, refKey: string, input: CreateOrderInput, prepared: PreparedOrder): Promise<OrderView> {
+  const { phone, lines, subtotal, saleDiscount, total } = prepared;
+  const resolved = await resolveLines(c, lines);
+  await lockAndCheck(c, needs(lines, resolved), 'available');
+  const customerId = await ensureCustomer(c, { name: input.customerName, phone: input.customerPhone, actor: input.actor.trim() });
 
-    for (const l of lines) {
-      await c.query(
-        `INSERT INTO order_items (order_id, sku, name, quantity, unit_price_cents, discount_cents, line_total_cents) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [order.id, l.sku ?? null, l.name.trim(), l.quantity, l.unitPriceCents, l.discount, l.lineTotal]);
+  const ref = await allocateOrderRef(c, { key: refKey, legacyRef: input.legacyRef });
+  let order: { id: number; order_ref: string };
+  // A savepoint, because a failed INSERT poisons the whole transaction until it is rolled back to a known point;
+  // without it, looking up the existing order below would itself fail.
+  await c.query('SAVEPOINT insert_order');
+  try {
+    const { rows } = await c.query<{ id: number; order_ref: string }>(
+      `INSERT INTO orders (order_ref, customer_name, customer_phone, phone_normalized, subtotal_cents, discount_cents, total_cents, notes, assigned_to, created_by, customer_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id, order_ref`,
+      [ref.ref, input.customerName.trim(), input.customerPhone.trim(), phone, subtotal, saleDiscount, total, input.notes ?? null, input.assignedTo ?? null, input.actor.trim(), customerId]);
+    order = rows[0]!;
+  } catch (err) {
+    if ((err as { code?: string; constraint?: string }).constraint === 'orders_one_active_per_phone') {
+      await c.query('ROLLBACK TO SAVEPOINT insert_order');
+      const existing = await c.query<{ order_ref: string }>(
+        `SELECT order_ref FROM orders WHERE phone_normalized = $1 AND status IN ('awaiting_dispatch', 'dispatched')`, [phone]);
+      throw new HttpError(409, 'DUPLICATE_ACTIVE_ORDER', 'This phone number already has an active order.', { existingOrderRef: existing.rows[0]?.order_ref });
     }
-    await postEntryTx(c, {
-      description: `Order ${ref.ref} created`, actor: input.actor, orderRef: ref.ref,
-      idempotencyKey: `order-created:${ref.ref}`,
-      lines: [dr('CUSTOMER_RECEIVABLE', total), cr('SALES', total)],
-    });
-    await addEvent(c, order, 'created', input.actor, { total_cents: total, items: lines.length });
-    return (await getOrderTx(c, ref.ref))!;
+    throw err;
+  }
+
+  for (const [idx, l] of lines.entries()) {
+    await c.query(
+      `INSERT INTO order_items (order_id, sku, name, quantity, unit_price_cents, discount_cents, line_total_cents, product_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [order.id, l.sku ?? null, l.name.trim(), l.quantity, l.unitPriceCents, l.discount, l.lineTotal, resolved[idx]!.productId]);
+  }
+  await postEntryTx(c, {
+    description: `Order ${ref.ref} created`, actor: input.actor, orderRef: ref.ref,
+    idempotencyKey: `order-created:${ref.ref}`,
+    lines: [dr('CUSTOMER_RECEIVABLE', total), cr('SALES', total)],
   });
+  await addEvent(c, order, 'created', input.actor, { total_cents: total, items: lines.length });
+  return (await getOrderTx(c, ref.ref))!;
 }
 
 export interface OrderView {
@@ -133,7 +157,7 @@ export interface OrderView {
   /** Who it was dispatched with and the package fee entered for it; null until dispatch. */
   dispatch: { courierId: number; courierName: string; packageFeeCents: number; zeroReason: string | null } | null;
   paymentStatus: 'unpaid' | 'part_paid' | 'paid' | 'cancelled';
-  items: { sku: string | null; name: string; quantity: number; unitPriceCents: number; discountCents: number; lineTotalCents: number }[];
+  items: { id: number; sku: string | null; name: string; quantity: number; unitPriceCents: number; discountCents: number; lineTotalCents: number }[];
   attempts: { attemptNo: number; outcome: DeliveryOutcome; reason: string | null; rescheduleFor: string | null; recordedAt: Date }[];
   events: { type: string; actor: string; at: Date; data: Record<string, unknown> }[];
   createdAt: Date;
@@ -152,7 +176,7 @@ export async function getOrderTx(db: Queryable, orderRef: string): Promise<Order
   const r = o.rows[0];
   if (!r) return null;
   const [items, attempts, events, paid, orgPaid, fee, balance] = await Promise.all([
-    db.query(`SELECT sku, name, quantity, unit_price_cents, discount_cents, line_total_cents FROM order_items WHERE order_id = $1 ORDER BY id`, [r.id]),
+    db.query(`SELECT id, sku, name, quantity, unit_price_cents, discount_cents, line_total_cents FROM order_items WHERE order_id = $1 ORDER BY id`, [r.id]),
     db.query(`SELECT attempt_no, outcome, reason, to_char(reschedule_for, 'YYYY-MM-DD') AS reschedule_for, recorded_at FROM delivery_attempts WHERE order_id = $1 ORDER BY attempt_no`, [r.id]),
     db.query(`SELECT type, actor, at, data FROM order_events WHERE order_id = $1 ORDER BY id`, [r.id]),
     db.query<{ s: number }>(`SELECT COALESCE(sum(amount_cents), 0)::bigint AS s FROM payment_receipts WHERE order_ref = $1`, [orderRef]),
@@ -168,7 +192,7 @@ export async function getOrderTx(db: Queryable, orderRef: string): Promise<Order
     subtotalCents: r.subtotal_cents, discountCents: r.discount_cents, totalCents: r.total_cents,
     balanceCents: balance, paidCents, collectedByOrganizationCents: orgPaid.rows[0]!.s, paymentStatus,
     dispatch: fee.rows[0] ? { courierId: fee.rows[0].courier_id, courierName: fee.rows[0].name, packageFeeCents: fee.rows[0].amount_cents, zeroReason: fee.rows[0].zero_reason } : null,
-    items: items.rows.map((i) => ({ sku: i.sku, name: i.name, quantity: i.quantity, unitPriceCents: i.unit_price_cents, discountCents: i.discount_cents, lineTotalCents: i.line_total_cents })),
+    items: items.rows.map((i) => ({ id: i.id, sku: i.sku, name: i.name, quantity: i.quantity, unitPriceCents: i.unit_price_cents, discountCents: i.discount_cents, lineTotalCents: i.line_total_cents })),
     attempts: attempts.rows.map((a) => ({ attemptNo: a.attempt_no, outcome: a.outcome, reason: a.reason, rescheduleFor: a.reschedule_for, recordedAt: a.recorded_at })),
     events: events.rows.map((e) => ({ type: e.type, actor: e.actor, at: e.at, data: e.data })),
     createdAt: r.created_at, dispatchedAt: r.dispatched_at, deliveredAt: r.delivered_at,
@@ -230,6 +254,18 @@ export async function dispatchOrder(ctx: OrderCtx, input: {
           { overdueCents: standing.overdueCents, limitCents: standing.limitCents });
       }
     }
+
+    // A customer flagged as prepay-only must have paid in full before anything leaves.
+    const flag = await c.query<{ prepay_required: boolean }>(`SELECT cu.prepay_required FROM orders o JOIN customers cu ON cu.id = o.customer_id WHERE o.id = $1`, [o.id]);
+    if (flag.rows[0]?.prepay_required && (await accountBalance(c, 'CUSTOMER_RECEIVABLE', { orderRef: o.order_ref })) > 0) {
+      throw new HttpError(409, 'PREPAY_REQUIRED', 'This customer must pay in full before dispatch, and this order is not fully paid yet.');
+    }
+    // The goods leave stock now. Refused if there is not enough physically there.
+    const goods = await c.query<{ product_id: number; q: number }>(
+      `SELECT i.product_id, sum(i.quantity)::int AS q FROM order_items i JOIN products p ON p.id = i.product_id
+        WHERE i.order_id = $1 AND p.track_stock GROUP BY i.product_id ORDER BY i.product_id`, [o.id]);
+    await lockAndCheck(c, new Map(goods.rows.map((g) => [g.product_id, g.q])), 'on_hand');
+    await postMovements(c, goods.rows.map((g) => ({ productId: g.product_id, type: 'dispatch' as const, quantity: -g.q, actor: input.actor.trim(), ref: { type: 'order' as const, id: o.id } })));
 
     let entryId: number | null = null;
     if (fee.amountCents > 0) {

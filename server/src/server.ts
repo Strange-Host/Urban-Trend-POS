@@ -7,7 +7,7 @@ import { createLogger } from './logger.js';
 const config = loadConfig();
 const logger = createLogger(config.LOG_LEVEL);
 const pool = createPool(config.DATABASE_URL, { ssl: config.DATABASE_SSL === 'true' });
-const server = createApp({ pool, logger }).listen(config.PORT, () => logger.info({ port: config.PORT }, 'server listening'));
+const server = createApp({ pool, logger, sessionHours: config.SESSION_HOURS, orderRefKey: config.ORDER_REF_KEY }).listen(config.PORT, () => logger.info({ port: config.PORT }, 'server listening'));
 
 const integrity = config.INTEGRITY_JOB === 'true'
   ? scheduleNightlyIntegrity(pool, { logger, hourLocal: config.INTEGRITY_HOUR })
