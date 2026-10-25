@@ -91,13 +91,15 @@ const NAV = [
   ['#/risk', 'Money at risk', () => can('atrisk.view')], ['#/home', 'Today', () => !can('atrisk.view')],
   ['#/orders', 'Orders', () => can('orders.view')], ['#/new-order', 'New order', () => can('orders.create')],
   ['#/couriers', 'Couriers', () => can('couriers.view')], ['#/till', 'Till', () => can('till.operate')],
+  ['#/leads', 'Leads', () => can('leads.view')], ['#/customers', 'Customers', () => can('customers.view')],
+  ['#/products', 'Products', () => can('catalog.view')], ['#/stock', 'Stock', () => can('stock.view')],
   ['#/pay', 'Pay', () => true], ['#/discounts', 'Discounts', () => can('reports.view')],
 ];
 function shell(content) {
   const here = location.hash.split('/').slice(0, 2).join('/');
   return h('div', {}, h('header', {},
     h('strong', {}, 'Urban Trends'),
-    h('nav', {}, NAV.filter(([, , show]) => show()).map(([href, text]) => h('a', { href, class: href === here ? 'on' : '' }, text))),
+    h('nav', {}, NAV.filter(([, , show]) => show()).map(([href, text]) => h('a', { href, class: href === here || href === `${here}s` ? 'on' : '' }, text))),
     h('span', { class: 'who' }, `${S.me.displayName} (${S.me.role})`),
     h('button', { class: 'secondary', onclick: act(null, async () => { await api('POST', '/auth/logout').catch(() => {}); logout(); }) }, 'Log out')),
   h('main', {}, h('div', { id: 'notice' }), content));
@@ -109,6 +111,9 @@ const ROUTES = [
   [/^#\/orders$/, () => viewOrders()], [/^#\/order\/(.+)$/, (m) => viewOrder(decodeURIComponent(m[1]))], [/^#\/new-order$/, () => viewNewOrder()],
   [/^#\/couriers$/, () => viewCouriers()], [/^#\/courier\/(\d+)$/, (m) => viewCourier(Number(m[1]))],
   [/^#\/till$/, () => viewTill()], [/^#\/pay$/, () => viewPay()], [/^#\/discounts$/, () => viewDiscounts()],
+  [/^#\/products$/, () => viewProducts()], [/^#\/product\/(\d+)$/, (m) => viewProduct(Number(m[1]))], [/^#\/stock$/, () => viewStock()],
+  [/^#\/customers$/, () => viewCustomers()], [/^#\/customer\/(\d+)$/, (m) => viewCustomer(Number(m[1]))],
+  [/^#\/leads$/, () => viewLeads()], [/^#\/lead\/(\d+)$/, (m) => viewLead(Number(m[1]))],
 ];
 async function render() {
   if (!S.token) { if (location.hash !== '#/login') { location.hash = '#/login'; return; } return viewLogin(); }
@@ -463,6 +468,322 @@ async function viewDiscounts() {
   };
   mount(shell(h('div', {}, h('h1', {}, 'Discounts and risky actions'), h('div', { class: 'row' }, label('From', from), label('To', to), h('button', { onclick: act(null, load) }, 'Show')), view)));
   await load().catch(fail);
+}
+
+// ------------------------------------------------------------------ shared bits for the master-data screens
+const PAGE = 50;
+const whole = (v, what, { negative = false } = {}) => {
+  const s = String(v).trim();
+  if (!/^-?\d+$/.test(s) || (!negative && s.startsWith('-'))) throw new Error(`${what} must be a whole number${negative ? '' : ', zero or more'}.`);
+  return Number(s);
+};
+const atLeastOne = (v, what) => { const n = whole(v, what); if (n < 1) throw new Error(`${what} must be at least 1.`); return n; };
+const optText = (v) => String(v ?? '').trim() || undefined;
+const nullText = (v) => String(v ?? '').trim() || null;
+const checkbox = (name, checked) => h('input', { type: 'checkbox', name, checked });
+const debounced = (el, fn) => el.addEventListener('input', () => { clearTimeout(el.t); el.t = setTimeout(fn, 300); });
+const sign = (n) => (n > 0 ? `+${n}` : String(n));
+/**
+ * What to send as ?search=. The server matches a phone on its last nine digits, so a number typed the usual way (0733 444 555 or
+ * +254 733 444 555) would match nothing. When the box holds only a phone-like number, drop the leading 0 or 254 first.
+ */
+const searchTerm = (raw) => {
+  const s = String(raw).trim();
+  return /^[+\d\s()-]+$/.test(s) ? s.replace(/\D/g, '').replace(/^(?:254|0)/, '') : s;
+};
+const back = (href, text) => h('p', {}, h('a', { href }, `← ${text}`));
+const fold = (title, ...kids) => h('details', { class: 'card' }, h('summary', {}, title), ...kids);
+function pager(total, offset, go) {
+  if (total <= PAGE) return null;
+  return h('div', { class: 'row' }, h('span', { class: 'muted' }, `${offset + 1}–${Math.min(offset + PAGE, total)} of ${total}`),
+    h('button', { class: 'secondary', disabled: offset === 0, onclick: () => go(Math.max(offset - PAGE, 0)) }, 'Previous'),
+    h('button', { class: 'secondary', disabled: offset + PAGE >= total, onclick: () => go(offset + PAGE) }, 'Next'));
+}
+/** Rows of "code / name / quantity / price" for an order made from a lead. `listId` names the datalist of catalogue codes. */
+function itemRows(prods, listId) {
+  const rows = h('div', {});
+  const add = () => {
+    const sku = input('sku', { ph: 'Code (optional)', list: listId }), name = input('name', { ph: 'Item', required: true }), qty = input('qty', { type: 'number', min: 1, value: '1', required: true }), price = input('price', { ph: 'Price KES', required: true, mode: 'decimal' });
+    sku.addEventListener('change', () => { const p = prods.find((x) => x.sku === sku.value.trim().toUpperCase()); if (p) { name.value = p.name; price.value = String(p.priceCents / 100); } });
+    rows.append(h('div', { class: 'row item' }, label('Code', sku), label('Item', name, 'grow'), label('Qty', qty), label('Price (KES)', price)));
+  };
+  add();
+  const read = () => [...rows.querySelectorAll('.item')].map((r) => ({ sku: optText(r.querySelector('[name=sku]').value), name: r.querySelector('[name=name]').value.trim(), quantity: atLeastOne(r.querySelector('[name=qty]').value, 'The quantity'), unitPriceCents: toCents(r.querySelector('[name=price]').value) }));
+  return { node: rows, add, read, datalist: h('datalist', { id: listId }, prods.map((p) => h('option', { value: p.sku }, `${p.name} (${p.available} available)`))) };
+}
+
+// ------------------------------------------------------------------ products
+const MOVE_TEXT = { receipt: 'Goods received', adjustment: 'Count correction', write_off: 'Written off', sale: 'Sold at the till', void_reversal: 'Sale voided', refund_restock: 'Refund, back on shelf', dispatch: 'Dispatched', return_restock: 'Returned to shelf' };
+/** What goods cost is for managers: a cashier sees the stock moving but not what it was bought for. */
+function movementsTable(rows, showItem) {
+  const qtyCol = showItem ? 3 : 2, costs = can('catalog.manage');
+  return rows.length ? table(['When', ...(showItem ? ['Item'] : []), 'What', 'Qty', ...(costs ? ['Unit cost'] : []), 'Reason', 'Reference', 'By'],
+    rows.map((m) => [when(m.at), ...(showItem ? [h('a', { href: `#/product/${m.productId}` }, m.sku)] : []), MOVE_TEXT[m.type] || m.type.replace(/_/g, ' '), sign(m.quantity), ...(costs ? [m.unitCostCents != null ? kes(m.unitCostCents) : ''] : []), m.reason || '', m.refType ? `${m.refType} #${m.refId}` : '', m.actor]),
+    costs ? [qtyCol, qtyCol + 1] : [qtyCol]) : empty('No stock movements yet.');
+}
+const stockCell = (x, v) => (x.trackStock ? v : '');
+const productPills = (x) => h('span', {}, !x.active ? pill('inactive') : null, x.lowStock ? pill('low stock', 'warn') : null, !x.trackStock ? pill('not tracked') : null);
+
+/** Every category in use, for the filter and as suggestions. The server filters on an exact category, so the filter is a list, not free text. */
+async function knownCategories() {
+  const seen = new Set();
+  for (let offset = 0, total = 1; offset < total && offset < 2000; offset += 100) {
+    const r = await api('GET', `/products?limit=100&offset=${offset}`);
+    total = r.total;
+    r.products.forEach((x) => { if (x.category) seen.add(x.category); });
+  }
+  return [...seen].sort((a, b) => a.localeCompare(b));
+}
+const categoryList = (cats) => h('datalist', { id: 'productcats' }, cats.map((c) => h('option', { value: c })));
+
+/** The fields shared by "add a product" and "edit a product". `p` is the product being edited, or null. */
+function productFields(p) {
+  return [label('Name', input('name', { required: true, value: p?.name }), 'grow'), label('Category', input('category', { value: p?.category || '', list: 'productcats' })),
+    label('Price (KES)', input('price', { required: true, mode: 'decimal', value: p ? String(p.priceCents / 100) : undefined })), label('Cost (KES)', input('cost', { mode: 'decimal', value: p ? String(p.costCents / 100) : undefined })),
+    label('Reorder when at or below', input('reorder', { type: 'number', min: 0, value: p ? String(p.reorderLevel) : undefined })), label('Track stock', checkbox('trackStock', p ? p.trackStock : true))];
+}
+
+async function viewProducts() {
+  const q = { search: '', category: '', low: false, all: false, offset: 0 };
+  const list = h('div', {});
+  const load = async () => {
+    const p = new URLSearchParams({ limit: String(PAGE), offset: String(q.offset) });
+    if (q.search) p.set('search', q.search);
+    if (q.category) p.set('category', q.category);
+    if (q.low) p.set('low', 'true');
+    if (!q.all) p.set('active', 'true');
+    const r = await api('GET', `/products?${p}`);
+    list.replaceChildren(h('p', { class: 'muted' }, `${r.total} product${r.total === 1 ? '' : 's'}`),
+      r.products.length ? table(['Code', 'Item', 'Category', 'Price', 'On hand', 'Reserved', 'Available', ''],
+        r.products.map((x) => [h('a', { href: `#/product/${x.id}` }, x.sku), x.name, x.category || '', kes(x.priceCents), stockCell(x, x.onHand), stockCell(x, x.reserved || ''), stockCell(x, x.available), productPills(x)]), [3, 4, 5, 6]) : empty('No products match.'),
+      pager(r.total, q.offset, (o) => { q.offset = o; load().catch(fail); }));
+  };
+  const refilter = () => { q.offset = 0; load().catch(fail); };
+  const cats = await knownCategories();
+  const se = input('search', { ph: 'Code or name' }), ca = select('category', [['', 'Any'], ...cats.map((c) => [c, c])]), lo = checkbox('low'), al = checkbox('all');
+  debounced(se, () => { q.search = se.value.trim(); refilter(); });
+  ca.addEventListener('change', () => { q.category = ca.value; refilter(); });
+  lo.addEventListener('change', () => { q.low = lo.checked; refilter(); });
+  al.addEventListener('change', () => { q.all = al.checked; refilter(); });
+  const out = h('div', {}, categoryList(cats), h('h1', {}, 'Products'), h('div', { class: 'row' }, label('Search', se, 'grow'), label('Category', ca), label('Low stock only', lo), label('Show deactivated', al)));
+  if (can('catalog.manage')) {
+    out.append(fold('Add a product', form([label('Code (SKU)', input('sku', { required: true })), ...productFields(null)], 'Add product',
+      (v, f) => api('POST', '/products', { sku: v.sku.trim(), name: v.name.trim(), category: optText(v.category), priceCents: toCents(v.price), costCents: v.cost.trim() ? toCents(v.cost) : undefined,
+        trackStock: f.querySelector('[name=trackStock]').checked, reorderLevel: v.reorder.trim() ? whole(v.reorder, 'The reorder level') : undefined }),
+      { ok: 'Product added.', then: (r) => { location.hash = `#/product/${r.product.id}`; } })));
+  }
+  out.append(list);
+  mount(shell(out));
+  await load();
+}
+
+async function viewProduct(id) {
+  const { product: p } = await api('GET', `/products/${id}`);
+  const moves = can('stock.view') ? await api('GET', `/stock/movements?productId=${id}&limit=30`) : null;
+  const out = h('div', {}, back('#/products', 'All products'), h('h1', {}, p.name, ' ', productPills(p)));
+  out.append(h('div', { class: 'card' }, h('dl', { class: 'kv' }, h('dt', {}, 'Code'), h('dd', {}, p.sku), h('dt', {}, 'Category'), h('dd', {}, p.category || ''),
+    h('dt', {}, 'Price'), h('dd', {}, `KES ${kes(p.priceCents)}`), can('catalog.manage') ? [h('dt', {}, 'Cost'), h('dd', {}, `KES ${kes(p.costCents)}`)] : null,
+    p.trackStock ? [h('dt', {}, 'On the shelf'), h('dd', {}, p.onHand), h('dt', {}, 'Promised to orders'), h('dd', {}, p.reserved), h('dt', {}, 'Available to sell'), h('dd', {}, p.available), h('dt', {}, 'Reorder when at or below'), h('dd', {}, p.reorderLevel)]
+      : [h('dt', {}, 'Stock'), h('dd', {}, 'Not tracked: orders and sales for this item never change a count.')])));
+
+  if (p.trackStock && (can('stock.receive') || can('stock.adjust'))) {
+    out.append(h('h2', {}, 'Stock'));
+    const done = (text) => (r) => (r && r.onHand !== undefined ? `${text} ${r.onHand} on the shelf now.` : `${text}`);
+    if (can('stock.receive')) {
+      out.append(h('div', { class: 'card' }, h('strong', {}, 'Goods received'), form([label('Quantity', input('quantity', { type: 'number', min: 1, required: true })), label('Cost each (KES)', input('cost', { mode: 'decimal' })), label('Note (supplier, delivery note)', input('note'), 'grow')], 'Receive',
+        (v) => api('POST', `/products/${id}/receive`, { quantity: atLeastOne(v.quantity, 'The quantity'), unitCostCents: v.cost.trim() ? toCents(v.cost) : undefined, note: optText(v.note) }), { ok: done('Received.'), then: render })));
+    }
+    if (can('stock.adjust')) {
+      out.append(h('div', { class: 'card' }, h('strong', {}, 'Correct a count'), h('p', { class: 'muted' }, 'After counting the shelf: enter how many to add (like 3) or take off (like -2), and why.'),
+        form([label('Change by', input('delta', { required: true, mode: 'numeric', ph: '+3 or -2' })), label('Reason', input('reason', { required: true }), 'grow')], 'Save correction',
+          (v) => { const delta = whole(v.delta.replace(/^\+/, ''), 'The change', { negative: true }); if (delta === 0) throw new Error('The change cannot be zero.'); return api('POST', `/products/${id}/adjust`, { delta, reason: v.reason.trim() }); }, { ok: done('Count corrected.'), then: render })));
+      out.append(h('div', { class: 'card' }, h('strong', {}, 'Write off damaged or lost goods'),
+        form([label('Quantity', input('quantity', { type: 'number', min: 1, required: true })), label('Reason', input('reason', { required: true }), 'grow')], 'Write off',
+          async (v) => { const n = atLeastOne(v.quantity, 'The quantity'); if (!(await ask('Write off stock?', h('p', {}, `${n} × ${p.name} will be taken off the shelf and recorded as a loss.`), [['Write off', true, 'danger'], ['Cancel', false, 'secondary']]))) throw new Error('Cancelled.'); return api('POST', `/products/${id}/write-off`, { quantity: n, reason: v.reason.trim() }); }, { ok: done('Written off.'), then: render, danger: true })));
+    }
+  }
+
+  if (can('catalog.manage')) {
+    out.append(categoryList(await knownCategories()), h('h2', {}, 'Edit this product'), h('div', { class: 'card' }, form([...productFields(p), label('Active', checkbox('active', p.active))], 'Save changes',
+      (v, f) => api('PATCH', `/products/${id}`, { name: v.name.trim(), category: nullText(v.category), priceCents: toCents(v.price), costCents: v.cost.trim() ? toCents(v.cost) : 0,
+        reorderLevel: v.reorder.trim() ? whole(v.reorder, 'The reorder level') : 0, trackStock: f.querySelector('[name=trackStock]').checked, active: f.querySelector('[name=active]').checked }), { ok: 'Saved.', then: render })));
+  }
+  if (moves) out.append(h('h2', {}, 'Stock history'), movementsTable(moves.movements, false));
+  if (moves && moves.total > moves.movements.length) out.append(h('p', { class: 'muted' }, `Showing the latest ${moves.movements.length} of ${moves.total}.`));
+  mount(shell(out));
+}
+
+// ------------------------------------------------------------------ stock overview
+async function viewStock() {
+  const [strict, low] = await Promise.all([api('GET', '/stock/strict'), api('GET', '/products?low=true&active=true&limit=100')]);
+  const out = h('div', {}, h('h1', {}, 'Stock'));
+  out.append(h('div', { class: 'card' }, h('div', { class: 'row' }, h('div', { class: 'grow' }, h('strong', {}, 'Strict mode: '), pill(strict.strict ? 'on' : 'off', strict.strict ? 'good' : 'amber'),
+    h('div', { class: 'muted' }, strict.strict ? 'Every order and sale line must name a product from the catalogue.' : 'Items typed freehand are allowed and are not counted. Switch strict mode on at cutover so nothing slips through untracked.')),
+  can('policy.manage') ? h('button', { class: strict.strict ? 'secondary' : '', onclick: act(null, async () => {
+    const msg = strict.strict ? 'Free-typed items will be allowed again, and they will not be counted.' : 'From now on every order and sale line must name a product from the catalogue.';
+    if (!(await ask(strict.strict ? 'Turn strict mode off?' : 'Turn strict mode on?', h('p', {}, msg), [['Yes', true], ['Cancel', false, 'secondary']]))) throw new Error('Cancelled.');
+    return api('PUT', '/stock/strict', { strict: !strict.strict });
+  }, { ok: 'Saved.', then: render }) }, strict.strict ? 'Turn off' : 'Turn on') : null)));
+
+  out.append(h('h2', {}, 'Running low'), low.products.length ? table(['Code', 'Item', 'On the shelf', 'Available', 'Reorder at'], low.products.map((x) => [h('a', { href: `#/product/${x.id}` }, x.sku), x.name, x.onHand, x.available, x.reorderLevel]), [2, 3, 4]) : empty('Nothing is running low.'));
+  if (low.total > low.products.length) out.append(h('p', { class: 'muted' }, `Showing ${low.products.length} of ${low.total}. `, h('a', { href: '#/products' }, 'See all products')));
+
+  const list = h('div', {}); let offset = 0;
+  const load = async () => {
+    const r = await api('GET', `/stock/movements?limit=${PAGE}&offset=${offset}`);
+    list.replaceChildren(movementsTable(r.movements, true), pager(r.total, offset, (o) => { offset = o; load().catch(fail); }));
+  };
+  out.append(h('h2', {}, 'Recent movements'), list);
+  mount(shell(out));
+  await load();
+}
+
+// ------------------------------------------------------------------ customers
+async function viewCustomers() {
+  const q = { search: '', prepay: false, offset: 0 };
+  const list = h('div', {});
+  const load = async () => {
+    const p = new URLSearchParams({ limit: String(PAGE), offset: String(q.offset) });
+    if (q.search) p.set('search', q.search);
+    if (q.prepay) p.set('prepay', 'true');
+    const r = await api('GET', `/customers?${p}`);
+    list.replaceChildren(h('p', { class: 'muted' }, `${r.total} customer${r.total === 1 ? '' : 's'}`),
+      r.customers.length ? table(['Name', 'Phone', 'Town', '', 'Added'], r.customers.map((c) => [h('a', { href: `#/customer/${c.id}` }, c.name), c.phone, c.town || '', c.prepayRequired ? pill('prepay only', 'warn') : '', when(c.createdAt)])) : empty('No customers match.'),
+      pager(r.total, q.offset, (o) => { q.offset = o; load().catch(fail); }));
+  };
+  const refilter = () => { q.offset = 0; load().catch(fail); };
+  const se = input('search', { ph: 'Name or phone' }), pp = checkbox('prepay');
+  debounced(se, () => { q.search = searchTerm(se.value); refilter(); });
+  pp.addEventListener('change', () => { q.prepay = pp.checked; refilter(); });
+  const out = h('div', {}, h('h1', {}, 'Customers'), h('div', { class: 'row' }, label('Search', se, 'grow'), label('Prepay only', pp)));
+  if (can('customers.manage')) {
+    out.append(fold('Add a customer', form([label('Name', input('name', { required: true }), 'grow'), label('Phone', input('phone', { required: true, mode: 'tel' })), label('Other phone', input('altPhone', { mode: 'tel' })), label('Town', input('town')), label('Address', input('address'), 'grow'), label('Notes', input('notes'), 'grow')], 'Add customer',
+      (v) => api('POST', '/customers', { name: v.name.trim(), phone: v.phone.trim(), altPhone: optText(v.altPhone), town: optText(v.town), address: optText(v.address), notes: optText(v.notes) }),
+      { ok: 'Customer added.', then: (r) => { location.hash = `#/customer/${r.customer.id}`; } })));
+  }
+  out.append(list);
+  mount(shell(out));
+  await load();
+}
+
+async function viewCustomer(id) {
+  const { customer: c } = await api('GET', `/customers/${id}`);
+  const s = c.stats;
+  const out = h('div', {}, back('#/customers', 'All customers'), h('h1', {}, c.name, ' ', c.prepayRequired ? pill('prepay only', 'warn') : null));
+  out.append(h('div', { class: 'card' }, h('dl', { class: 'kv' }, h('dt', {}, 'Phone'), h('dd', {}, c.phone), c.altPhone ? [h('dt', {}, 'Other phone'), h('dd', {}, c.altPhone)] : null, h('dt', {}, 'Town'), h('dd', {}, c.town || ''), h('dt', {}, 'Address'), h('dd', {}, c.address || ''), h('dt', {}, 'Notes'), h('dd', {}, c.notes || ''),
+    s ? [h('dt', {}, 'Orders'), h('dd', {}, `${s.orders} (${s.delivered} delivered, ${s.returned} returned, ${s.cancelled} cancelled, ${s.active} active)`), h('dt', {}, 'Bought so far'), h('dd', {}, `KES ${kes(s.lifetimeValueCents)}`), h('dt', {}, 'Last order'), h('dd', {}, s.lastOrderAt ? when(s.lastOrderAt) : 'None yet')] : null,
+    c.prepayRequired ? [h('dt', {}, 'Prepay reason'), h('dd', {}, c.prepayReason || '')] : null)));
+  if (can('orders.create')) out.append(h('p', {}, h('a', { href: '#/new-order' }, 'Take a new order')));
+
+  if (can('customers.flag')) {
+    out.append(h('h2', {}, 'Payment before delivery'), c.prepayRequired
+      ? h('div', { class: 'card' }, h('p', { class: 'muted' }, 'This customer must pay before a parcel is sent.'), form([label('Note (optional)', input('reason'), 'grow')], 'Remove the prepay requirement', (v) => api('PUT', `/customers/${id}/prepay`, { required: false, reason: optText(v.reason) }), { ok: 'Saved.', then: render }))
+      : h('div', { class: 'card' }, h('p', { class: 'muted' }, 'Use this for a customer who refused or did not claim parcels before.'), form([label('Why', input('reason', { required: true }), 'grow')], 'Require prepayment', (v) => api('PUT', `/customers/${id}/prepay`, { required: true, reason: v.reason.trim() }), { ok: 'Saved.', then: render, danger: true })));
+  }
+  if (can('customers.manage')) {
+    out.append(h('h2', {}, 'Edit details'), h('div', { class: 'card' }, form([label('Name', input('name', { required: true, value: c.name }), 'grow'), label('Other phone', input('altPhone', { value: c.altPhone || '', mode: 'tel' })), label('Town', input('town', { value: c.town || '' })), label('Address', input('address', { value: c.address || '' }), 'grow'), label('Notes', input('notes', { value: c.notes || '' }), 'grow')], 'Save changes',
+      (v) => api('PATCH', `/customers/${id}`, { name: v.name.trim(), altPhone: nullText(v.altPhone), town: nullText(v.town), address: nullText(v.address), notes: nullText(v.notes) }), { ok: 'Saved.', then: render })));
+  }
+  if (can('orders.view')) {
+    const digits = c.phone.replace(/\D/g, '').slice(-9);
+    const orders = (await api('GET', `/orders?search=${encodeURIComponent(digits)}&limit=10`)).orders;
+    out.append(h('h2', {}, 'Recent orders'), orders.length ? table(['Order', 'Status', 'Total', 'Owes', 'Created'], orders.map((o) => [h('a', { href: `#/order/${encodeURIComponent(o.orderRef)}` }, o.orderRef), pill(o.status, statusKind(o.status)), kes(o.totalCents), o.balanceCents > 0 ? kes(o.balanceCents) : '', when(o.createdAt)]), [2, 3]) : empty('No orders yet.'));
+  }
+  mount(shell(out));
+}
+
+// ------------------------------------------------------------------ leads
+const LEAD_SOURCES = [['manual', 'Entered by hand'], ['whatsapp', 'WhatsApp'], ['website', 'Website'], ['phone', 'Phone call'], ['walk_in', 'Walked in'], ['shopify', 'Online store'], ['other', 'Other']];
+const sourceText = (s) => (LEAD_SOURCES.find(([v]) => v === s) || [, s.replace(/_/g, ' ')])[1];
+const leadKind = (s) => ({ new: 'amber', contacted: 'amber', qualified: 'good', converted: 'good', lost: '' }[s] || '');
+const CHANNELS = [['whatsapp', 'WhatsApp'], ['sms', 'SMS'], ['call', 'Phone call'], ['website', 'Website'], ['internal', 'Internal']];
+
+async function viewLeads() {
+  const q = { status: 'open', source: '', who: '', search: '', offset: 0 };
+  const list = h('div', {});
+  const load = async () => {
+    const p = new URLSearchParams({ limit: String(PAGE), offset: String(q.offset) });
+    if (q.status) p.set('status', q.status);
+    if (q.source) p.set('source', q.source);
+    if (q.who === 'mine') p.set('assignedTo', S.me.username);
+    if (q.who === 'none') p.set('unassigned', 'true');
+    if (q.search) p.set('search', q.search);
+    const r = await api('GET', `/leads?${p}`);
+    list.replaceChildren(h('p', { class: 'muted' }, `${r.total} lead${r.total === 1 ? '' : 's'}`),
+      r.leads.length ? table(['Lead', 'Source', 'Interested in', 'Status', 'Assigned to', 'Last change'], r.leads.map((l) => [h('div', {}, h('a', { href: `#/lead/${l.id}` }, l.name || l.phone), l.name ? h('div', { class: 'muted' }, l.phone) : null), sourceText(l.source), l.productInterest || '', pill(l.status, leadKind(l.status)), l.assignedTo || h('span', { class: 'muted' }, 'nobody'), when(l.updatedAt)])) : empty('No leads match.'),
+      pager(r.total, q.offset, (o) => { q.offset = o; load().catch(fail); }));
+  };
+  const refilter = () => { q.offset = 0; load().catch(fail); };
+  const st = select('status', [['open', 'Open (new, contacted, qualified)'], ['', 'All'], ['new', 'New'], ['contacted', 'Contacted'], ['qualified', 'Qualified'], ['converted', 'Became an order'], ['lost', 'Lost']], 'open');
+  const so = select('source', [['', 'Any'], ...LEAD_SOURCES]), wh = select('who', [['', 'Anyone'], ['mine', 'Mine'], ['none', 'Nobody yet']]), se = input('search', { ph: 'Name, phone or product' });
+  st.addEventListener('change', () => { q.status = st.value; refilter(); });
+  so.addEventListener('change', () => { q.source = so.value; refilter(); });
+  wh.addEventListener('change', () => { q.who = wh.value; refilter(); });
+  debounced(se, () => { q.search = searchTerm(se.value); refilter(); });
+  const out = h('div', {}, h('h1', {}, 'Leads'), h('div', { class: 'row' }, label('Status', st), label('Source', so), label('Assigned to', wh), label('Search', se, 'grow')));
+  if (can('leads.manage')) {
+    out.append(fold('Add a lead', form([label('Name', input('name'), 'grow'), label('Phone', input('phone', { required: true, mode: 'tel' })), label('Where from', select('source', LEAD_SOURCES)), label('Interested in', input('productInterest'), 'grow'), label('What they said', input('message'), 'grow'), label('Notes', input('notes'), 'grow')], 'Add lead',
+      (v) => api('POST', '/leads', { name: optText(v.name), phone: v.phone.trim(), source: v.source, productInterest: optText(v.productInterest), message: optText(v.message), notes: optText(v.notes) }),
+      { ok: (r) => (r.duplicate ? h('span', {}, 'This number already has an open lead: ', h('a', { href: `#/lead/${r.lead.id}` }, r.lead.name || r.lead.phone), '. Anything they said was added to it.') : 'Lead added.'),
+        then: (r) => { if (!r.duplicate) location.hash = `#/lead/${r.lead.id}`; else return load(); } })));
+  }
+  out.append(list);
+  mount(shell(out));
+  await load();
+}
+
+async function viewLead(id) {
+  const { lead: l } = await api('GET', `/leads/${id}`);
+  const open = ['new', 'contacted', 'qualified'].includes(l.status);
+  const out = h('div', {}, back('#/leads', 'All leads'), h('h1', {}, l.name || l.phone, ' ', pill(l.status, leadKind(l.status))));
+  out.append(h('div', { class: 'card' }, h('dl', { class: 'kv' }, h('dt', {}, 'Phone'), h('dd', {}, l.phone), h('dt', {}, 'From'), h('dd', {}, sourceText(l.source)), h('dt', {}, 'Interested in'), h('dd', {}, l.productInterest || ''), h('dt', {}, 'Notes'), h('dd', {}, l.notes || ''),
+    h('dt', {}, 'Assigned to'), h('dd', {}, l.assignedTo || 'Nobody yet'), h('dt', {}, 'Added'), h('dd', {}, `${when(l.createdAt)} by ${l.createdBy}`),
+    l.status === 'lost' && l.lostReason ? [h('dt', {}, 'Why lost'), h('dd', {}, l.lostReason)] : null,
+    l.convertedOrderRef ? [h('dt', {}, 'Order'), h('dd', {}, h('a', { href: `#/order/${encodeURIComponent(l.convertedOrderRef)}` }, l.convertedOrderRef), l.convertedAt ? ` on ${when(l.convertedAt)}` : '')] : null)));
+
+  // conversation
+  out.append(h('h2', {}, 'Conversation'), l.messages?.length
+    ? h('div', { class: 'thread' }, l.messages.map((m) => h('div', { class: `bubble ${m.direction === 'outbound' ? 'out' : m.direction === 'note' ? 'note' : ''}` }, h('div', { class: 'meta' }, `${m.direction === 'inbound' ? 'Customer' : m.direction === 'outbound' ? 'We said' : 'Note'} · ${m.channel} · ${m.actor} · ${when(m.at)}`), m.body)))
+    : empty('Nothing recorded yet.'));
+  if (can('leads.manage') && l.status !== 'converted') {
+    out.append(h('div', { class: 'card' }, form([label('What', select('direction', [['inbound', 'Customer said'], ['outbound', 'We said'], ['note', 'Private note']])), label('Through', select('channel', CHANNELS, 'internal')), label('Message', input('body', { required: true }), 'grow')], 'Add',
+      (v) => api('POST', `/leads/${id}/messages`, { direction: v.direction, channel: v.channel, body: v.body.trim() }), { ok: 'Added.', then: render })));
+  }
+
+  if (can('leads.manage') && l.status !== 'converted') {
+    out.append(h('h2', {}, 'Where this lead stands'), h('div', { class: 'card' }, form([label('Status', select('status', [['new', 'New'], ['contacted', 'Contacted'], ['qualified', 'Qualified'], ['lost', 'Lost']], l.status)), label('If lost, why', input('lostReason', { value: l.lostReason || '' }), 'grow')], 'Save status',
+      (v) => { if (v.status === 'lost' && !v.lostReason.trim()) throw new Error('Say why the lead was lost.'); return api('PUT', `/leads/${id}/status`, { status: v.status, lostReason: v.status === 'lost' ? v.lostReason.trim() : undefined }); }, { ok: 'Saved.', then: render })));
+  }
+  if (can('leads.assign') && l.status !== 'converted') {
+    const staff = can('users.manage') ? (await api('GET', '/users')).users : [];
+    out.append(h('div', { class: 'card' }, h('datalist', { id: 'staffnames' }, staff.filter((u) => u.active !== false).map((u) => h('option', { value: u.username }, u.displayName || u.username))),
+      form([label('Give to (username; leave empty for nobody)', input('assignedTo', { value: l.assignedTo || '', list: 'staffnames' }), 'grow')], 'Save', (v) => api('PUT', `/leads/${id}/assignee`, { assignedTo: nullText(v.assignedTo) }), { ok: 'Saved.', then: render })));
+  }
+  if (can('leads.manage') && l.status !== 'converted') {
+    out.append(h('h2', {}, 'Details'), h('div', { class: 'card' }, form([label('Name', input('name', { value: l.name || '' }), 'grow'), label('Interested in', input('productInterest', { value: l.productInterest || '' }), 'grow'), label('Notes', input('notes', { value: l.notes || '' }), 'grow')], 'Save details',
+      (v) => api('PATCH', `/leads/${id}`, { name: nullText(v.name), productInterest: nullText(v.productInterest), notes: nullText(v.notes) }), { ok: 'Saved.', then: render })));
+  }
+
+  // turn into an order
+  if (can('orders.create') && open) {
+    const prods = can('catalog.view') ? (await api('GET', '/products?active=true&limit=100')).products : [];
+    const rows = itemRows(prods, 'leadskus');
+    const f = h('form', {}, rows.datalist, rows.node, h('div', { class: 'row' }, h('button', { type: 'button', class: 'secondary', onclick: rows.add }, 'Add another item')),
+      h('div', { class: 'row' }, label('Customer name', input('customerName', { value: l.name || '', required: !l.name }), 'grow'), label('Discount (KES)', input('discount', { mode: 'decimal' })), label('Notes', input('notes'), 'grow')), h('p', {}, h('button', { type: 'submit' }, 'Make the order')));
+    f.addEventListener('submit', async (ev) => {
+      ev.preventDefault(); const btn = f.querySelector('button[type=submit]'); btn.disabled = true;
+      try {
+        const v = Object.fromEntries(new FormData(f));
+        const r = await api('POST', `/leads/${id}/convert`, { items: rows.read(), customerName: optText(v.customerName), discountCents: v.discount.trim() ? toCents(v.discount) : undefined, notes: optText(v.notes) });
+        location.hash = `#/order/${encodeURIComponent(r.order.orderRef)}`;
+      } catch (e) {
+        if (e.code === 'DUPLICATE_ACTIVE_ORDER' && e.details?.existingOrderRef) notice(h('span', {}, 'This phone number already has an active order: ', h('a', { href: `#/order/${encodeURIComponent(e.details.existingOrderRef)}` }, e.details.existingOrderRef), '.'), 'err');
+        else fail(e);
+      } finally { btn.disabled = false; }
+    });
+    out.append(h('h2', {}, 'Turn this into an order'), h('p', { class: 'muted' }, 'This makes the order and closes the lead in one step. The customer is saved too.'), f);
+  }
+  mount(shell(out));
 }
 
 render();
