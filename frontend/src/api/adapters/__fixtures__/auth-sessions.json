@@ -1,0 +1,26 @@
+{
+  "sessions": [
+    {
+      "id": 2,
+      "current": true,
+      "device": "Unknown device",
+      "ip": "127.0.0.1",
+      "remember": true,
+      "state": "active",
+      "signedInAt": "2026-10-25T20:02:19.731Z",
+      "lastActiveAt": "2026-10-25T20:02:19.827Z",
+      "expiresAt": "2026-11-01T20:02:19.731Z"
+    },
+    {
+      "id": 1,
+      "current": false,
+      "device": "Unknown device",
+      "ip": "127.0.0.1",
+      "remember": false,
+      "state": "active",
+      "signedInAt": "2026-10-25T20:02:19.563Z",
+      "lastActiveAt": "2026-10-25T20:02:19.563Z",
+      "expiresAt": "2026-10-26T08:02:19.563Z"
+    }
+  ]
+}

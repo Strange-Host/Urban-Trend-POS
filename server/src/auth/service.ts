@@ -19,16 +19,16 @@ const BAD_LOGIN = () => new HttpError(401, 'BAD_CREDENTIALS', 'Wrong username or
 const cleanName = (s: unknown) => String(s ?? '').trim().toLowerCase().slice(0, 64) || 'unknown';
 
 export interface UserView {
-  id: number; username: string; displayName: string; role: Role; active: boolean; email: string | null; phone: string | null; hasPin: boolean;
+  id: number; username: string; displayName: string; role: Role; active: boolean; email: string | null; phone: string | null; hasPin: boolean; twoFactorEnabled: boolean;
   mustChangePassword: boolean; lockedUntil: Date | null; pinLockedUntil: Date | null; lastLoginAt: Date | null; createdAt: Date; createdBy: string;
 }
 interface UserRow {
-  id: number; username: string; display_name: string; role: Role; active: boolean; email: string | null; phone: string | null; has_pin: boolean;
+  id: number; username: string; display_name: string; role: Role; active: boolean; email: string | null; phone: string | null; has_pin: boolean; two_factor_enabled: boolean;
   must_change_password: boolean; locked_until: Date | null; pin_locked_until: Date | null; last_login_at: Date | null; created_at: Date; created_by: string;
 }
-const COLS = `id, username, display_name, role, active, email, phone, (pin_hash IS NOT NULL) AS has_pin, must_change_password, locked_until, pin_locked_until, last_login_at, created_at, created_by`;
+const COLS = `id, username, display_name, role, active, email, phone, (pin_hash IS NOT NULL) AS has_pin, two_factor_enabled, must_change_password, locked_until, pin_locked_until, last_login_at, created_at, created_by`;
 const toView = (r: UserRow): UserView => ({
-  id: r.id, username: r.username, displayName: r.display_name, role: r.role, active: r.active, email: r.email, phone: r.phone, hasPin: r.has_pin,
+  id: r.id, username: r.username, displayName: r.display_name, role: r.role, active: r.active, email: r.email, phone: r.phone, hasPin: r.has_pin, twoFactorEnabled: r.two_factor_enabled,
   mustChangePassword: r.must_change_password, lockedUntil: r.locked_until, pinLockedUntil: r.pin_locked_until, lastLoginAt: r.last_login_at, createdAt: r.created_at, createdBy: r.created_by,
 });
 
@@ -46,11 +46,11 @@ const CHANNEL_COLS: Record<Channel, { count: string; until: string }> = {
 };
 const word = (c: Channel) => (c === 'pin' ? 'PINs' : 'passwords');
 
-interface CredentialRow extends UserRow { password_hash: string; pin_hash: string | null; two_factor_enabled: boolean; until: Date | null }
+interface CredentialRow extends UserRow { password_hash: string; pin_hash: string | null; until: Date | null }
 
 async function loadCredentials(db: Queryable, where: string, arg: string | number, channel: Channel): Promise<CredentialRow | undefined> {
   const c = CHANNEL_COLS[channel];
-  const { rows } = await db.query<CredentialRow>(`SELECT ${COLS}, password_hash, pin_hash, two_factor_enabled, ${c.until} AS until FROM users WHERE ${where}`, [arg]);
+  const { rows } = await db.query<CredentialRow>(`SELECT ${COLS}, password_hash, pin_hash, ${c.until} AS until FROM users WHERE ${where}`, [arg]);
   return rows[0];
 }
 
