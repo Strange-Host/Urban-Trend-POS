@@ -1,6 +1,8 @@
 import client from './client';
+import { USE_NEW_SERVER } from './newServer';
+import { newAuthApi } from './adapters/auth';
 
-export const authApi = {
+const legacyAuthApi = {
   login: (email, password, remember = false) => client.post('/auth/login', { email, password, remember }),
   verifyOtp: (challengeToken, code, remember = false) => client.post('/auth/verify-otp', { challengeToken, code, remember }),
   unlock: (secret) => client.post('/auth/unlock', secret),          // { password } or { pin }
@@ -14,6 +16,9 @@ export const authApi = {
   me: () => client.get('/auth/me'),
   changePassword: (currentPassword, newPassword) => client.post('/auth/change-password', { currentPassword, newPassword }),
 };
+
+// With VITE_USE_NEW_SERVER=true the same screens talk to the new server through the adapter; otherwise nothing changes.
+export const authApi = USE_NEW_SERVER ? newAuthApi : legacyAuthApi;
 
 export const productsApi = {
   list: (params) => client.get('/products', { params }),

@@ -1,0 +1,13 @@
+{
+  "ok": true,
+  "session": {
+    "id": 2,
+    "remember": true,
+    "lockAfterSeconds": 600,
+    "signOutAfterSeconds": null,
+    "expiresAt": "2026-11-01T20:02:19.731Z",
+    "reauthMinutes": 5,
+    "lastActivityAt": "2026-10-25T20:02:19.827Z",
+    "idleSeconds": 0
+  }
+}
