@@ -6,6 +6,7 @@ import { cr, dr, postEntryTx, reverseEntryTx, type LineInput } from '../ledger/l
 import { receiptPeriod } from '../ledger/receipts.js';
 import { audit } from './audit.js';
 import { discountBp, exceedsBp, policyFor, requireApprover } from './policy.js';
+import { lockAndCheck, needs, postMovements, resolveLines } from '../stock/stock.js';
 import { expectedByMethod, getOpenSession, METHODS, METHOD_ACCOUNT, type Method } from './sessions.js';
 
 // POS sales on the ledger.
@@ -171,16 +172,23 @@ export async function checkout(ctx: PosCtx, input: CheckoutInput): Promise<SaleV
       return { ...(await getSale(c, prior.rows[0]!.id))!, replayed: true };
     }
 
+    // Stock: tracked items must be physically there AND not already promised to an order awaiting dispatch. Checked after the
+    // replay test above, so a retried sale is never refused for stock the first attempt already took.
+    const resolved = await resolveLines(c, lines);
+    const need = needs(lines, resolved);
+    await lockAndCheck(c, need, 'available');
+
     const saleNo = await nextSaleNo(c);
     const ins = await c.query<{ id: number }>(
       `INSERT INTO sales (sale_no, session_id, cashier, cashier_role, gross_cents, line_discount_cents, sale_discount_cents, total_cents, discount_reason, client_sale_id, entry_id)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id`,
       [saleNo, session.id, cashier, input.cashierRole, gross, lineDiscount, saleDiscount, total, reason, clientId ?? null, entry.id]);
     const saleId = ins.rows[0]!.id;
-    for (const l of lines) {
-      await c.query(`INSERT INTO sale_items (sale_id, sku, name, quantity, unit_price_cents, discount_cents, line_total_cents) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [saleId, l.sku ?? null, l.name.trim(), l.quantity, l.unitPriceCents, l.discount, l.lineTotal]);
+    for (const [idx, l] of lines.entries()) {
+      await c.query(`INSERT INTO sale_items (sale_id, sku, name, quantity, unit_price_cents, discount_cents, line_total_cents, product_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [saleId, l.sku ?? null, l.name.trim(), l.quantity, l.unitPriceCents, l.discount, l.lineTotal, resolved[idx]!.productId]);
     }
+    await postMovements(c, [...need].sort((a, b) => a[0] - b[0]).map(([productId, q]) => ({ productId, type: 'sale' as const, quantity: -q, actor: cashier, ref: { type: 'sale' as const, id: saleId } })));
     for (const p of payments) {
       await c.query(`INSERT INTO sale_payments (sale_id, method, amount_cents, reference) VALUES ($1, $2, $3, $4)`, [saleId, p.method, p.amountCents, p.reference?.trim() || null]);
     }
@@ -219,6 +227,10 @@ export async function voidSale(ctx: PosCtx, input: { saleId: number; reason: str
     if (refunds.rows[0]) throw new HttpError(409, 'SALE_HAS_REFUNDS', 'A sale that has been partly refunded cannot be voided.');
 
     const reversal = await reverseEntryTx(c, { entryId: sale.entry_id, reason: `Sale ${sale.sale_no} voided: ${input.reason.trim()}`, actor });
+    // The goods go back on the shelf: a void happens while the customer is still at the counter.
+    const back = await c.query<{ product_id: number; q: number }>(
+      `SELECT i.product_id, sum(i.quantity)::int AS q FROM sale_items i JOIN products p ON p.id = i.product_id WHERE i.sale_id = $1 AND p.track_stock GROUP BY i.product_id ORDER BY i.product_id`, [sale.id]);
+    await postMovements(c, back.rows.map((b) => ({ productId: b.product_id, type: 'void_reversal' as const, quantity: b.q, actor, ref: { type: 'sale' as const, id: sale.id } })));
     await c.query(`UPDATE sales SET status = 'voided', voided_by = $2, voided_at = now(), void_reason = $3, void_entry_id = $4 WHERE id = $1`, [sale.id, actor, input.reason.trim(), reversal.id]);
     await audit(c, { actor, action: 'void', entityType: 'sale', entityId: sale.id, amountCents: sale.total_cents, risk: 2,
       details: { sale_no: sale.sale_no, reason: input.reason.trim(), approved_by: input.approver.trim(), original_cashier: sale.cashier } });
@@ -235,6 +247,8 @@ export interface RefundResult { refundId: number; grossCents: number; discountCe
  */
 export async function refundSale(ctx: PosCtx, input: {
   saleId: number; items: { saleItemId: number; quantity: number }[]; method: Method; reason: string; actor: string; approver: string; approverRole: string;
+  /** Put the refunded goods back in stock. Default yes; say false for damaged goods (then write them off if they are in hand). */
+  restock?: boolean;
 }): Promise<RefundResult> {
   const actor = needActor(input.actor, 'The person doing the refund');
   if (!input.reason?.trim()) throw new HttpError(422, 'REFUND_REASON_REQUIRED', 'A reason is required for a refund.');
@@ -305,8 +319,20 @@ export async function refundSale(ctx: PosCtx, input: {
     for (const i of input.items) {
       await c.query(`INSERT INTO sale_refund_items (refund_id, sale_item_id, quantity) VALUES ($1, $2, $3)`, [ref.rows[0]!.id, i.saleItemId, i.quantity]);
     }
+    const restock = input.restock !== false;
+    if (restock) {
+      const perProduct = new Map<number, number>();
+      const prods = await c.query<{ id: number; product_id: number | null; track_stock: boolean | null }>(
+        `SELECT i.id, i.product_id, p.track_stock FROM sale_items i LEFT JOIN products p ON p.id = i.product_id WHERE i.sale_id = $1`, [sale.id]);
+      const meta = new Map(prods.rows.map((r) => [r.id, r]));
+      for (const i of input.items) {
+        const m = meta.get(i.saleItemId);
+        if (m?.product_id && m.track_stock) perProduct.set(m.product_id, (perProduct.get(m.product_id) ?? 0) + i.quantity);
+      }
+      await postMovements(c, [...perProduct].sort((a, b) => a[0] - b[0]).map(([productId, q]) => ({ productId, type: 'refund_restock' as const, quantity: q, actor, ref: { type: 'refund' as const, id: ref.rows[0]!.id } })));
+    }
     await audit(c, { actor, action: 'refund', entityType: 'sale', entityId: sale.id, amountCents: amount, risk: 2,
-      details: { sale_no: sale.sale_no, method: input.method, reason: input.reason.trim(), approved_by: input.approver.trim(), refund_id: ref.rows[0]!.id } });
+      details: { sale_no: sale.sale_no, method: input.method, reason: input.reason.trim(), approved_by: input.approver.trim(), refund_id: ref.rows[0]!.id, restocked: restock } });
     return { refundId: ref.rows[0]!.id, grossCents: gross, discountCents: discount, amountCents: amount, method: input.method, sale: (await getSale(c, sale.id))! };
   });
 }

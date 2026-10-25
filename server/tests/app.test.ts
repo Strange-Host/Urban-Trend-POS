@@ -1,5 +1,6 @@
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { loggedIn } from './authHelpers.js';
 import { createApp } from '../src/app.js';
 import { loadConfig } from '../src/config.js';
 import { loadMigrationFiles, runMigrations } from '../src/db/migrate.js';
@@ -34,9 +35,13 @@ describe('app on Postgres', () => {
 
   it('answers unknown routes and bad JSON with the standard error shape', async () => {
     const app = createApp({ pool: db.pool, logger });
-    const missing = await request(app).get('/api/nope');
+    // Under /api, nothing is revealed without a login (not even which routes exist); a logged-in person gets the standard 404.
+    expect((await request(app).get('/api/nope')).status).toBe(401);
+    const { auth } = await loggedIn(db.pool, 'cashier');
+    const missing = await request(app).get('/api/nope').set('Authorization', auth);
     expect(missing.status).toBe(404);
     expect(missing.body.error.code).toBe('NOT_FOUND');
+    expect((await request(app).get('/nope')).status).toBe(404);
 
     const bad = await request(app).post('/api/health').set('Content-Type', 'application/json').send('{not json');
     expect(bad.status).toBe(400);

@@ -10,6 +10,8 @@ const schema = z.object({
   ORDER_REF_KEY: z.string().min(32, 'ORDER_REF_KEY must be at least 32 characters').optional(),
   INTEGRITY_JOB: z.enum(['true', 'false']).default('true'),
   INTEGRITY_HOUR: z.coerce.number().int().min(0).max(23).default(2), // shop time (East Africa Time)
+  // How long a login lasts. A shift is one working day, so the default is 12 hours.
+  SESSION_HOURS: z.coerce.number().positive().max(72).default(12),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
 });
 

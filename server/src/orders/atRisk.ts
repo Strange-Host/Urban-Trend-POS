@@ -95,7 +95,7 @@ export async function moneyAtRisk(db: Queryable, opts: RiskOptions = {}): Promis
   // A dispatch with no package fee line (for example one brought in from the old system).
   const noFee = await db.query<{ order_ref: string; amount: number; since: Date; owner: string | null }>(
     `SELECT o.order_ref, o.total_cents AS amount, COALESCE(o.dispatched_at, o.updated_at) AS since, o.assigned_to AS owner
-       FROM orders o WHERE o.status IN ('dispatched', 'delivered', 'returning') AND NOT EXISTS (SELECT 1 FROM package_fees f WHERE f.order_id = o.id)`);
+       FROM orders o WHERE o.status IN ('dispatched', 'delivered', 'returning', 'returned') AND NOT EXISTS (SELECT 1 FROM package_fees f WHERE f.order_id = o.id)`);
   for (const n of noFee.rows) extra.push({ kind: 'dispatch_no_fee', order_ref: n.order_ref, amount: n.amount, since: n.since, owner: n.owner, detail: 'Dispatched with no package fee line' });
 
   // Organizations holding customer money past their overdue limit.

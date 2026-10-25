@@ -1,19 +1,45 @@
 import express, { type ErrorRequestHandler } from 'express';
+import { fileURLToPath } from 'node:url';
 import type { Pool } from './db/pool.js';
 import { HttpError } from './errors.js';
+import { authRouter } from './routes/auth.js';
+import { payrollRouter } from './routes/payroll.js';
+import { usersRouter } from './routes/users.js';
+import { catalogRouter } from './routes/catalog.js';
+import { customersRouter } from './routes/customers.js';
+import { leadsRouter } from './routes/leads.js';
+import { couriersRouter } from './routes/couriers.js';
+import { ordersRouter } from './routes/orders.js';
+import { posRouter } from './routes/pos.js';
+import { reportsRouter } from './routes/reports.js';
 import type { Logger } from './logger.js';
 
 export interface AppDeps {
   pool: Pool;
   logger: Logger;
+  /** How long a login lasts. */
+  sessionHours?: number;
+  /** ORDER_REF_KEY: needed to issue order references (converting a lead creates an order). */
+  orderRefKey?: string;
 }
 
 export { HttpError };
 
-export function createApp({ pool, logger }: AppDeps) {
+export function createApp({ pool, logger, sessionHours = 12, orderRefKey }: AppDeps) {
   const app = express();
   app.disable('x-powered-by');
   app.use(express.json({ limit: '1mb' }));
+
+  // The staff screens: plain files in server/public, no build step. Served under /app with strict headers (scripts and styles only
+  // from this server, never framed, never sniffed).
+  app.use('/app', (_req, res, next) => {
+    res.set({
+      'Content-Security-Policy': "default-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+      'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer', 'Cache-Control': 'no-cache',
+    });
+    next();
+  }, express.static(fileURLToPath(new URL('../public', import.meta.url)), { index: 'index.html' }));
+  app.get('/', (_req, res) => { res.redirect('/app/'); });
 
   // Liveness + database check. Railway uses this to decide whether a deploy is healthy.
   app.get('/api/health', async (_req, res, next) => {
@@ -25,6 +51,17 @@ export function createApp({ pool, logger }: AppDeps) {
       next(new HttpError(503, 'DATABASE_UNAVAILABLE', 'The database is not reachable.'));
     }
   });
+
+  app.use('/api/auth', authRouter(pool, { sessionHours }));
+  app.use('/api/users', usersRouter(pool));
+  app.use('/api/payroll', payrollRouter(pool));
+  app.use('/api', catalogRouter(pool));
+  app.use('/api/customers', customersRouter(pool));
+  app.use('/api/leads', leadsRouter(pool, { orderRefKey }));
+  app.use('/api', ordersRouter(pool, { orderRefKey }));
+  app.use('/api', couriersRouter(pool));
+  app.use('/api', posRouter(pool));
+  app.use('/api', reportsRouter(pool, { logger }));
 
   app.use((_req, _res, next) => next(new HttpError(404, 'NOT_FOUND', 'Route not found.')));
 

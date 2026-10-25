@@ -83,6 +83,14 @@ const GUARD_TRIGGERS: { table: string; trigger: string }[] = [
   { table: 'sale_refunds', trigger: 'sale_refunds_immutable' },
   { table: 'sale_refund_items', trigger: 'sale_refund_items_immutable' },
   { table: 'sale_refund_items', trigger: 'sale_refund_items_within_sold' },
+  { table: 'products', trigger: 'products_protect_update' },
+  { table: 'stock_movements', trigger: 'stock_movements_immutable' },
+  { table: 'stock_movements', trigger: 'stock_movements_not_negative' },
+  { table: 'customers', trigger: 'customers_protect_update' },
+  { table: 'lead_messages', trigger: 'lead_messages_immutable' },
+  { table: 'order_returns', trigger: 'order_returns_immutable' },
+  { table: 'order_return_items', trigger: 'order_return_items_immutable' },
+  { table: 'alerts', trigger: 'alerts_guard' },
 ];
 
 const guardRule = (trigger: string): 1 | 7 | 9 | 10 | 11 =>
@@ -183,10 +191,10 @@ async function ordersNeverOverpaid(db: Queryable): Promise<Violation[]> {
   const { rows } = await db.query<{ order_ref: string; total: number; balance: number }>(
     `SELECT o.order_ref, o.total_cents AS total,
             COALESCE((SELECT sum(l.amount_cents) FROM journal_lines l JOIN journal_entries e ON e.id = l.entry_id JOIN accounts a ON a.id = l.account_id
-                       WHERE a.code = 'CUSTOMER_RECEIVABLE' AND e.order_ref = o.order_ref), 0)::bigint AS balance
+                       WHERE a.code = 'CUSTOMER_RECEIVABLE' AND e.order_ref = o.order_ref AND NOT EXISTS (SELECT 1 FROM order_returns rt WHERE rt.entry_id = e.id)), 0)::bigint AS balance
        FROM orders o
      WHERE COALESCE((SELECT sum(l.amount_cents) FROM journal_lines l JOIN journal_entries e ON e.id = l.entry_id JOIN accounts a ON a.id = l.account_id
-                       WHERE a.code = 'CUSTOMER_RECEIVABLE' AND e.order_ref = o.order_ref), 0) NOT BETWEEN 0 AND o.total_cents
+                       WHERE a.code = 'CUSTOMER_RECEIVABLE' AND e.order_ref = o.order_ref AND NOT EXISTS (SELECT 1 FROM order_returns rt WHERE rt.entry_id = e.id)), 0) NOT BETWEEN 0 AND o.total_cents
      ORDER BY o.id LIMIT ${MAX_REPORTED_PER_CHECK}`);
   return rows.map((r) => ({
     rule: 6 as const, check: 'order_within_total', ref: r.order_ref,
@@ -200,7 +208,7 @@ async function paidMatchesReceipts(db: Queryable): Promise<Violation[]> {
             (COALESCE((SELECT sum(r.amount_cents) FROM payment_receipts r WHERE r.order_ref = o.order_ref), 0)
              + COALESCE((SELECT sum(k.amount_cents) FROM org_collections k WHERE k.order_ref = o.order_ref), 0))::bigint AS paid,
             (o.total_cents - COALESCE((SELECT sum(l.amount_cents) FROM journal_lines l JOIN journal_entries e ON e.id = l.entry_id JOIN accounts a ON a.id = l.account_id
-                                        WHERE a.code = 'CUSTOMER_RECEIVABLE' AND e.order_ref = o.order_ref), 0))::bigint AS expected
+                                        WHERE a.code = 'CUSTOMER_RECEIVABLE' AND e.order_ref = o.order_ref AND NOT EXISTS (SELECT 1 FROM order_returns rt WHERE rt.entry_id = e.id)), 0))::bigint AS expected
        FROM orders o WHERE o.status <> 'cancelled'
      ORDER BY o.id`);
   return rows.filter((r) => r.paid !== r.expected).slice(0, MAX_REPORTED_PER_CHECK).map((r) => ({
@@ -235,7 +243,7 @@ async function suspenseReconciles(db: Queryable): Promise<Violation[]> {
 async function dispatchesHaveFees(db: Queryable): Promise<Violation[]> {
   const { rows } = await db.query<{ order_ref: string }>(
     `SELECT o.order_ref FROM orders o
-      WHERE o.status IN ('dispatched', 'delivered', 'returning') AND NOT EXISTS (SELECT 1 FROM package_fees f WHERE f.order_id = o.id)
+      WHERE o.status IN ('dispatched', 'delivered', 'returning', 'returned') AND NOT EXISTS (SELECT 1 FROM package_fees f WHERE f.order_id = o.id)
       ORDER BY o.id LIMIT ${MAX_REPORTED_PER_CHECK}`);
   return rows.map((r) => ({ rule: 11 as const, check: 'dispatch_has_fee', ref: r.order_ref, message: `Order ${r.order_ref} was dispatched but has no package fee line.` }));
 }
@@ -420,6 +428,67 @@ async function closedSessionsReconcile(db: Queryable): Promise<Violation[]> {
   return out.slice(0, MAX_REPORTED_PER_CHECK);
 }
 
+// Stock is a sum of movements, so these checks prove the movements agree with the sales and dispatches that caused them.
+async function stockIsConsistent(db: Queryable): Promise<Violation[]> {
+  const out: Violation[] = [];
+  const neg = await db.query<{ sku: string; n: number }>(
+    `SELECT p.sku, sum(m.quantity)::bigint AS n FROM stock_movements m JOIN products p ON p.id = m.product_id GROUP BY p.sku HAVING sum(m.quantity) < 0 ORDER BY p.sku LIMIT ${MAX_REPORTED_PER_CHECK}`);
+  for (const r of neg.rows) out.push({ rule: null, check: 'stock_not_negative', message: `Product ${r.sku} shows ${r.n} in stock: stock can never be below zero.` });
+
+  // Every dispatched order took its tracked goods out of stock, exactly once.
+  const disp = await db.query<{ order_ref: string; sku: string; want: number; got: number }>(
+    `SELECT o.order_ref, p.sku, sum(i.quantity)::bigint AS want,
+            COALESCE((SELECT -sum(m.quantity) FROM stock_movements m WHERE m.type = 'dispatch' AND m.ref_type = 'order' AND m.ref_id = o.id AND m.product_id = p.id), 0)::bigint AS got
+       FROM orders o JOIN order_items i ON i.order_id = o.id JOIN products p ON p.id = i.product_id
+      WHERE o.status IN ('dispatched', 'delivered', 'returning', 'returned') AND p.track_stock GROUP BY o.id, o.order_ref, p.id, p.sku
+     HAVING sum(i.quantity) <> COALESCE((SELECT -sum(m.quantity) FROM stock_movements m WHERE m.type = 'dispatch' AND m.ref_type = 'order' AND m.ref_id = o.id AND m.product_id = p.id), 0)
+      ORDER BY o.order_ref LIMIT ${MAX_REPORTED_PER_CHECK}`);
+  for (const r of disp.rows) out.push({ rule: null, check: 'dispatch_took_stock', ref: r.order_ref, message: `Order ${r.order_ref} was dispatched with ${r.want} of ${r.sku} but stock was reduced by ${r.got}.` });
+
+  // A dispatch movement for an order that was never dispatched.
+  const ghost = await db.query<{ order_ref: string }>(
+    `SELECT DISTINCT o.order_ref FROM stock_movements m JOIN orders o ON o.id = m.ref_id WHERE m.type = 'dispatch' AND m.ref_type = 'order' AND o.status IN ('awaiting_dispatch', 'cancelled') LIMIT ${MAX_REPORTED_PER_CHECK}`);
+  for (const r of ghost.rows) out.push({ rule: null, check: 'dispatch_movement_without_dispatch', ref: r.order_ref, message: `Stock was taken out for order ${r.order_ref}, which has not been dispatched.` });
+
+  // Every sale took its tracked goods out; a voided sale put them all back.
+  const sales = await db.query<{ sale_no: string; sku: string; want: number; sold: number; back: number; status: string }>(
+    `SELECT s.sale_no, s.status, p.sku, sum(i.quantity)::bigint AS want,
+            COALESCE((SELECT -sum(m.quantity) FROM stock_movements m WHERE m.type = 'sale' AND m.ref_type = 'sale' AND m.ref_id = s.id AND m.product_id = p.id), 0)::bigint AS sold,
+            COALESCE((SELECT sum(m.quantity) FROM stock_movements m WHERE m.type = 'void_reversal' AND m.ref_type = 'sale' AND m.ref_id = s.id AND m.product_id = p.id), 0)::bigint AS back
+       FROM sales s JOIN sale_items i ON i.sale_id = s.id JOIN products p ON p.id = i.product_id WHERE p.track_stock GROUP BY s.id, s.sale_no, s.status, p.id, p.sku ORDER BY s.id`);
+  for (const r of sales.rows) {
+    if (r.sold !== r.want) out.push({ rule: null, check: 'sale_took_stock', ref: r.sale_no, message: `Sale ${r.sale_no} sold ${r.want} of ${r.sku} but stock was reduced by ${r.sold}.` });
+    const expectedBack = r.status === 'voided' ? r.want : 0;
+    if (r.back !== expectedBack) out.push({ rule: null, check: 'void_returned_stock', ref: r.sale_no, message: `Sale ${r.sale_no} (${r.status}): ${r.back} of ${r.sku} went back in stock, expected ${expectedBack}.` });
+  }
+  // Nothing restocked from a refund beyond what was refunded.
+  const rf = await db.query<{ sale_no: string; sku: string; refunded: number; restocked: number }>(
+    `SELECT s.sale_no, p.sku, sum(ri.quantity)::bigint AS refunded,
+            COALESCE((SELECT sum(m.quantity) FROM stock_movements m JOIN sale_refunds r2 ON r2.id = m.ref_id WHERE m.type = 'refund_restock' AND r2.sale_id = s.id AND m.product_id = p.id), 0)::bigint AS restocked
+       FROM sale_refund_items ri JOIN sale_refunds r ON r.id = ri.refund_id JOIN sales s ON s.id = r.sale_id JOIN sale_items i ON i.id = ri.sale_item_id JOIN products p ON p.id = i.product_id
+      GROUP BY s.id, s.sale_no, p.id, p.sku ORDER BY s.id`);
+  for (const r of rf.rows) if (r.restocked > r.refunded) out.push({ rule: null, check: 'refund_restock_within_refunded', ref: r.sale_no, message: `Sale ${r.sale_no}: ${r.restocked} of ${r.sku} restocked but only ${r.refunded} refunded.` });
+  return out.slice(0, MAX_REPORTED_PER_CHECK);
+}
+
+// A returned parcel: what went back on the shelf matches the count, and the unpaid part of the order is no longer owed.
+async function returnsAreConsistent(db: Queryable): Promise<Violation[]> {
+  const out: Violation[] = [];
+  const stock = await db.query<{ order_ref: string; sku: string; counted: number; moved: number }>(
+    `SELECT o.order_ref, p.sku, sum(ri.restocked)::bigint AS counted,
+            COALESCE((SELECT sum(m.quantity) FROM stock_movements m WHERE m.type = 'return_restock' AND m.ref_type = 'order' AND m.ref_id = o.id AND m.product_id = p.id), 0)::bigint AS moved
+       FROM order_returns r JOIN orders o ON o.id = r.order_id JOIN order_return_items ri ON ri.return_id = r.id JOIN order_items i ON i.id = ri.order_item_id JOIN products p ON p.id = i.product_id
+      WHERE p.track_stock GROUP BY o.id, o.order_ref, p.id, p.sku ORDER BY o.order_ref`);
+  for (const r of stock.rows) if (r.counted !== r.moved) out.push({ rule: null, check: 'return_restock_matches', ref: r.order_ref, message: `Order ${r.order_ref}: ${r.counted} of ${r.sku} were counted back onto the shelf but stock went up by ${r.moved}.` });
+  const owed = await db.query<{ order_ref: string; bal: number }>(
+    `SELECT o.order_ref, COALESCE((SELECT sum(l.amount_cents) FROM journal_lines l JOIN journal_entries e ON e.id = l.entry_id JOIN accounts a ON a.id = l.account_id WHERE a.code = 'CUSTOMER_RECEIVABLE' AND e.order_ref = o.order_ref), 0)::bigint AS bal
+       FROM orders o WHERE o.status = 'returned' ORDER BY o.order_ref`);
+  for (const r of owed.rows) if (r.bal > 0) out.push({ rule: null, check: 'returned_order_still_owed', ref: r.order_ref, message: `Order ${r.order_ref} was returned but the customer still owes ${r.bal} cents on it.` });
+  const noRecord = await db.query<{ order_ref: string }>(`SELECT o.order_ref FROM orders o WHERE o.status = 'returned' AND NOT EXISTS (SELECT 1 FROM order_returns r WHERE r.order_id = o.id)`);
+  for (const r of noRecord.rows) out.push({ rule: null, check: 'returned_without_record', ref: r.order_ref, message: `Order ${r.order_ref} is marked returned but no return was recorded for it.` });
+  return out.slice(0, MAX_REPORTED_PER_CHECK);
+}
+
 async function discountsHaveApproval(db: Queryable): Promise<Violation[]> {
   const { rows } = await db.query<{ sale_no: string; role: string; disc: number; gross: number; free: number | null }>(
     `SELECT s.sale_no, s.cashier_role AS role, (s.line_discount_cents + s.sale_discount_cents) AS disc, s.gross_cents AS gross,
@@ -458,6 +527,8 @@ export async function runIntegrityChecks(db: Queryable): Promise<IntegrityReport
     ...(await refundsWithinSold(db)),
     ...(await closedSessionsReconcile(db)),
     ...(await discountsHaveApproval(db)),
+    ...(await stockIsConsistent(db)),
+    ...(await returnsAreConsistent(db)),
   ];
   const c = await db.query<{ e: number; l: number; o: number; r: number; ord: number; pay: number; cou: number; sal: number }>(
     `SELECT (SELECT count(*) FROM journal_entries)::bigint AS e, (SELECT count(*) FROM journal_lines)::bigint AS l,

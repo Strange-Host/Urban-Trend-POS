@@ -1,4 +1,5 @@
 import type { Pool } from '../db/pool.js';
+import { raiseAlert } from '../alerts/alerts.js';
 import type { Logger } from '../logger.js';
 import { runIntegrityChecks, type IntegrityReport } from './checks.js';
 
@@ -47,7 +48,13 @@ export async function runNightlyIntegrity(pool: Pool, opts: { logger: Logger; mi
       [report.ok, JSON.stringify(report.violations), JSON.stringify(report.counts)]);
 
     if (report.ok) opts.logger.info({ counts: report.counts, ms: report.durationMs }, 'integrity check passed');
-    else opts.logger.error({ violations: report.violations, counts: report.counts }, 'INTEGRITY CHECK FAILED: a manager must look at this');
+    else {
+      opts.logger.error({ violations: report.violations, counts: report.counts }, 'INTEGRITY CHECK FAILED: a manager must look at this');
+      // Beyond the log: an alert that stays on the managers' screen until someone acknowledges it.
+      await raiseAlert(pool, { kind: 'integrity_failed', title: `The nightly integrity check found ${report.violations.length} problem${report.violations.length === 1 ? '' : 's'}`,
+        body: { violationCount: report.violations.length, firstViolations: report.violations.slice(0, 10), counts: report.counts } })
+        .catch((err) => opts.logger.error({ err: (err as Error).message }, 'could not raise the integrity alert'));
+    }
     return { ran: true, report };
   } finally {
     await client.query('SELECT pg_advisory_unlock($1)', [LOCK_KEY]).catch(() => undefined);
