@@ -29,3 +29,10 @@ th { font-size:.78rem; color:var(--muted); font-weight:600; } td.n, th.n { text-
 .kv { display:grid; grid-template-columns:max-content 1fr; gap:.2rem .8rem; } .kv dt { color:var(--muted); } .kv dd { margin:0; }
 dialog { border:1px solid var(--line); border-radius:12px; background:var(--card); color:var(--fg); max-width:26rem; width:92vw; } dialog::backdrop { background:rgba(0,0,0,.45); }
 .login { max-width:22rem; margin:12vh auto; }
+details.card > summary { cursor:pointer; font-weight:600; }
+details.card[open] > summary { margin-bottom:.6rem; }
+.thread { display:flex; flex-direction:column; gap:.4rem; margin:.5rem 0; }
+.bubble { border:1px solid var(--line); border-radius:10px; padding:.45rem .65rem; background:var(--card); max-width:85%; white-space:pre-wrap; overflow-wrap:anywhere; }
+.bubble.out { align-self:flex-end; background:var(--ok-bg); }
+.bubble.note { align-self:center; background:var(--amber-bg); }
+.bubble .meta { color:var(--muted); font-size:.75rem; }
