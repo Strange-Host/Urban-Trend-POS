@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { requireAuth, requirePermission } from '../auth/middleware.js';
 import type { Pool } from '../db/pool.js';
 import { HttpError } from '../errors.js';
-import { can } from '../auth/permissions.js';
+import { canUser } from '../auth/permissions.js';
 import { handler, idParam, parse } from '../http.js';
 import { attendanceFor, clockIn, clockOut, markAbsent } from '../payroll/attendance.js';
 import { addCommissionPlan, adjustmentsFor, profilesOnPayroll, recordAdjustment, setPayProfile } from '../payroll/profiles.js';
@@ -92,7 +92,7 @@ export function payrollRouter(pool: Pool): Router {
   r.get('/attendance', requirePermission('attendance.own'), handler(async (req, res) => {
     const q = parse(z.object({ staffKey: z.string().max(64).optional(), from: date, to: date }), req.query);
     const key = q.staffKey ?? req.user!.username;
-    if (key !== req.user!.username && !can(req.user!.role, 'attendance.manage')) throw new HttpError(403, 'FORBIDDEN', 'You can only see your own attendance.');
+    if (key !== req.user!.username && !canUser(req.user!, 'attendance.manage')) throw new HttpError(403, 'FORBIDDEN', 'You can only see your own attendance.');
     res.json({ staffKey: key, records: await attendanceFor(pool, key, q.from, q.to) });
   }));
 
@@ -103,12 +103,12 @@ export function payrollRouter(pool: Pool): Router {
   // One person's breakdown: managers see anyone's; everyone else sees only their own.
   r.get('/staff/:key', requirePermission('attendance.own'), handler(async (req, res) => {
     const key = String(req.params.key);
-    if (key !== req.user!.username && !can(req.user!.role, 'payroll.view')) throw new HttpError(403, 'FORBIDDEN', 'You can only see your own pay.');
+    if (key !== req.user!.username && !canUser(req.user!, 'payroll.view')) throw new HttpError(403, 'FORBIDDEN', 'You can only see your own pay.');
     res.json(await staffBreakdown(pool, key, parse(period, req.query)));
   }));
   r.get('/runs/:id/payslips/:key', requirePermission('attendance.own'), handler(async (req, res) => {
     const key = String(req.params.key);
-    if (key !== req.user!.username && !can(req.user!.role, 'payroll.view')) throw new HttpError(403, 'FORBIDDEN', 'You can only see your own payslip.');
+    if (key !== req.user!.username && !canUser(req.user!, 'payroll.view')) throw new HttpError(403, 'FORBIDDEN', 'You can only see your own payslip.');
     const slip = await payslip(pool, idParam(req.params.id), key);
     if (req.query.format === 'text') { res.type('text/plain').send(renderPayslip(slip)); return; }
     res.json({ payslip: slip });

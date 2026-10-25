@@ -1,7 +1,7 @@
 import type { Pool } from '../db/pool.js';
 import { HttpError } from '../errors.js';
 import { audit } from '../pos/audit.js';
-import { can } from './permissions.js';
+import { userCan } from './access.js';
 import { verifyCredentials } from './service.js';
 import type { AuthUser } from './types.js';
 
@@ -16,7 +16,7 @@ export async function approverFrom(pool: Pool, approval: ApprovalInput | undefin
   if (!approval) throw new HttpError(403, 'APPROVAL_REQUIRED', `A manager must approve ${what}: they enter their own username and password.`);
   const u = await verifyCredentials(pool, approval.username, approval.password);
   if (u.username === requester.username) throw new HttpError(403, 'APPROVER_IS_REQUESTER', 'Someone other than you must approve this.');
-  if (!can(u.role, 'pos.approve')) throw new HttpError(403, 'APPROVER_NOT_ALLOWED', `A ${u.role} cannot approve this.`);
+  if (!(await userCan(pool, u, 'pos.approve'))) throw new HttpError(403, 'APPROVER_NOT_ALLOWED', `A ${u.role} cannot approve this.`);
   await audit(pool, { actor: u.username, role: u.role, action: 'approval_given', entityType: 'approval', details: { what, for: requester.username } });
   return { approver: u.username, approverRole: u.role };
 }
