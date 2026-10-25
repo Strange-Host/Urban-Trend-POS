@@ -13,21 +13,32 @@ import { ordersRouter } from './routes/orders.js';
 import { posRouter } from './routes/pos.js';
 import { reportsRouter } from './routes/reports.js';
 import type { Logger } from './logger.js';
+import { cors } from './cors.js';
 
 export interface AppDeps {
   pool: Pool;
   logger: Logger;
   /** How long a login lasts. */
   sessionHours?: number;
+  /** Browser origins that may call the API with credentials (the refresh cookie). */
+  corsOrigins?: string[];
+  /** Number of reverse proxies in front of the server (Railway: 1). */
+  trustProxyHops?: number;
+  /** Mark the refresh cookie Secure (true on a real HTTPS deployment). */
+  secureCookies?: boolean;
+  accessTokenMinutes?: number;
+  refreshTokenDays?: number;
   /** ORDER_REF_KEY: needed to issue order references (converting a lead creates an order). */
   orderRefKey?: string;
 }
 
 export { HttpError };
 
-export function createApp({ pool, logger, sessionHours = 12, orderRefKey }: AppDeps) {
+export function createApp({ pool, logger, sessionHours = 12, orderRefKey, corsOrigins = [], trustProxyHops = 0, secureCookies = false, accessTokenMinutes, refreshTokenDays }: AppDeps) {
   const app = express();
   app.disable('x-powered-by');
+  if (trustProxyHops > 0) app.set('trust proxy', trustProxyHops);
+  app.use(cors(corsOrigins));
   app.use(express.json({ limit: '1mb' }));
 
   // The staff screens: plain files in server/public, no build step. Served under /app with strict headers (scripts and styles only
@@ -52,7 +63,7 @@ export function createApp({ pool, logger, sessionHours = 12, orderRefKey }: AppD
     }
   });
 
-  app.use('/api/auth', authRouter(pool, { sessionHours }));
+  app.use('/api/auth', authRouter(pool, { sessionHours, secureCookies, accessMinutes: accessTokenMinutes, refreshDays: refreshTokenDays }));
   app.use('/api/users', usersRouter(pool));
   app.use('/api/payroll', payrollRouter(pool));
   app.use('/api', catalogRouter(pool));
