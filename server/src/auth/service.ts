@@ -19,16 +19,16 @@ const BAD_LOGIN = () => new HttpError(401, 'BAD_CREDENTIALS', 'Wrong username or
 const cleanName = (s: unknown) => String(s ?? '').trim().toLowerCase().slice(0, 64) || 'unknown';
 
 export interface UserView {
-  id: number; username: string; displayName: string; role: Role; active: boolean; email: string | null; phone: string | null; hasPin: boolean; twoFactorEnabled: boolean;
+  id: number; username: string; displayName: string; role: Role; active: boolean; email: string | null; phone: string | null; hasPin: boolean; twoFactorEnabled: boolean; erased: boolean;
   mustChangePassword: boolean; lockedUntil: Date | null; pinLockedUntil: Date | null; lastLoginAt: Date | null; createdAt: Date; createdBy: string;
 }
 interface UserRow {
-  id: number; username: string; display_name: string; role: Role; active: boolean; email: string | null; phone: string | null; has_pin: boolean; two_factor_enabled: boolean;
+  id: number; username: string; display_name: string; role: Role; active: boolean; email: string | null; phone: string | null; has_pin: boolean; two_factor_enabled: boolean; erased: boolean;
   must_change_password: boolean; locked_until: Date | null; pin_locked_until: Date | null; last_login_at: Date | null; created_at: Date; created_by: string;
 }
-const COLS = `id, username, display_name, role, active, email, phone, (pin_hash IS NOT NULL) AS has_pin, two_factor_enabled, must_change_password, locked_until, pin_locked_until, last_login_at, created_at, created_by`;
+const COLS = `id, username, display_name, role, active, email, phone, (pin_hash IS NOT NULL) AS has_pin, two_factor_enabled, (erased_at IS NOT NULL) AS erased, must_change_password, locked_until, pin_locked_until, last_login_at, created_at, created_by`;
 const toView = (r: UserRow): UserView => ({
-  id: r.id, username: r.username, displayName: r.display_name, role: r.role, active: r.active, email: r.email, phone: r.phone, hasPin: r.has_pin, twoFactorEnabled: r.two_factor_enabled,
+  id: r.id, username: r.username, displayName: r.display_name, role: r.role, active: r.active, email: r.email, phone: r.phone, hasPin: r.has_pin, twoFactorEnabled: r.two_factor_enabled, erased: r.erased,
   mustChangePassword: r.must_change_password, lockedUntil: r.locked_until, pinLockedUntil: r.pin_locked_until, lastLoginAt: r.last_login_at, createdAt: r.created_at, createdBy: r.created_by,
 });
 
@@ -214,9 +214,9 @@ const cleanPhone = (p: string | null | undefined): string | null => ((p ?? '').t
 function uniqueViolation(err: unknown): HttpError | null {
   const e = err as { code?: string; constraint?: string };
   if (e.code !== '23505') return null;
-  return e.constraint === 'users_email_unique'
-    ? new HttpError(409, 'EMAIL_TAKEN', 'That email address is already used by another account.')
-    : new HttpError(409, 'USERNAME_TAKEN', 'That username is already used.');
+  if (e.constraint === 'users_email_unique') return new HttpError(409, 'EMAIL_TAKEN', 'That email address is already used by another account.');
+  if (e.constraint === 'retired_username') return new HttpError(409, 'USERNAME_RETIRED', 'That username belonged to a deleted account and can never be used again. Choose another.');
+  return new HttpError(409, 'USERNAME_TAKEN', 'That username is already used.');
 }
 
 /** Creates an account with a one-time password, shown once. The person must change it at first login. */
@@ -260,6 +260,7 @@ export async function updateUser(pool: Pool, input: { userId: number; displayNam
       const u = found.rows[0];
       if (!u) throw new HttpError(404, 'USER_NOT_FOUND', 'User not found.');
 
+      if (u.erased) throw new HttpError(409, 'ACCOUNT_ERASED', 'This account was erased and cannot be changed.');
       const roleChange = input.role !== undefined && input.role !== u.role;
       const deactivating = input.active === false && u.active;
       if (u.id === input.actor.id && (roleChange || deactivating)) {
@@ -269,7 +270,11 @@ export async function updateUser(pool: Pool, input: { userId: number; displayNam
 
       const { rows } = await c.query<UserRow>(
         `UPDATE users SET display_name = COALESCE($2, display_name), role = COALESCE($3, role), active = COALESCE($4, active),
-                email = CASE WHEN $5::boolean THEN $6 ELSE email END, phone = CASE WHEN $7::boolean THEN $8 ELSE phone END
+                email = CASE WHEN $5::boolean THEN $6 ELSE email END, phone = CASE WHEN $7::boolean THEN $8 ELSE phone END,
+                failed_attempts = CASE WHEN $4::boolean IS TRUE AND NOT active THEN 0 ELSE failed_attempts END,
+                locked_until = CASE WHEN $4::boolean IS TRUE AND NOT active THEN NULL ELSE locked_until END,
+                pin_failed_attempts = CASE WHEN $4::boolean IS TRUE AND NOT active THEN 0 ELSE pin_failed_attempts END,
+                pin_locked_until = CASE WHEN $4::boolean IS TRUE AND NOT active THEN NULL ELSE pin_locked_until END
           WHERE id = $1 RETURNING ${COLS}`,
         [u.id, input.displayName?.trim() || null, input.role ?? null, input.active ?? null, emailGiven, email, input.phone !== undefined, cleanPhone(input.phone)]);
       // A changed role or a deactivation takes effect at once, not at the next login.
@@ -291,12 +296,17 @@ export async function resetPassword(pool: Pool, input: { userId: number; actor: 
   const hash = await hashPassword(temp);
   return withTransaction(pool, async (c) => {
     const { rows } = await c.query<UserRow>(
-      `UPDATE users SET password_hash = $2, must_change_password = true, failed_attempts = 0, locked_until = NULL, password_changed_at = now() WHERE id = $1 RETURNING ${COLS}`, [input.userId, hash]);
-    if (!rows[0]) throw new HttpError(404, 'USER_NOT_FOUND', 'User not found.');
+      `UPDATE users SET password_hash = $2, must_change_password = true, failed_attempts = 0, locked_until = NULL, password_changed_at = now() WHERE id = $1 AND erased_at IS NULL RETURNING ${COLS}`, [input.userId, hash]);
+    if (!rows[0]) throw await missingOrErased(c, input.userId);
     await endAllSessions(c, input.userId, { reason: 'password_reset' });
     await audit(c, { actor: input.actor.username, role: input.actor.role, action: 'password_reset', entityType: 'user', entityId: input.userId, risk: 2, details: { username: rows[0].username } });
     return { user: toView(rows[0]), temporaryPassword: temp };
   });
+}
+
+async function missingOrErased(db: Queryable, id: number): Promise<HttpError> {
+  const u = await getUser(db, id);
+  return u?.erased ? new HttpError(409, 'ACCOUNT_ERASED', 'This account was erased and cannot be changed.') : new HttpError(404, 'USER_NOT_FOUND', 'User not found.');
 }
 
 /** Sets, changes or (with null) removes a register PIN. A PIN is a short shortcut, so the only protection it has is that it is not obvious. */
@@ -304,8 +314,8 @@ export async function setPin(pool: Pool, input: { userId: number; pin: string | 
   if (input.pin !== null) assertValidPin(input.pin);
   const hash = input.pin === null ? null : await hashPassword(input.pin);
   return withTransaction(pool, async (c) => {
-    const { rows } = await c.query<UserRow>(`UPDATE users SET pin_hash = $2, pin_failed_attempts = 0, pin_locked_until = NULL WHERE id = $1 RETURNING ${COLS}`, [input.userId, hash]);
-    if (!rows[0]) throw new HttpError(404, 'USER_NOT_FOUND', 'User not found.');
+    const { rows } = await c.query<UserRow>(`UPDATE users SET pin_hash = $2, pin_failed_attempts = 0, pin_locked_until = NULL WHERE id = $1 AND erased_at IS NULL RETURNING ${COLS}`, [input.userId, hash]);
+    if (!rows[0]) throw await missingOrErased(c, input.userId);
     await audit(c, { actor: input.actor.username, role: input.actor.role, action: hash ? 'pin_set' : 'pin_removed', entityType: 'user', entityId: input.userId, risk: 1, details: { username: rows[0].username } });
     return toView(rows[0]);
   });

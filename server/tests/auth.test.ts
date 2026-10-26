@@ -146,11 +146,12 @@ describe('one-time passwords and changing your password', () => {
 });
 
 describe('user management', () => {
-  it('lets only an admin list, create, change and reset users', async () => {
+  it('lets only an admin create, change and reset users; a manager may read the staff list, a cashier may not', async () => {
     const mgr = await loggedIn(db.pool, 'manager');
     const csh = await loggedIn(db.pool, 'cashier');
+    expect((await request(mgr.app).get('/api/users').set('Authorization', mgr.auth)).status).toBe(200); // managers assign leads to people
+    expect((await request(csh.app).get('/api/users').set('Authorization', csh.auth)).status).toBe(403);
     for (const u of [mgr, csh]) {
-      expect((await request(u.app).get('/api/users').set('Authorization', u.auth)).status).toBe(403);
       expect((await request(u.app).post('/api/users').set('Authorization', u.auth).send({ username: 'sneaky', displayName: 'S', role: 'admin' })).status).toBe(403);
       expect((await request(u.app).patch(`/api/users/${u.user.id}`).set('Authorization', u.auth).send({ role: 'admin' })).status).toBe(403);
       expect((await request(u.app).post(`/api/users/${u.user.id}/reset-password`).set('Authorization', u.auth)).status).toBe(403);

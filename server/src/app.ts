@@ -28,13 +28,15 @@ export interface AppDeps {
   secureCookies?: boolean;
   accessTokenMinutes?: number;
   refreshTokenDays?: number;
+  /** Sign-in attempts per address per window. Default 20 per 15 minutes (LOGIN_RATE_LIMIT_MAX overrides the count). `false` = off. */
+  signInLimit?: { max: number; windowMinutes: number } | false;
   /** ORDER_REF_KEY: needed to issue order references (converting a lead creates an order). */
   orderRefKey?: string;
 }
 
 export { HttpError };
 
-export function createApp({ pool, logger, sessionHours = 12, orderRefKey, corsOrigins = [], trustProxyHops = 0, secureCookies = false, accessTokenMinutes, refreshTokenDays }: AppDeps) {
+export function createApp({ pool, logger, sessionHours = 12, orderRefKey, corsOrigins = [], trustProxyHops = 0, secureCookies = false, accessTokenMinutes, refreshTokenDays, signInLimit }: AppDeps) {
   const app = express();
   app.disable('x-powered-by');
   if (trustProxyHops > 0) app.set('trust proxy', trustProxyHops);
@@ -63,7 +65,8 @@ export function createApp({ pool, logger, sessionHours = 12, orderRefKey, corsOr
     }
   });
 
-  app.use('/api/auth', authRouter(pool, { sessionHours, secureCookies, accessMinutes: accessTokenMinutes, refreshDays: refreshTokenDays }));
+  app.use('/api/auth', authRouter(pool, { sessionHours, secureCookies, accessMinutes: accessTokenMinutes, refreshDays: refreshTokenDays,
+    signInLimit: signInLimit ?? { max: Number(process.env.LOGIN_RATE_LIMIT_MAX) || 20, windowMinutes: Number(process.env.LOGIN_RATE_LIMIT_MINUTES) || 15 } }));
   app.use('/api/users', usersRouter(pool));
   app.use('/api/payroll', payrollRouter(pool));
   app.use('/api', catalogRouter(pool));
