@@ -5,9 +5,9 @@
     "remember": true,
     "lockAfterSeconds": 600,
     "signOutAfterSeconds": null,
-    "expiresAt": "2026-11-01T20:02:19.731Z",
+    "expiresAt": "2026-11-01T20:10:45.243Z",
     "reauthMinutes": 5,
-    "lastActivityAt": "2026-10-25T20:02:19.827Z",
+    "lastActivityAt": "2026-10-25T20:10:45.317Z",
     "idleSeconds": 0
   }
 }
