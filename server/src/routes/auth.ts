@@ -3,7 +3,7 @@ import type { Request, Response } from 'express';
 import { Router } from 'express';
 import { z } from 'zod';
 import { effectiveEditorKeys, overridesFor } from '../auth/access.js';
-import { clearRefreshCookie, readCookie, REFRESH_COOKIE, setRefreshCookie } from '../auth/cookies.js';
+import { clearRefreshCookie, readCookie, REFRESH_COOKIE, setRefreshCookie, type SameSite } from '../auth/cookies.js';
 import { requireAuth } from '../auth/middleware.js';
 import { rateLimit } from '../auth/rateLimit.js';
 import { permissionsOfUser } from '../auth/permissions.js';
@@ -31,6 +31,8 @@ export interface AuthRouterOptions {
   sessionHours: number;
   /** Mark the refresh cookie Secure. True on a real (HTTPS) deployment; false on plain-HTTP localhost, which would drop it. */
   secureCookies?: boolean;
+  /** 'strict' (default) when the screens and API share a site; 'none' only when they are on unrelated domains. */
+  cookieSameSite?: SameSite;
   accessMinutes?: number;
   refreshDays?: number;
   /** Sign-in attempts allowed per address per window, across login, PIN login and unlock. `false` switches it off (tests only). */
@@ -40,6 +42,7 @@ export interface AuthRouterOptions {
 export function authRouter(pool: Pool, opts: AuthRouterOptions): Router {
   const r = Router();
   const secure = opts.secureCookies === true;
+  const sameSite = opts.cookieSameSite ?? 'strict';
   const sessionOpts = { accessMinutes: opts.accessMinutes, refreshDays: opts.refreshDays, unrememberedHours: opts.sessionHours };
   const limit: express.RequestHandler[] = opts.signInLimit === false ? [] : [rateLimit(pool, { scope: 'signin', ...(opts.signInLimit ?? { max: 20, windowMinutes: 15 }) })];
   r.use((_req, res, next) => { res.set('Cache-Control', 'no-store'); next(); }); // tokens and one-time passwords must never be cached
@@ -51,7 +54,7 @@ export function authRouter(pool: Pool, opts: AuthRouterOptions): Router {
   }
   /** What every sign-in and refresh answers with. `token` is the short-lived access token; the refresh token is only ever a cookie. */
   async function signedIn(res: Response, user: UserView, tokens: { accessToken: string; refreshToken: string; session: SessionRow; policy: SessionPolicy }) {
-    setRefreshCookie(res, tokens.refreshToken, { secure, remember: tokens.session.remember, expiresAt: tokens.session.expires_at });
+    setRefreshCookie(res, tokens.refreshToken, { secure, remember: tokens.session.remember, expiresAt: tokens.session.expires_at, sameSite });
     return {
       token: tokens.accessToken, expiresAt: tokens.session.expires_at, accessExpiresAt: tokens.session.access_expires_at,
       ...(await identity(user)), session: clientPolicy(tokens.session, tokens.policy),
@@ -86,7 +89,7 @@ export function authRouter(pool: Pool, opts: AuthRouterOptions): Router {
       if (!user) throw new HttpError(401, 'REFRESH_INVALID', 'Invalid or expired refresh token.');
       res.json(await signedIn(res, user, out));
     } catch (err) {
-      if (err instanceof HttpError && (err.code === 'REFRESH_INVALID' || err.code === 'SESSION_EXPIRED')) clearRefreshCookie(res, secure);
+      if (err instanceof HttpError && (err.code === 'REFRESH_INVALID' || err.code === 'SESSION_EXPIRED')) clearRefreshCookie(res, secure, sameSite);
       throw err;
     }
   }));
@@ -99,7 +102,7 @@ export function authRouter(pool: Pool, opts: AuthRouterOptions): Router {
       const found = await authenticateToken(pool, token);
       if (found.kind === 'ok') await logout(pool, found.user);
     }
-    clearRefreshCookie(res, secure);
+    clearRefreshCookie(res, secure, sameSite);
     res.json({ ok: true });
   }));
 
@@ -143,7 +146,7 @@ export function authRouter(pool: Pool, opts: AuthRouterOptions): Router {
     if (!target || target.user_id !== req.user!.id || target.revoked_at) throw new HttpError(404, 'SESSION_NOT_FOUND', 'Device not found.');
     await endSession(pool, id, 'signed_out_by_user');
     const current = id === req.user!.sessionId;
-    if (current) clearRefreshCookie(res, secure);
+    if (current) clearRefreshCookie(res, secure, sameSite);
     res.json({ ok: true, current });
   }));
 

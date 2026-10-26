@@ -40,7 +40,7 @@ describe('what the staff screens read from the server', () => {
     const app = createApp({ pool: db.pool, logger: createLogger('silent') });
     const { temporaryPassword } = await createUser(db.pool, { username: 'fixture.manager', displayName: 'Fixture Manager', role: 'manager', email: 'fixture@shop.test', actor: 'test-setup' });
     const first = await request(app).post('/api/auth/login').send({ email: 'fixture@shop.test', password: temporaryPassword });
-    const pw = 'Fixture-pass-1234';
+    const pw = 'Violet-Harbour-2291'; // must satisfy the password rules, and not contain the account's own name
     await request(app).post('/api/auth/change-password').set('Authorization', `Bearer ${first.body.token}`).send({ currentPassword: temporaryPassword, newPassword: pw });
 
     const login = await request(app).post('/api/auth/login').send({ email: 'fixture@shop.test', password: pw, remember: true });
