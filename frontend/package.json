@@ -8,7 +8,8 @@
     "build": "vite build",
     "lint": "oxlint",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:e2e-new-server": "VITE_USE_NEW_SERVER=true VITE_NEW_API_URL=http://localhost:3000/api vitest run src/e2e"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.101.2",

@@ -133,11 +133,14 @@ describe('one-time passwords and changing your password', () => {
     const bad = await request(u.app).post('/api/auth/change-password').set('Authorization', u.auth).send({ currentPassword: 'wrong-wrong-1', newPassword: 'A-brand-new-pass-1' });
     expect(bad.body.error.code).toBe('WRONG_CURRENT_PASSWORD');
     const short = await request(u.app).post('/api/auth/change-password').set('Authorization', u.auth).send({ currentPassword: u.password, newPassword: 'short' });
-    expect(short.body.error.code).toBe('PASSWORD_TOO_SHORT');
+    expect(short.status).toBe(422);
+    expect(short.body.error.code).toBe('WEAK_PASSWORD');
+    expect(short.body.error.message).toMatch(/at least 12 characters/); // a manager's minimum
     const same = await request(u.app).post('/api/auth/change-password').set('Authorization', u.auth).send({ currentPassword: u.password, newPassword: u.password });
     expect(same.body.error.code).toBe('PASSWORD_UNCHANGED');
     const withName = await request(u.app).post('/api/auth/change-password').set('Authorization', u.auth).send({ currentPassword: u.password, newPassword: `${u.username}-12345` });
-    expect(withName.body.error.code).toBe('PASSWORD_CONTAINS_USERNAME');
+    expect(withName.body.error.code).toBe('WEAK_PASSWORD');
+    expect(withName.body.error.message).toMatch(/username/);
     const ok = await request(u.app).post('/api/auth/change-password').set('Authorization', u.auth).send({ currentPassword: u.password, newPassword: 'A-brand-new-pass-1' });
     expect(ok.status).toBe(200);
     expect((await request(u.app).get('/api/auth/me').set('Authorization', u.auth)).status).toBe(200);

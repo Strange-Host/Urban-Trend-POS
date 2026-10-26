@@ -15,6 +15,8 @@ const schema = z.object({
   // Short-lived access tokens are swapped through the refresh cookie. Both are tunable; the defaults match the legacy app.
   ACCESS_TOKEN_MINUTES: z.coerce.number().int().min(1).max(240).default(15),
   REFRESH_TOKEN_DAYS: z.coerce.number().int().min(1).max(90).default(30),
+  // 'strict' when the screens and the API share a site (same registrable domain, or localhost); 'none' if they are on unrelated domains.
+  REFRESH_COOKIE_SAMESITE: z.enum(['strict', 'lax', 'none']).default('strict'),
   // Browser origins allowed to call the API with the refresh cookie, comma separated (e.g. https://pos.example.com,http://localhost:5173).
   CORS_ORIGINS: z.string().default(''),
   // How many proxies (Railway's edge) sit in front of the server, so the client address in audit rows is the real one.

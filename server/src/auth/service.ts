@@ -2,7 +2,8 @@ import type { Pool } from '../db/pool.js';
 import { withTransaction, type Queryable } from '../db/tx.js';
 import { HttpError } from '../errors.js';
 import { audit } from '../pos/audit.js';
-import { checkPasswordRules, DUMMY_HASH, hashPassword, temporaryPassword, verifyPassword } from './password.js';
+import { DUMMY_HASH, hashPassword, temporaryPassword, verifyPassword } from './password.js';
+import { assertStrongPassword } from './passwordPolicy.js';
 import { assertValidPin } from './pin.js';
 import { ROLES, type Role } from './permissions.js';
 import { createSession, endAllSessions, endSession, type NewSession, type SessionOptions } from './sessions.js';
@@ -186,7 +187,7 @@ export async function changeOwnPassword(pool: Pool, user: AuthUser, input: { cur
     throw new HttpError(403, 'WRONG_CURRENT_PASSWORD', 'The current password is not right.');
   }
   if (input.newPassword === input.currentPassword) throw new HttpError(422, 'PASSWORD_UNCHANGED', 'Choose a different password from the current one.');
-  checkPasswordRules(input.newPassword, user.username);
+  assertStrongPassword(input.newPassword, { role: u.role, username: u.username, email: u.email, displayName: u.display_name, phone: u.phone });
   const hash = await hashPassword(input.newPassword);
   await withTransaction(pool, async (c) => {
     await c.query(`UPDATE users SET password_hash = $2, must_change_password = false, failed_attempts = 0, locked_until = NULL, password_changed_at = now() WHERE id = $1`, [user.id, hash]);

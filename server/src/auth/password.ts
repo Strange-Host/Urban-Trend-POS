@@ -24,13 +24,6 @@ export async function verifyPassword(password: string, stored: string): Promise<
 // Compared against when the username does not exist, so "no such user" takes as long as "wrong password".
 export const DUMMY_HASH = await hashPassword('not-a-real-password-just-for-timing');
 
-export function checkPasswordRules(password: string, username: string): void {
-  if (password.length < 10) throw new HttpError(422, 'PASSWORD_TOO_SHORT', 'A password needs at least 10 characters.');
-  if (password.length > 200) throw new HttpError(422, 'PASSWORD_TOO_LONG', 'That password is too long.');
-  if (password.toLowerCase().includes(username.toLowerCase())) throw new HttpError(422, 'PASSWORD_CONTAINS_USERNAME', 'A password cannot contain your username.');
-  if (new Set(password).size < 4) throw new HttpError(422, 'PASSWORD_TOO_SIMPLE', 'Use a less repetitive password.');
-}
-
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789'; // no look-alike characters
 /** A one-time password for a new or reset account. The person must change it at first login. */
 export function temporaryPassword(): string {
