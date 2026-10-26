@@ -18,7 +18,11 @@ const schema = z.object({
   // Browser origins allowed to call the API with the refresh cookie, comma separated (e.g. https://pos.example.com,http://localhost:5173).
   CORS_ORIGINS: z.string().default(''),
   // How many proxies (Railway's edge) sit in front of the server, so the client address in audit rows is the real one.
-  TRUST_PROXY_HOPS: z.coerce.number().int().min(0).max(5).default(0),
+  // Default 1 = Railway's edge. With 0 behind a proxy every visitor looks like the proxy and would share one sign-in allowance.
+  TRUST_PROXY_HOPS: z.coerce.number().int().min(0).max(5).default(1),
+  // Sign-in attempts (password, PIN, unlock) allowed per address per window. Per-account lockout applies on top.
+  LOGIN_RATE_LIMIT_MAX: z.coerce.number().int().min(1).max(10_000).default(20),
+  LOGIN_RATE_LIMIT_MINUTES: z.coerce.number().int().min(1).max(1440).default(15),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
 });
 
