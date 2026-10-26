@@ -1,7 +1,7 @@
 {
   "token": "ACCESS_TOKEN",
-  "expiresAt": "2026-11-01T20:02:19.731Z",
-  "accessExpiresAt": "2026-10-25T20:17:19.741Z",
+  "expiresAt": "2026-11-01T20:10:45.243Z",
+  "accessExpiresAt": "2026-10-25T20:25:45.250Z",
   "user": {
     "id": 1,
     "username": "fixture.manager",
@@ -12,11 +12,12 @@
     "phone": null,
     "hasPin": false,
     "twoFactorEnabled": false,
+    "erased": false,
     "mustChangePassword": false,
     "lockedUntil": null,
     "pinLockedUntil": null,
-    "lastLoginAt": "2026-10-25T20:02:19.734Z",
-    "createdAt": "2026-10-25T20:02:19.479Z",
+    "lastLoginAt": "2026-10-25T20:10:45.245Z",
+    "createdAt": "2026-10-25T20:10:44.986Z",
     "createdBy": "test-setup"
   },
   "permissions": [
@@ -88,9 +89,9 @@
     "remember": true,
     "lockAfterSeconds": 600,
     "signOutAfterSeconds": null,
-    "expiresAt": "2026-11-01T20:02:19.731Z",
+    "expiresAt": "2026-11-01T20:10:45.243Z",
     "reauthMinutes": 5,
-    "lastActivityAt": "2026-10-25T20:02:19.731Z",
+    "lastActivityAt": "2026-10-25T20:10:45.243Z",
     "idleSeconds": 0
   }
 }

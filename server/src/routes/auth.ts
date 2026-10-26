@@ -1,9 +1,11 @@
+import type express from 'express';
 import type { Request, Response } from 'express';
 import { Router } from 'express';
 import { z } from 'zod';
 import { effectiveEditorKeys, overridesFor } from '../auth/access.js';
 import { clearRefreshCookie, readCookie, REFRESH_COOKIE, setRefreshCookie } from '../auth/cookies.js';
 import { requireAuth } from '../auth/middleware.js';
+import { rateLimit } from '../auth/rateLimit.js';
 import { permissionsOfUser } from '../auth/permissions.js';
 import { changeOwnPassword, confirmIdentity, getUser, login, loginWithPin, logout, type UserView } from '../auth/service.js';
 import { authenticateToken, clientPolicy, confirmSession, endAllSessions, endSession, endSessionByRefresh, getSession, listSessions, refreshSession, type SessionRow } from '../auth/sessions.js';
@@ -31,12 +33,15 @@ export interface AuthRouterOptions {
   secureCookies?: boolean;
   accessMinutes?: number;
   refreshDays?: number;
+  /** Sign-in attempts allowed per address per window, across login, PIN login and unlock. `false` switches it off (tests only). */
+  signInLimit?: { max: number; windowMinutes: number } | false;
 }
 
 export function authRouter(pool: Pool, opts: AuthRouterOptions): Router {
   const r = Router();
   const secure = opts.secureCookies === true;
   const sessionOpts = { accessMinutes: opts.accessMinutes, refreshDays: opts.refreshDays, unrememberedHours: opts.sessionHours };
+  const limit: express.RequestHandler[] = opts.signInLimit === false ? [] : [rateLimit(pool, { scope: 'signin', ...(opts.signInLimit ?? { max: 20, windowMinutes: 15 }) })];
   r.use((_req, res, next) => { res.set('Cache-Control', 'no-store'); next(); }); // tokens and one-time passwords must never be cached
 
   /** Who the person is and what they may do: `permissions` are the engine's, `uiPermissions` the Staff access keys the screens ask about. */
@@ -54,14 +59,14 @@ export function authRouter(pool: Pool, opts: AuthRouterOptions): Router {
   }
   const meta = (req: Request) => ({ ip: req.ip ?? null, userAgent: req.get('user-agent') ?? null });
 
-  r.post('/login', handler(async (req, res) => {
+  r.post('/login', ...limit, handler(async (req, res) => {
     const b = parse(loginBody, req.body);
     const opened = await login(pool, { username: (b.username ?? b.email)!, password: b.password, remember: b.remember === true, ...meta(req), ...sessionOpts });
     res.json(await signedIn(res, opened.user, opened));
   }));
 
   // Fast sign-in at a shared register. Cashiers only; never remembered.
-  r.post('/pin-login', handler(async (req, res) => {
+  r.post('/pin-login', ...limit, handler(async (req, res) => {
     const b = parse(pinBody, req.body);
     const opened = await loginWithPin(pool, { userId: b.userId, pin: b.pin, ...meta(req), ...sessionOpts });
     res.json(await signedIn(res, opened.user, opened));
@@ -111,7 +116,7 @@ export function authRouter(pool: Pool, opts: AuthRouterOptions): Router {
   }));
 
   // Opens a locked screen, and is the "confirm it's you" step before a risky action.
-  r.post('/unlock', requireAuth(pool), handler(async (req, res) => {
+  r.post('/unlock', ...limit, requireAuth(pool), handler(async (req, res) => {
     await confirmIdentity(pool, req.user!, parse(unlockBody, req.body));
     await confirmSession(pool, req.user!.sessionId);
     const s = await getSession(pool, req.user!.sessionId);

@@ -9,7 +9,8 @@ const logger = createLogger(config.LOG_LEVEL);
 const pool = createPool(config.DATABASE_URL, { ssl: config.DATABASE_SSL === 'true' });
 const server = createApp({ pool, logger, sessionHours: config.SESSION_HOURS, orderRefKey: config.ORDER_REF_KEY,
   corsOrigins: config.CORS_ORIGINS.split(',').map((o) => o.trim()).filter(Boolean), trustProxyHops: config.TRUST_PROXY_HOPS,
-  secureCookies: config.NODE_ENV === 'production', accessTokenMinutes: config.ACCESS_TOKEN_MINUTES, refreshTokenDays: config.REFRESH_TOKEN_DAYS }).listen(config.PORT, () => logger.info({ port: config.PORT }, 'server listening'));
+  secureCookies: config.NODE_ENV === 'production', accessTokenMinutes: config.ACCESS_TOKEN_MINUTES, refreshTokenDays: config.REFRESH_TOKEN_DAYS,
+  signInLimit: { max: config.LOGIN_RATE_LIMIT_MAX, windowMinutes: config.LOGIN_RATE_LIMIT_MINUTES } }).listen(config.PORT, () => logger.info({ port: config.PORT }, 'server listening'));
 
 const integrity = config.INTEGRITY_JOB === 'true'
   ? scheduleNightlyIntegrity(pool, { logger, hourLocal: config.INTEGRITY_HOUR })
