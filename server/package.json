@@ -17,7 +17,8 @@
     "create-admin:prod": "node dist/auth/create-admin-cli.js",
     "integrity:prod": "node dist/integrity/cli.js",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "dev:stack": "tsx scripts/dev-stack.ts"
   },
   "dependencies": {
     "express": "^4.21.2",

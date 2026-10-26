@@ -5,6 +5,7 @@ import { HttpError } from './errors.js';
 import { authRouter } from './routes/auth.js';
 import { payrollRouter } from './routes/payroll.js';
 import { usersRouter } from './routes/users.js';
+import { securityRouter } from './routes/security.js';
 import { catalogRouter } from './routes/catalog.js';
 import { customersRouter } from './routes/customers.js';
 import { leadsRouter } from './routes/leads.js';
@@ -26,6 +27,8 @@ export interface AppDeps {
   trustProxyHops?: number;
   /** Mark the refresh cookie Secure (true on a real HTTPS deployment). */
   secureCookies?: boolean;
+  /** SameSite of the refresh cookie: 'strict' unless the screens and the API are on unrelated domains. */
+  cookieSameSite?: 'strict' | 'lax' | 'none';
   accessTokenMinutes?: number;
   refreshTokenDays?: number;
   /** Sign-in attempts per address per window. Default 20 per 15 minutes (LOGIN_RATE_LIMIT_MAX overrides the count). `false` = off. */
@@ -36,7 +39,7 @@ export interface AppDeps {
 
 export { HttpError };
 
-export function createApp({ pool, logger, sessionHours = 12, orderRefKey, corsOrigins = [], trustProxyHops = 0, secureCookies = false, accessTokenMinutes, refreshTokenDays, signInLimit }: AppDeps) {
+export function createApp({ pool, logger, sessionHours = 12, orderRefKey, corsOrigins = [], trustProxyHops = 0, secureCookies = false, cookieSameSite, accessTokenMinutes, refreshTokenDays, signInLimit }: AppDeps) {
   const app = express();
   app.disable('x-powered-by');
   if (trustProxyHops > 0) app.set('trust proxy', trustProxyHops);
@@ -65,9 +68,10 @@ export function createApp({ pool, logger, sessionHours = 12, orderRefKey, corsOr
     }
   });
 
-  app.use('/api/auth', authRouter(pool, { sessionHours, secureCookies, accessMinutes: accessTokenMinutes, refreshDays: refreshTokenDays,
+  app.use('/api/auth', authRouter(pool, { sessionHours, secureCookies, cookieSameSite, accessMinutes: accessTokenMinutes, refreshDays: refreshTokenDays,
     signInLimit: signInLimit ?? { max: Number(process.env.LOGIN_RATE_LIMIT_MAX) || 20, windowMinutes: Number(process.env.LOGIN_RATE_LIMIT_MINUTES) || 15 } }));
   app.use('/api/users', usersRouter(pool));
+  app.use('/api/security', securityRouter(pool));
   app.use('/api/payroll', payrollRouter(pool));
   app.use('/api', catalogRouter(pool));
   app.use('/api/customers', customersRouter(pool));

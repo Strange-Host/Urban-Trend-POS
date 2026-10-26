@@ -473,6 +473,22 @@ describe('Staff access: per-person permission overrides', () => {
 });
 
 // ---------------------------------------------------------------------------------------------------------------- browser access
+describe('the refresh cookie across sites', () => {
+  const header = (res: request.Response) => ([] as string[]).concat(res.headers['set-cookie'] ?? []).find((c) => c.startsWith('ut_refresh_token='))!;
+  it('is Strict by default, and SameSite=None always carries Secure, for the clearing cookie too', async () => {
+    const p = await person('cashier');
+    const none = createApp({ pool: db.pool, logger: createLogger('silent'), cookieSameSite: 'none' }); // secureCookies left off on purpose
+    const res = await request(none).post('/api/auth/login').send({ email: p.email, password: p.password });
+    expect(header(res)).toMatch(/SameSite=None/);
+    expect(header(res)).toMatch(/Secure/);
+    expect(header(await request(none).post('/api/auth/logout'))).toMatch(/SameSite=None; Secure/);
+    const strict = await request(app()).post('/api/auth/login').send({ email: p.email, password: p.password });
+    expect(header(strict)).toMatch(/SameSite=Strict/);
+    expect(header(strict)).not.toMatch(/Secure/); // plain-HTTP localhost would drop a Secure cookie
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------- browser access
 describe('calls from the staff screens in a browser', () => {
   it('lets only the listed origins send the refresh cookie, and answers the preflight', async () => {
     const pre = await request(app()).options('/api/auth/login').set('Origin', 'http://localhost:5173').set('Access-Control-Request-Method', 'POST');
