@@ -6,7 +6,7 @@ import { HttpError } from '../errors.js';
 import { dateStr, flag, handler, paging, parse, who } from '../http.js';
 import { depositCustody, listOpenCustody } from '../orders/custody.js';
 import { listOrders } from '../orders/list.js';
-import { cancelOrder, createOrder, dispatchOrder, findOrder, recordDeliveryAttempt, type OrderCtx, type OrderStatus } from '../orders/orders.js';
+import { assertReadyToDispatch, cancelOrder, confirmOrder, createOrder, dispatchOrder, findOrder, recordDeliveryAttempt, type OrderCtx, type OrderStatus } from '../orders/orders.js';
 import { applySuspenseToOrder, listSuspense, recordShopCash, refundSuspense, suggestMatches } from '../orders/payments.js';
 import { moneyAtRisk } from '../orders/atRisk.js';
 import { receiveReturnedOrder } from '../orders/returns.js';
@@ -62,7 +62,9 @@ export function ordersRouter(pool: Pool, opts: { orderRefKey?: string }): Router
   r.get('/orders', requirePermission('orders.view'), handler(async (req, res) => {
     const q = req.query;
     const str = (v: unknown) => (typeof v === 'string' && v ? v : undefined);
-    res.json(await listOrders(pool, { status: str(q.status) as OrderStatus | 'active' | undefined, search: str(q.search), assignedTo: str(q.assignedTo), unpaidOnly: flag(q.unpaid) === true, ...paging(q) }));
+    const known = ['awaiting_dispatch', 'dispatched', 'delivered', 'returning', 'returned', 'cancelled'];
+    const many = str(q.status)?.includes(',') ? str(q.status)!.split(',').map((x) => x.trim()).filter((x) => known.includes(x)) as OrderStatus[] : undefined;
+    res.json(await listOrders(pool, { status: many ? undefined : str(q.status) as OrderStatus | 'active' | undefined, statuses: many, returnProblem: flag(q.returnProblem), search: str(q.search), assignedTo: str(q.assignedTo), unpaidOnly: flag(q.unpaid) === true, paymentStatus: (['unpaid', 'part_paid', 'paid'] as const).find((p) => p === q.paymentStatus), ...paging(q) }));
   }));
 
   r.get('/orders/:ref', requirePermission('orders.view'), handler(async (req, res) => {
@@ -75,7 +77,13 @@ export function ordersRouter(pool: Pool, opts: { orderRefKey?: string }): Router
     res.status(201).json({ order: await createOrder(ctx(), { ...parse(createBody, req.body), actor: req.user!.username }) });
   }));
 
+  // "Confirm with customer": the call that must happen before an unpaid order can leave the shop.
+  r.post('/orders/:ref/confirm', requirePermission('orders.manage'), handler(async (req, res) => {
+    res.json({ order: await confirmOrder(ctx(), { orderRef: String(req.params.ref), actor: req.user!.username }) });
+  }));
+
   r.post('/orders/:ref/dispatch', requirePermission('orders.manage'), handler(async (req, res) => {
+    await assertReadyToDispatch(pool, String(req.params.ref));
     res.json({ order: await dispatchOrder(ctx(), { orderRef: String(req.params.ref), ...parse(dispatchBody, req.body), actor: req.user!.username }) });
   }));
 

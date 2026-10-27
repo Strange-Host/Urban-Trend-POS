@@ -9,6 +9,7 @@ import { createLogger } from '../src/logger.js';
 import { loggedIn } from './authHelpers.js';
 import { makeTestDb, type TestDb } from './helpers.js';
 import { KEY } from './orderHelpers.js';
+import { confirmOrder } from '../src/orders/orders.js';
 
 // Loads the real staff screens (public/app.js) into a simulated browser, pointed at a real server on a real database,
 // and visits every screen as the roles that use it. It proves each screen builds without errors and shows real data.
@@ -101,6 +102,9 @@ describe('the staff screens', () => {
     await b.visit('#/pay', 'Pay rates (admin)');
     await b.visit('#/discounts', 'Discounts by person');
     expect(b.errors).toEqual([]);
+
+    // the customer has been phoned (the rule that an unpaid order is confirmed before it leaves the shop)
+    await confirmOrder({ pool: db.pool, refKey: KEY }, { orderRef: order.orderRef, actor: 'test-setup' });
 
     // dispatch from the screen
     await b.visit(`#/order/${encodeURIComponent(order.orderRef)}`, 'Package fee (KES)');

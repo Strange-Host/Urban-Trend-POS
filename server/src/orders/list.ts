@@ -4,14 +4,15 @@ import type { OrderStatus } from './orders.js';
 export interface OrderSummary {
   id: number; orderRef: string; status: OrderStatus; customerName: string; customerPhone: string; totalCents: number;
   /** What the customer still owes (the order's receivable in the ledger). */
-  balanceCents: number; assignedTo: string | null; createdBy: string; createdAt: Date; dispatchedAt: Date | null; courierName: string | null;
+  balanceCents: number; paidCents: number; paymentStatus: 'unpaid' | 'part_paid' | 'paid' | 'cancelled'; confirmedAt: Date | null; /** Came back with damaged or missing goods. */ returnProblem: boolean; assignedTo: string | null; createdBy: string; createdAt: Date; dispatchedAt: Date | null; courierName: string | null;
 }
 
 /** Orders for the list screen, newest first. Search matches the reference (any spacing or case), the old UT code, the name or the phone. */
-export async function listOrders(db: Queryable, opts: { status?: OrderStatus | 'active'; search?: string; assignedTo?: string; unpaidOnly?: boolean; limit: number; offset: number }): Promise<{ orders: OrderSummary[]; total: number }> {
+export async function listOrders(db: Queryable, opts: { status?: OrderStatus | 'active'; statuses?: OrderStatus[]; returnProblem?: boolean; search?: string; assignedTo?: string; unpaidOnly?: boolean; paymentStatus?: 'unpaid' | 'part_paid' | 'paid'; limit: number; offset: number }): Promise<{ orders: OrderSummary[]; total: number; summary: { outstandingCents: number } }> {
   const where: string[] = [];
   const args: unknown[] = [];
   if (opts.status === 'active') where.push(`o.status IN ('awaiting_dispatch', 'dispatched')`);
+  else if (opts.statuses?.length) { args.push(opts.statuses); where.push(`o.status = ANY($${args.length}::text[])`); }
   else if (opts.status) { args.push(opts.status); where.push(`o.status = $${args.length}`); }
   if (opts.assignedTo) { args.push(opts.assignedTo); where.push(`o.assigned_to = $${args.length}`); }
   if (opts.search?.trim()) {
@@ -27,18 +28,32 @@ export async function listOrders(db: Queryable, opts: { status?: OrderStatus | '
   }
   const bal = `(SELECT COALESCE(sum(l.amount_cents), 0)::bigint FROM journal_lines l JOIN journal_entries e ON e.id = l.entry_id JOIN accounts a ON a.id = l.account_id
                  WHERE a.code = 'CUSTOMER_RECEIVABLE' AND e.order_ref = o.order_ref)`;
+  // Paid is derived from receipts (and what an organization collected), never stored: Rule 2.
+  const paid = `((SELECT COALESCE(sum(amount_cents), 0) FROM payment_receipts WHERE order_ref = o.order_ref) + (SELECT COALESCE(sum(amount_cents), 0) FROM org_collections WHERE order_ref = o.order_ref))::bigint`;
+  const confirmed = `(SELECT min(at) FROM order_events WHERE order_id = o.id AND type = 'confirmed')`;
+  const problem = `EXISTS (SELECT 1 FROM order_returns r JOIN order_return_items ri ON ri.return_id = r.id WHERE r.order_id = o.id AND (ri.damaged > 0 OR ri.missing > 0))`;
+  if (opts.returnProblem !== undefined) where.push(opts.returnProblem ? problem : `NOT ${problem}`);
   const base = `FROM orders o ${where.length ? `WHERE ${where.join(' AND ')}` : ''}`;
-  const filter = opts.unpaidOnly ? `WHERE x.balance > 0 AND x.status <> 'cancelled'` : '';
-  const inner = `SELECT o.*, ${bal} AS balance ${base}`;
+  const inner = `SELECT o.*, ${bal} AS balance, ${paid} AS paid, ${confirmed} AS confirmed_at, ${problem} AS return_problem ${base}`;
+  const pay = `CASE WHEN x.status = 'cancelled' THEN 'cancelled' WHEN x.paid = 0 THEN 'unpaid' WHEN x.balance = 0 THEN 'paid' ELSE 'part_paid' END`;
+  const filters: string[] = [];
+  if (opts.unpaidOnly) filters.push(`x.balance > 0 AND x.status <> 'cancelled'`);
+  if (opts.paymentStatus) { args.push(opts.paymentStatus); filters.push(`(${pay}) = $${args.length}`); }
+  const filter = filters.length ? `WHERE ${filters.join(' AND ')}` : '';
   const total = Number((await db.query<{ n: string }>(`SELECT count(*) AS n FROM (${inner}) x ${filter}`, args)).rows[0]!.n);
+  // What parcels that have left the shop are still owed: the figure the Orders header shows.
+  const owed = await db.query<{ s: string }>(
+    `SELECT COALESCE(sum(GREATEST(x.balance, 0)), 0)::bigint AS s FROM (${inner}) x ${filter ? `${filter} AND` : 'WHERE'} x.status IN ('dispatched', 'delivered')`, args);
   const { rows } = await db.query(
-    `SELECT x.*, (SELECT c.name FROM package_fees f JOIN couriers c ON c.id = f.courier_id WHERE f.order_id = x.id) AS courier_name
+    `SELECT x.*, ${pay} AS payment_status, (SELECT c.name FROM package_fees f JOIN couriers c ON c.id = f.courier_id WHERE f.order_id = x.id) AS courier_name
        FROM (${inner}) x ${filter} ORDER BY x.created_at DESC, x.id DESC LIMIT ${opts.limit} OFFSET ${opts.offset}`, args);
   return {
     total,
+    summary: { outstandingCents: Number(owed.rows[0]!.s) },
     orders: rows.map((r) => ({
       id: r.id, orderRef: r.order_ref, status: r.status, customerName: r.customer_name, customerPhone: r.customer_phone, totalCents: r.total_cents,
-      balanceCents: r.status === 'cancelled' ? 0 : r.balance, assignedTo: r.assigned_to, createdBy: r.created_by, createdAt: r.created_at, dispatchedAt: r.dispatched_at, courierName: r.courier_name,
+      balanceCents: r.status === 'cancelled' ? 0 : Number(r.balance), paidCents: Number(r.paid), paymentStatus: r.payment_status, confirmedAt: r.confirmed_at, returnProblem: r.return_problem,
+      assignedTo: r.assigned_to, createdBy: r.created_by, createdAt: r.created_at, dispatchedAt: r.dispatched_at, courierName: r.courier_name,
     })),
   };
 }
