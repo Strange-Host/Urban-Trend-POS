@@ -43,7 +43,7 @@ for (const a of ACCOUNTS) {
   await pool.query(`UPDATE users SET password_hash = $2, must_change_password = false WHERE id = $1`, [user.id, await hashPassword(a.password)]);
 }
 
-const server = createApp({ pool, logger: createLogger('warn'), corsOrigins: ORIGINS, trustProxyHops: 0, signInLimit: false }).listen(PORT, () => {
+const server = createApp({ pool, logger: createLogger('warn'), orderRefKey: process.env.ORDER_REF_KEY ?? 'dev-stack-order-reference-key-not-for-production-0123456789', corsOrigins: ORIGINS, trustProxyHops: 0, signInLimit: false }).listen(PORT, () => {
   // One machine-readable line, so a test runner can wait for it.
   console.log(`READY ${JSON.stringify({ api: `http://localhost:${PORT}/api`, accounts: ACCOUNTS.map(({ email, password, role, pin }) => ({ email, password, role, pin })) })}`);
 });

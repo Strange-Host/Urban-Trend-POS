@@ -1,6 +1,8 @@
 import client from './client';
 import { USE_NEW_SERVER } from './newServer';
 import { newAuthApi } from './adapters/auth';
+import { newOrdersApi } from './adapters/orders';
+import { newCouriersApi } from './adapters/couriers';
 
 const legacyAuthApi = {
   login: (email, password, remember = false) => client.post('/auth/login', { email, password, remember }),
@@ -205,7 +207,7 @@ export const staffLogsApi = {  list: (params) => client.get('/staff-logs', { par
 
 // --- Phase 5 modules: shipped backends that previously had no UI ---
 
-export const ordersApi = {
+const legacyOrdersApi = {
   list: (params) => client.get('/orders', { params }),
   get: (id) => client.get(`/orders/${id}`),
   create: (data) => client.post('/orders', data),
@@ -256,12 +258,15 @@ export const telesalesApi = {
   rebalance: () => client.post('/telesales/rebalance'),
 };
 
-export const couriersApi = {
+const legacyCouriersApi = {
   list: (params) => client.get('/couriers', { params }),
   create: (data) => client.post('/couriers', data),
   update: (id, data) => client.patch(`/couriers/${id}`, data),
   remove: (id) => client.delete(`/couriers/${id}`),
 };
+
+export const ordersApi = USE_NEW_SERVER ? newOrdersApi : legacyOrdersApi;
+export const couriersApi = USE_NEW_SERVER ? newCouriersApi : legacyCouriersApi;
 
 export const shiftApi = {
   handover: () => client.get('/shift/handover'),

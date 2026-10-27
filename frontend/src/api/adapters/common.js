@@ -10,6 +10,14 @@ export class NotImplementedOnNewServer extends Error {
     this.response = { status: 501, data: { error: { code: 'NOT_IMPLEMENTED_ON_NEW_SERVER', message: this.message } } };
   }
 }
+/** A refusal made by the adapter itself (a missing choice, a payment route that no longer exists), shaped like a server error so pages show its message. */
+export class AdapterError extends Error {
+  constructor(code, message, status = 422) {
+    super(message);
+    this.name = 'AdapterError';
+    this.response = { status, data: { error: { code, message } } };
+  }
+}
 export const notImplemented = (name) => () => Promise.reject(new NotImplementedOnNewServer(name));
 
 /**
