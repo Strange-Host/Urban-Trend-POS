@@ -50,3 +50,24 @@ export function adaptMpesaConfirmation(body: unknown): Adapted {
 export const VALIDATION_ACCEPTED = { ResultCode: 0, ResultDesc: 'Accepted' } as const;
 export const CONFIRMATION_RECEIVED = { ResultCode: 0, ResultDesc: 'Success' } as const;
 export const TEMPORARY_FAILURE = { ResultCode: 1, ResultDesc: 'Temporary failure, please retry' } as const;
+
+// Lipa Na M-Pesa Online (STK push) result: { Body: { stkCallback: { MerchantRequestID, CheckoutRequestID, ResultCode, ResultDesc,
+// CallbackMetadata: { Item: [{ Name, Value }] } } } }. It arrives whether the customer paid, cancelled or let it time out.
+// The order reference is NOT in it, so it is recovered from what was stored when the push was sent.
+export interface StkResult {
+  checkoutRequestId: string; merchantRequestId?: string; resultCode: number; resultDesc?: string; succeeded: boolean;
+  amount?: unknown; receipt?: string; phone?: string;
+}
+
+export function adaptStkCallback(body: unknown): StkResult | null {
+  const cb = (body as { Body?: { stkCallback?: Record<string, unknown> } } | null | undefined)?.Body?.stkCallback;
+  if (!cb || typeof cb !== 'object') return null;
+  const checkoutRequestId = text(cb.CheckoutRequestID);
+  if (!checkoutRequestId || typeof cb.ResultCode !== 'number') return null;
+  const items = Array.isArray((cb.CallbackMetadata as { Item?: unknown } | undefined)?.Item) ? ((cb.CallbackMetadata as { Item: Array<{ Name?: string; Value?: unknown }> }).Item) : [];
+  const find = (name: string) => items.find((i) => i?.Name === name)?.Value;
+  return {
+    checkoutRequestId, merchantRequestId: text(cb.MerchantRequestID), resultCode: cb.ResultCode, resultDesc: text(cb.ResultDesc),
+    succeeded: cb.ResultCode === 0, amount: find('Amount'), receipt: text(find('MpesaReceiptNumber')), phone: text(find('PhoneNumber')),
+  };
+}
