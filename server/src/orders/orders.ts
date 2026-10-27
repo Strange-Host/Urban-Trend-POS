@@ -309,8 +309,10 @@ export async function cancelOrder(ctx: OrderCtx, input: { orderRef: string; reas
     await addEvent(c, o, 'cancelled', input.actor, { reason: input.reason.trim() });
     // The amount owed comes back off the ledger with an exact reversing entry (never an edit), in the same
     // transaction as the status change: either both happen or neither does.
-    const created = await c.query<{ id: number }>(`SELECT id FROM journal_entries WHERE idempotency_key = $1`, [`order-created:${o.order_ref}`]);
-    await reverseEntryTx(c, { entryId: created.rows[0]!.id, reason: `Order cancelled: ${input.reason.trim()}`, actor: input.actor });
+    // The creation entry and every entry for items added since (merges), each reversed once.
+    const booked = await c.query<{ id: number }>(
+      `SELECT id FROM journal_entries WHERE idempotency_key = $1 OR idempotency_key LIKE $2 ORDER BY id`, [`order-created:${o.order_ref}`, `order-items-added:${o.order_ref}:%`]);
+    for (const e of booked.rows) await reverseEntryTx(c, { entryId: e.id, reason: `Order cancelled: ${input.reason.trim()}`, actor: input.actor });
     return (await getOrderTx(c, o.order_ref))!;
   });
 }

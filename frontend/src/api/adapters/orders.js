@@ -182,9 +182,21 @@ export const newOrdersApi = {
     return client.post(`/orders/${refOf(id)}/shop-cash`, { amountCents: amount, reason: reference || 'Cash paid at the shop' });
   },
 
+  // Adding items to an order that is still waiting to leave the shop (the merge when a phone number already has an active order).
+  // The legacy page sends { product_id, quantity }: the new server wants the product's code, name and price, so they are read here.
+  mergeItems: async (id, items) => {
+    if (!Array.isArray(items) || items.length === 0) throw new AdapterError('ORDER_NO_ITEMS', 'Add at least one item.');
+    const lines = await Promise.all(items.map(async (i) => {
+      const quantity = Math.max(1, Math.floor(Number(i.quantity) || 1));
+      if (i.sku && i.name && Number.isInteger(i.unit_price)) return { sku: i.sku, name: i.name, quantity, unitPriceCents: i.unit_price };
+      const { data } = await client.get(`/products/${encodeURIComponent(String(i.product_id))}`);
+      return { sku: data.product.sku, name: data.product.name, quantity, unitPriceCents: data.product.priceCents };
+    }));
+    return mapResponse(client.post(`/orders/${refOf(id)}/items`, { items: lines }), (d) => ({ data: adaptOrderDetail(d.order) }));
+  },
+
   // Not on the new engine yet, or replaced by something else (see the status report): clear errors, never a silent fallback.
   create: notImplemented('ordersApi.create'),
-  mergeItems: notImplemented('ordersApi.mergeItems'),
   onlineSources: notImplemented('ordersApi.onlineSources'),
   pullOnline: notImplemented('ordersApi.pullOnline'),
   ownerDecision: notImplemented('ordersApi.ownerDecision'),
