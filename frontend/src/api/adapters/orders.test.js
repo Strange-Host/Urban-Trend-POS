@@ -191,9 +191,24 @@ describe('what the buttons do', () => {
     expect(p).toHaveBeenCalledTimes(2); // the refused ones never reached the server
   });
 
+  it('adds items to an order: product details are read for the legacy { product_id, quantity } shape, and the order comes back grown', async () => {
+    const get = vi.spyOn(client, 'get').mockResolvedValue({ data: { product: { id: 5, sku: 'SOCK-1', name: 'Socks', priceCents: 40_000 } } });
+    const p = vi.spyOn(client, 'post').mockResolvedValue({ status: 200, data: { order: out.order } });
+    const res = await newOrdersApi.mergeItems('UT-10', [{ product_id: 5, quantity: 2 }, { sku: 'X-1', name: 'Typed', unit_price: 1000, quantity: 1 }]);
+    expect(get).toHaveBeenCalledTimes(1);
+    expect(get).toHaveBeenCalledWith('/products/5');
+    expect(p).toHaveBeenCalledWith('/orders/UT-10/items', { items: [
+      { sku: 'SOCK-1', name: 'Socks', quantity: 2, unitPriceCents: 40_000 },
+      { sku: 'X-1', name: 'Typed', quantity: 1, unitPriceCents: 1000 },
+    ] });
+    expect(res.data.data.id).toBe(out.order.orderRef);
+    const none = await newOrdersApi.mergeItems('UT-10', []).catch((e) => e);
+    expect(none.response.data.error.code).toBe('ORDER_NO_ITEMS');
+  });
+
   it('rejects, clearly, what the new engine does not do (and never reaches a server)', async () => {
     const p = post();
-    for (const name of ['setCourier', 'inspect', 'returnedAwaitingInspection', 'ownerDecision', 'openDispute', 'resolveDispute', 'pullOnline', 'mergeItems']) {
+    for (const name of ['setCourier', 'inspect', 'returnedAwaitingInspection', 'ownerDecision', 'openDispute', 'resolveDispute', 'pullOnline']) {
       const err = await newOrdersApi[name]('UT-9').catch((e) => e);
       expect(err.response.data.error.code, name).toBe('NOT_IMPLEMENTED_ON_NEW_SERVER');
     }

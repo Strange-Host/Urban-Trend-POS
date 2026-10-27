@@ -10,6 +10,7 @@ import { assertReadyToDispatch, cancelOrder, confirmOrder, createOrder, dispatch
 import { applySuspenseToOrder, listSuspense, recordShopCash, refundSuspense, suggestMatches } from '../orders/payments.js';
 import { moneyAtRisk } from '../orders/atRisk.js';
 import { receiveReturnedOrder } from '../orders/returns.js';
+import { addItemsToOrder } from '../orders/merge.js';
 import { idParam } from '../http.js';
 
 const cents = z.number().int().min(0);
@@ -22,6 +23,7 @@ const dispatchBody = z.object({ courierId: z.number().int().positive(), packageF
 const cancelBody = z.object({ reason: z.string().min(1).max(300) });
 const attemptBody = z.object({ outcome: z.enum(['delivered', 'not_claimed', 'refused', 'rescheduled']), reason: z.string().max(300).optional(), rescheduleFor: dateStr.optional(), courierLabel: z.string().max(100).optional() });
 const returnBody = z.object({ items: z.array(z.object({ orderItemId: z.number().int().positive(), restockQuantity: z.number().int().min(0), damagedQuantity: z.number().int().min(0).optional() })).min(1), notes: z.string().max(500).optional() });
+const addItemsBody = z.object({ items: z.array(item).min(1) });
 const cashBody = z.object({ amountCents: z.number().int().positive(), reason: z.string().min(1).max(300) });
 const applyBody = z.object({ orderRef: z.string().min(1).max(30) });
 const refundBody = z.object({ amountCents: z.number().int().positive().optional(), reason: z.string().min(1).max(300) });
@@ -80,6 +82,11 @@ export function ordersRouter(pool: Pool, opts: { orderRefKey?: string }): Router
   // "Confirm with customer": the call that must happen before an unpaid order can leave the shop.
   r.post('/orders/:ref/confirm', requirePermission('orders.manage'), handler(async (req, res) => {
     res.json({ order: await confirmOrder(ctx(), { orderRef: String(req.params.ref), actor: req.user!.username }) });
+  }));
+
+  // Items added to an order still waiting to leave the shop (the merge when a phone number already has an active order).
+  r.post('/orders/:ref/items', requirePermission('orders.manage'), handler(async (req, res) => {
+    res.json({ order: await addItemsToOrder({ pool }, { orderRef: String(req.params.ref), ...parse(addItemsBody, req.body), ...who(req) }) });
   }));
 
   r.post('/orders/:ref/dispatch', requirePermission('orders.manage'), handler(async (req, res) => {
