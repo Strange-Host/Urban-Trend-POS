@@ -13,6 +13,7 @@ import { couriersRouter } from './routes/couriers.js';
 import { ordersRouter } from './routes/orders.js';
 import { posRouter } from './routes/pos.js';
 import { reportsRouter } from './routes/reports.js';
+import { integrationsRouter } from './routes/integrations.js';
 import type { Logger } from './logger.js';
 import { cors } from './cors.js';
 
@@ -35,16 +36,21 @@ export interface AppDeps {
   signInLimit?: { max: number; windowMinutes: number } | false;
   /** ORDER_REF_KEY: needed to issue order references (converting a lead creates an order). */
   orderRefKey?: string;
+  /** SECRETS_KEY: opens the integration secrets kept (encrypted) in the database. */
+  secretsKey?: string;
+  /** PAYMENT_WEBHOOK_SECRET: the paybill callback token from the environment. */
+  webhookSecret?: string;
 }
 
 export { HttpError };
 
-export function createApp({ pool, logger, sessionHours = 12, orderRefKey, corsOrigins = [], trustProxyHops = 0, secureCookies = false, cookieSameSite, accessTokenMinutes, refreshTokenDays, signInLimit }: AppDeps) {
+export function createApp({ pool, logger, sessionHours = 12, orderRefKey, corsOrigins = [], trustProxyHops = 0, secureCookies = false, cookieSameSite, accessTokenMinutes, refreshTokenDays, signInLimit, secretsKey, webhookSecret }: AppDeps) {
   const app = express();
   app.disable('x-powered-by');
   if (trustProxyHops > 0) app.set('trust proxy', trustProxyHops);
   app.use(cors(corsOrigins));
-  app.use(express.json({ limit: '1mb' }));
+  // Signed webhooks (Shopify, WooCommerce) are checked against the exact bytes received, so those routes keep the raw body.
+  app.use(express.json({ limit: '1mb', verify: (req, _res, buf) => { if ((req as express.Request).originalUrl.startsWith('/api/integrations/')) (req as express.Request & { rawBody?: Buffer }).rawBody = buf; } }));
 
   // The staff screens: plain files in server/public, no build step. Served under /app with strict headers (scripts and styles only
   // from this server, never framed, never sniffed).
@@ -68,6 +74,9 @@ export function createApp({ pool, logger, sessionHours = 12, orderRefKey, corsOr
     }
   });
 
+  // Called by outside systems, which have no login: they prove themselves with a secret instead. Mounted before everything that
+  // demands a login, so nothing here can fall through to a router that would answer 401.
+  app.use('/api/integrations', integrationsRouter(pool, { logger, secretsKey, webhookSecret }));
   app.use('/api/auth', authRouter(pool, { sessionHours, secureCookies, cookieSameSite, accessMinutes: accessTokenMinutes, refreshDays: refreshTokenDays,
     signInLimit: signInLimit ?? { max: Number(process.env.LOGIN_RATE_LIMIT_MAX) || 20, windowMinutes: Number(process.env.LOGIN_RATE_LIMIT_MINUTES) || 15 } }));
   app.use('/api/users', usersRouter(pool));

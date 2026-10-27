@@ -25,6 +25,10 @@ const schema = z.object({
   // Sign-in attempts (password, PIN, unlock) allowed per address per window. Per-account lockout applies on top.
   LOGIN_RATE_LIMIT_MAX: z.coerce.number().int().min(1).max(10_000).default(20),
   LOGIN_RATE_LIMIT_MINUTES: z.coerce.number().int().min(1).max(1440).default(15),
+  // Opens the integration secrets stored (encrypted) in the database. At least 32 characters. NEVER change it once secrets are stored: they could no longer be read.
+  SECRETS_KEY: z.string().min(32, 'SECRETS_KEY must be at least 32 characters').optional(),
+  // The token inside the callback URL registered with Safaricom. The legacy server uses the same variable, so existing registrations keep working.
+  PAYMENT_WEBHOOK_SECRET: z.string().min(16, 'PAYMENT_WEBHOOK_SECRET must be at least 16 characters').optional(),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
 });
 
