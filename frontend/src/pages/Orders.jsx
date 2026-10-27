@@ -10,6 +10,8 @@ import PullOnlineOrders from '../components/PullOnlineOrders';
 import TabBar from '../components/TabBar';
 import Pager, { usePager } from '../components/Pager';
 import useModules from '../hooks/useModules';
+import { USE_NEW_SERVER as NEW } from '../api/newServer';
+import { OutcomeSheet, ReturnParcelSheet } from '../components/OrderSheets';
 
 function money(cents) {
   return (cents / 100).toLocaleString(undefined, { style: 'currency', currency: 'KES' });
@@ -80,7 +82,11 @@ export default function Orders() {
   const [selectedId, setSelectedId] = useState(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const [paymentForm, setPaymentForm] = useState({ method: 'mobile_money', amount: '', reference: '' });
+  const [paymentForm, setPaymentForm] = useState({ method: NEW ? 'cash' : 'mobile_money', amount: '', reference: '' });
+  // New server only: the dispatch fee, and the two forms for a delivery outcome and a returned parcel.
+  const [dispatchForm, setDispatchForm] = useState({ fee: '', zeroReason: '' });
+  const [outcomeFor, setOutcomeFor] = useState(false);
+  const [returnFor, setReturnFor] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ['orders', { channel, statusFilter, search, page: pager.page, size: pager.pageSize }],
@@ -131,7 +137,7 @@ export default function Orders() {
         amount,
         reference: paymentForm.reference || undefined,
       });
-      setPaymentForm({ method: 'mobile_money', amount: '', reference: '' });
+      setPaymentForm({ method: NEW ? 'cash' : 'mobile_money', amount: '', reference: '' });
     });
   }
 
@@ -145,7 +151,30 @@ export default function Orders() {
     await act(() => ordersApi.returnedInTransit(order.id, reason ? { reason_code: reason.value } : {}));
   }
 
-  const outstanding = order ? order.total - order.amount_paid : 0;
+  async function handleDispatch() {
+    let opts;
+    if (NEW) {
+      const cents = Math.round(parseFloat(dispatchForm.fee) * 100);
+      if (!Number.isFinite(cents) || cents < 0) { setError('Enter the package fee for this dispatch.'); return; }
+      if (cents === 0 && !dispatchForm.zeroReason.trim()) { setError('A zero package fee needs a reason.'); return; }
+      if (!order.courier_id) { setError('Choose the rider or organization this is going with before dispatching.'); return; } // checked before asking "are you sure?"
+      opts = { packageFee: { cents, zeroReason: dispatchForm.zeroReason.trim() || undefined } };
+    }
+    await act(async () => {
+      await ordersApi.dispatch(order.id, opts);
+      setDispatchForm({ fee: '', zeroReason: '' });
+    }, 'Dispatch this order? Stock will be deducted now.');
+  }
+
+  async function handleCancel() {
+    if (!(await dialog.confirm({ message: 'Cancel this order?', danger: true }))) return;
+    const reason = await dialog.prompt({ message: 'Why is this order being cancelled?', required: true });
+    if (!reason) return;
+    await act(() => ordersApi.cancel(order.id, reason));
+  }
+
+  const outstanding = order ? (order.outstanding ?? order.total - order.amount_paid) : 0;
+  const showDisputes = modules.control && !NEW;   // disputes and owner decisions are not on the new server yet
 
   return (
     <div className="p-4 md:p-6">
@@ -154,7 +183,7 @@ export default function Orders() {
         title="Orders"
         description="Online and COD orders — confirmation, courier dispatch, payment, and returns."
         meta={data?.total > 0 ? `${data.total} order${data.total === 1 ? '' : 's'}\n${money(data.summary?.outstanding || 0)} outstanding` : null}
-        actions={<PullOnlineOrders onPulled={invalidate} />}
+        actions={NEW ? null : <PullOnlineOrders onPulled={invalidate} />}
       />
 
       <TabBar tabs={CHANNELS} active={channel} onChange={(k) => { setChannel(k); pager.reset(); setSelectedId(null); }} variant="filter" className="mb-4" />
@@ -217,14 +246,14 @@ export default function Orders() {
                     </td>
                     <td className="px-4 py-2.5">
                       <StatusPill tone={STATUS_TONES[o.status]}>{STATUS_LABELS[o.status]}</StatusPill>
-                      {modules.control && o.dispute_status === 'open' && (
+                      {showDisputes && o.dispute_status === 'open' && (
                         <span className="ml-1"><StatusPill tone="danger">dispute</StatusPill></span>
                       )}
                     </td>
                     <td className="px-4 py-2.5 text-right font-mono">{money(o.total)}</td>
                     <td className="px-4 py-2.5 text-right font-mono">
-                      {o.total - o.amount_paid > 0
-                        ? <span className="text-danger">{money(o.total - o.amount_paid)}</span>
+                      {(o.outstanding ?? o.total - o.amount_paid) > 0
+                        ? <span className="text-danger">{money(o.outstanding ?? o.total - o.amount_paid)}</span>
                         : <span className="text-text-muted">—</span>}
                     </td>
                   </tr>
@@ -309,6 +338,13 @@ export default function Orders() {
                 )}
               </div>
 
+              {NEW && order.returned && (
+                <div className="mb-3 px-3 py-2 rounded-lg bg-paper text-xs font-mono">
+                  Returned parcel counted in by {order.returned.receivedBy}: {order.returned.restocked} restocked, {order.returned.damaged} damaged, {order.returned.missing} missing.
+                  {order.returned.notes ? ` ${order.returned.notes}` : ''}
+                </div>
+              )}
+
               {/* Actions, gated to exactly what the backend state machine allows next */}
               <div className="space-y-2">
                 {order.status === 'awaiting_dispatch' && order.payment_type === 'cod' && !order.cod_confirmed_at && (
@@ -323,7 +359,7 @@ export default function Orders() {
 
                 {order.status === 'awaiting_dispatch' && (
                   <>
-                    <div className="flex gap-2">
+                    <div className={`flex gap-2 ${NEW ? 'hidden' : ''}`}>
                       {['boda', 'g4s'].map((c) => (
                         <button
                           key={c}
@@ -338,18 +374,39 @@ export default function Orders() {
                       ))}
                     </div>
                     <CourierPicker order={order} disabled={busy} onPick={(id) => act(() => ordersApi.assignCourier(order.id, id))} />
+                    {NEW && (
+                      <div className="border border-line rounded-lg p-3">
+                        <div className="text-xs font-medium mb-2">Package fee for this dispatch (what the courier is paid)</div>
+                        <div className="flex gap-2">
+                          <input
+                            type="number" min="0" step="0.01" inputMode="decimal" placeholder="Fee in KES"
+                            value={dispatchForm.fee}
+                            onChange={(e) => setDispatchForm({ ...dispatchForm, fee: e.target.value })}
+                            aria-label="Package fee in KES"
+                            className="w-32 px-3 py-2 rounded-lg border border-line bg-surface text-sm focus:border-accent outline-none"
+                          />
+                          {dispatchForm.fee !== '' && Number(dispatchForm.fee) === 0 && (
+                            <input
+                              placeholder="Why is the fee zero?"
+                              value={dispatchForm.zeroReason}
+                              onChange={(e) => setDispatchForm({ ...dispatchForm, zeroReason: e.target.value })}
+                              className="flex-1 px-3 py-2 rounded-lg border border-line bg-surface text-sm focus:border-accent outline-none"
+                            />
+                          )}
+                        </div>
+                        {!order.courier_id && <div className="text-xs text-text-muted mt-2">Choose a rider or organization above first. Add them under Couriers if the list is empty.</div>}
+                      </div>
+                    )}
                     <button
-                      onClick={() => act(
-                        () => ordersApi.dispatch(order.id),
-                        'Dispatch this order? Stock will be deducted now.'
-                      )}
+                      onClick={() => handleDispatch()}
                       disabled={busy || (order.payment_type === 'cod' && !order.cod_confirmed_at)}
                       className="w-full py-2.5 rounded-lg bg-ink text-white text-sm font-medium hover:bg-ink-soft disabled:opacity-40"
                     >
                       Dispatch — deducts stock
                     </button>
+
                     <button
-                      onClick={() => act(() => ordersApi.cancel(order.id), { message: 'Cancel this order?', danger: true })}
+                      onClick={handleCancel}
                       disabled={busy}
                       className="w-full py-2 rounded-lg border border-line text-sm hover:border-text-muted disabled:opacity-50"
                     >
@@ -358,19 +415,20 @@ export default function Orders() {
                   </>
                 )}
 
-                {['dispatched_unpaid', 'dispatched_partial'].includes(order.status) && (
+                {(['dispatched_unpaid', 'dispatched_partial', ...(NEW ? ['awaiting_dispatch'] : [])].includes(order.status) && (!NEW || isManager)) && (
                   <div className="border border-line rounded-lg p-3">
-                    <div className="text-xs font-medium mb-2">Record a payment</div>
+                    <div className="text-xs font-medium mb-2">{NEW ? 'Record cash taken at the shop' : 'Record a payment'}</div>
+                    {NEW && <div className="text-xs text-text-muted mb-2">M-Pesa, bank and card payments arrive on their own and are matched under Finance &gt; Reconciliation.</div>}
                     <div className="flex gap-2 mb-2">
                       <select
                         value={paymentForm.method}
                         onChange={(e) => setPaymentForm({ ...paymentForm, method: e.target.value })}
                         className="px-2 py-1.5 rounded-lg border border-line bg-surface text-xs outline-none"
                       >
-                        <option value="mobile_money">M-Pesa</option>
-                        <option value="bank_transfer">Bank</option>
-                        <option value="cash">Cash</option>
-                        <option value="card">Card</option>
+                        {!NEW && <option value="mobile_money">M-Pesa</option>}
+                        {!NEW && <option value="bank_transfer">Bank</option>}
+                        <option value="cash">{NEW ? 'Cash taken at the shop' : 'Cash'}</option>
+                        {!NEW && <option value="card">Card</option>}
                       </select>
                       <input
                         type="number"
@@ -382,7 +440,7 @@ export default function Orders() {
                       />
                     </div>
                     <input
-                      placeholder="Reference (optional)"
+                      placeholder={NEW ? 'Reason (e.g. paid at the counter)' : 'Reference (optional)'}
                       value={paymentForm.reference}
                       onChange={(e) => setPaymentForm({ ...paymentForm, reference: e.target.value })}
                       className="w-full px-2 py-1.5 rounded-lg border border-line bg-surface text-xs font-mono outline-none mb-2"
@@ -397,7 +455,16 @@ export default function Orders() {
                   </div>
                 )}
 
-                {order.status.startsWith('dispatched') && (
+                {NEW && order.delivery_status === 'dispatched' && isManager && (
+                  <button
+                    onClick={() => setOutcomeFor(true)}
+                    disabled={busy}
+                    className="w-full py-2.5 rounded-lg bg-ink text-white text-sm font-medium hover:bg-ink-soft disabled:opacity-50"
+                  >
+                    Record delivery outcome
+                  </button>
+                )}
+                {!NEW && order.status.startsWith('dispatched') && (
                   <button
                     onClick={handleReturn}
                     disabled={busy}
@@ -409,11 +476,11 @@ export default function Orders() {
 
                 {order.status === 'returned_in_transit' && (
                   <button
-                    onClick={() => act(() => ordersApi.returnedAwaitingInspection(order.id))}
+                    onClick={() => (NEW ? setReturnFor(true) : act(() => ordersApi.returnedAwaitingInspection(order.id)))}
                     disabled={busy}
                     className="w-full py-2.5 rounded-lg bg-ink text-white text-sm font-medium hover:bg-ink-soft disabled:opacity-50"
                   >
-                    Parcel arrived at shop
+                    {NEW ? 'Parcel arrived: count it in' : 'Parcel arrived at shop'}
                   </button>
                 )}
 
@@ -439,7 +506,7 @@ export default function Orders() {
                   </div>
                 )}
 
-                {order.status === 'returned_damaged' && !order.owner_decision && isAdmin && (
+                {!NEW && order.status === 'returned_damaged' && !order.owner_decision && isAdmin && (
                   <div className="border border-line rounded-lg p-3">
                     <div className="text-xs font-medium mb-2">Owner decision needed</div>
                     <div className="flex gap-2">
@@ -461,7 +528,7 @@ export default function Orders() {
                   </div>
                 )}
 
-                {modules.control && (order.dispute_status !== 'open' ? (
+                {showDisputes && (order.dispute_status !== 'open' ? (
                   <button
                     onClick={async () => {
                       const reason = await dialog.prompt({ message: 'What is the customer disputing?', required: true });
@@ -514,6 +581,12 @@ export default function Orders() {
           )}
         </div>
       </div>
+      {outcomeFor && order && (
+        <OutcomeSheet order={order} onClose={() => setOutcomeFor(false)} onSubmit={(o) => act(() => ordersApi.recordOutcome(order.id, o))} />
+      )}
+      {returnFor && order && (
+        <ReturnParcelSheet order={order} onClose={() => setReturnFor(false)} onSubmit={(r) => act(() => ordersApi.receiveReturn(order.id, r))} />
+      )}
     </div>
   );
 }
@@ -536,9 +609,9 @@ function CourierPicker({ order, disabled, onPick }) {
       aria-label="Assign a named courier"
       className="w-full px-3 py-2 rounded-lg border border-line bg-surface text-xs outline-none focus:border-accent"
     >
-      <option value="">Assign a named courier (optional)…</option>
+      <option value="">{NEW ? 'Choose who is taking it…' : 'Assign a named courier (optional)…'}</option>
       {couriers.map((c) => (
-        <option key={c.id} value={c.id}>{c.name} — {c.courier_type === 'g4s' ? 'G4S' : 'Boda'}{c.vehicle ? ` · ${c.vehicle}` : ''}</option>
+        <option key={c.id} value={c.id}>{c.name} — {c.courier_label || (c.courier_type === 'g4s' ? 'G4S' : 'Boda')}{c.vehicle ? ` · ${c.vehicle}` : ''}</option>
       ))}
     </select>
   );

@@ -34,6 +34,8 @@ describe('an order from creation to delivery, over HTTP', () => {
 
     // a cashier may create but not dispatch
     expect((await as(agent).set(request(app).post(`/api/orders/${ref}/dispatch`)).send({ courierId: rider.id, packageFee: { amountCents: 30_000 } })).status).toBe(403);
+    expect((await as(agent).set(request(app).post(`/api/orders/${ref}/confirm`)).send({})).status).toBe(403); // confirming is a manager's job too
+    expect((await as(mgr).set(request(app).post(`/api/orders/${ref}/confirm`)).send({})).status).toBe(200);
     expect((await as(mgr).set(request(app).post(`/api/orders/${ref}/dispatch`)).send({ courierId: rider.id })).status).toBe(422); // no fee entered
     const disp = await as(mgr).set(request(app).post(`/api/orders/${ref}/dispatch`)).send({ courierId: rider.id, packageFee: { amountCents: 30_000 } });
     expect(disp.body.order).toMatchObject({ status: 'dispatched', dispatch: { courierName: 'Peter Rider', packageFeeCents: 30_000 } });
@@ -183,6 +185,7 @@ describe('couriers: costs, organizations and statements', () => {
     expect((await as(mgr).set(request(app).post('/api/couriers/organizations')).send({ name: 'Fastline Couriers', collectsPayment: true })).status).toBe(409);
 
     const o = (await as(agent).set(request(app).post('/api/orders')).send({ customerName: 'Org Cust', customerPhone: freshPhone(), items: [{ name: 'X', quantity: 1, unitPriceCents: 200_000 }] })).body.order;
+    await as(mgr).set(request(app).post(`/api/orders/${o.orderRef}/confirm`)).send({});
     await as(mgr).set(request(app).post(`/api/orders/${o.orderRef}/dispatch`)).send({ courierId: org.id, packageFee: { amountCents: 25_000 } });
     const col = await as(mgr).set(request(app).post(`/api/couriers/${org.id}/collections`)).send({ orderRef: o.orderRef, amountCents: 200_000 });
     expect(col.status).toBe(201);

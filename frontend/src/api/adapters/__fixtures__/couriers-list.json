@@ -1,0 +1,19 @@
+{
+  "couriers": [
+    {
+      "id": 1,
+      "kind": "rider",
+      "name": "Peter Rider",
+      "phone": "0700123456",
+      "contactPerson": null,
+      "idNumber": null,
+      "vehiclePlate": null,
+      "agentNames": [],
+      "collectsPayment": false,
+      "overdueLimitCents": null,
+      "overdueAfterDays": 14,
+      "active": true,
+      "createdAt": "2026-10-27T11:28:39.619Z"
+    }
+  ]
+}

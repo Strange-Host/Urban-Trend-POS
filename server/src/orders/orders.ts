@@ -14,7 +14,7 @@ export interface OrderCtx {
   refKey: string;
 }
 
-export type OrderStatus = 'awaiting_dispatch' | 'dispatched' | 'delivered' | 'returning' | 'cancelled';
+export type OrderStatus = 'awaiting_dispatch' | 'dispatched' | 'delivered' | 'returning' | 'returned' | 'cancelled';
 export type DeliveryOutcome = 'delivered' | 'not_claimed' | 'refused' | 'rescheduled';
 
 export interface OrderItemInput {
@@ -160,6 +160,11 @@ export interface OrderView {
   items: { id: number; sku: string | null; name: string; quantity: number; unitPriceCents: number; discountCents: number; lineTotalCents: number }[];
   attempts: { attemptNo: number; outcome: DeliveryOutcome; reason: string | null; rescheduleFor: string | null; recordedAt: Date }[];
   events: { type: string; actor: string; at: Date; data: Record<string, unknown> }[];
+  /** What came back, once the returned parcel has been counted in; null until then. */
+  returned: { restocked: number; damaged: number; missing: number; receivedBy: string; receivedAt: Date; notes: string | null; unpaidWrittenOffCents: number } | null;
+  /** Someone phoned the customer and confirmed the order (kept as an event, so it can never be edited away). Null until then. */
+  confirmedAt: Date | null;
+  confirmedBy: string | null;
   createdAt: Date;
   dispatchedAt: Date | null;
   deliveredAt: Date | null;
@@ -175,7 +180,7 @@ export async function getOrderTx(db: Queryable, orderRef: string): Promise<Order
   const o = await db.query<OrderRow>(`SELECT * FROM orders WHERE order_ref = $1`, [orderRef]);
   const r = o.rows[0];
   if (!r) return null;
-  const [items, attempts, events, paid, orgPaid, fee, balance] = await Promise.all([
+  const [items, attempts, events, paid, orgPaid, fee, balance, ret] = await Promise.all([
     db.query(`SELECT id, sku, name, quantity, unit_price_cents, discount_cents, line_total_cents FROM order_items WHERE order_id = $1 ORDER BY id`, [r.id]),
     db.query(`SELECT attempt_no, outcome, reason, to_char(reschedule_for, 'YYYY-MM-DD') AS reschedule_for, recorded_at FROM delivery_attempts WHERE order_id = $1 ORDER BY attempt_no`, [r.id]),
     db.query(`SELECT type, actor, at, data FROM order_events WHERE order_id = $1 ORDER BY id`, [r.id]),
@@ -184,6 +189,9 @@ export async function getOrderTx(db: Queryable, orderRef: string): Promise<Order
     db.query<{ courier_id: number; name: string; amount_cents: number; zero_reason: string | null }>(
       `SELECT f.courier_id, c.name, f.amount_cents, f.zero_reason FROM package_fees f JOIN couriers c ON c.id = f.courier_id WHERE f.order_id = $1`, [r.id]),
     accountBalance(db, 'CUSTOMER_RECEIVABLE', { orderRef }),
+    db.query<{ received_by: string; received_at: Date; notes: string | null; unpaid_written_off_cents: number; restocked: number; damaged: number; missing: number }>(
+      `SELECT r.received_by, r.received_at, r.notes, r.unpaid_written_off_cents, COALESCE(sum(i.restocked), 0)::int AS restocked, COALESCE(sum(i.damaged), 0)::int AS damaged, COALESCE(sum(i.missing), 0)::int AS missing
+         FROM order_returns r LEFT JOIN order_return_items i ON i.return_id = r.id WHERE r.order_id = $1 GROUP BY r.id`, [r.id]),
   ]);
   const paidCents = paid.rows[0]!.s + orgPaid.rows[0]!.s;
   const paymentStatus = r.status === 'cancelled' ? 'cancelled' : paidCents === 0 ? 'unpaid' : balance === 0 ? 'paid' : 'part_paid';
@@ -195,6 +203,8 @@ export async function getOrderTx(db: Queryable, orderRef: string): Promise<Order
     items: items.rows.map((i) => ({ id: i.id, sku: i.sku, name: i.name, quantity: i.quantity, unitPriceCents: i.unit_price_cents, discountCents: i.discount_cents, lineTotalCents: i.line_total_cents })),
     attempts: attempts.rows.map((a) => ({ attemptNo: a.attempt_no, outcome: a.outcome, reason: a.reason, rescheduleFor: a.reschedule_for, recordedAt: a.recorded_at })),
     events: events.rows.map((e) => ({ type: e.type, actor: e.actor, at: e.at, data: e.data })),
+    returned: ret.rows[0] ? { restocked: ret.rows[0].restocked, damaged: ret.rows[0].damaged, missing: ret.rows[0].missing, receivedBy: ret.rows[0].received_by, receivedAt: ret.rows[0].received_at, notes: ret.rows[0].notes, unpaidWrittenOffCents: Number(ret.rows[0].unpaid_written_off_cents) } : null,
+    confirmedAt: events.rows.find((e) => e.type === 'confirmed')?.at ?? null, confirmedBy: events.rows.find((e) => e.type === 'confirmed')?.actor ?? null,
     createdAt: r.created_at, dispatchedAt: r.dispatched_at, deliveredAt: r.delivered_at,
   };
 }
@@ -340,4 +350,32 @@ export async function recordDeliveryAttempt(ctx: OrderCtx, input: {
     }
     return (await getOrderTx(c, o.order_ref))!;
   });
+}
+
+/**
+ * "Confirm with customer": someone has phoned the customer and the order is real. Kept as an event (an order's own row never
+ * changes), so it cannot be edited away, and doing it twice changes nothing.
+ */
+export async function confirmOrder(ctx: OrderCtx, input: { orderRef: string; actor: string }): Promise<OrderView> {
+  requireActor(input.actor);
+  return withTransaction(ctx.pool, async (c) => {
+    const o = await lockOrder(c, input.orderRef);
+    if (o.status !== 'awaiting_dispatch') throw wrongState(o, 'confirmed');
+    const done = await c.query(`SELECT 1 FROM order_events WHERE order_id = $1 AND type = 'confirmed'`, [o.id]);
+    if (!done.rowCount) await addEvent(c, o, 'confirmed', input.actor, {});
+    return (await getOrderTx(c, o.order_ref))!;
+  });
+}
+
+/**
+ * The legacy rule, kept: nothing leaves the shop until the customer has been phoned, unless money is already in (an order that is
+ * prepaid needs no call). Checked where a person dispatches; the engine's own dispatchOrder stays free of it so automated callers
+ * are not blocked.
+ */
+export async function assertReadyToDispatch(db: Queryable, orderRef: string): Promise<void> {
+  const o = await findOrder(db, orderRef);
+  if (!o || o.status !== 'awaiting_dispatch') return; // not found / wrong state: dispatchOrder gives the proper answer
+  if (!o.confirmedAt && o.paidCents === 0) {
+    throw new HttpError(409, 'ORDER_NOT_CONFIRMED', 'Confirm this order with the customer before dispatching it (an order that is already paid does not need this).');
+  }
 }
