@@ -202,6 +202,15 @@ async function ordersNeverOverpaid(db: Queryable): Promise<Violation[]> {
   }));
 }
 
+/** An order's lines add up to its subtotal (the guard lets a merge grow the order, so this proves the lines and the amount agree). */
+async function orderLinesMatchSubtotal(db: Queryable): Promise<Violation[]> {
+  const { rows } = await db.query<{ order_ref: string; subtotal: number; lines: number }>(
+    `SELECT o.order_ref, o.subtotal_cents AS subtotal, COALESCE(sum(i.line_total_cents), 0)::bigint AS lines
+       FROM orders o LEFT JOIN order_items i ON i.order_id = o.id GROUP BY o.id HAVING o.subtotal_cents <> COALESCE(sum(i.line_total_cents), 0)
+      ORDER BY o.id LIMIT ${MAX_REPORTED_PER_CHECK}`);
+  return rows.map((r) => ({ rule: null, check: 'order_lines_match_subtotal', ref: r.order_ref, message: `Order ${r.order_ref}: its lines add up to ${r.lines} cents but its subtotal is ${r.subtotal}.` }));
+}
+
 async function paidMatchesReceipts(db: Queryable): Promise<Violation[]> {
   const { rows } = await db.query<{ order_ref: string; paid: number; expected: number }>(
     `SELECT o.order_ref,
@@ -513,6 +522,7 @@ export async function runIntegrityChecks(db: Queryable): Promise<IntegrityReport
     ...(await receiptsConsistent(db)),
     ...(await ordersNeverOverpaid(db)),
     ...(await paidMatchesReceipts(db)),
+    ...(await orderLinesMatchSubtotal(db)),
     ...(await moneyHasReference(db)),
     ...(await suspenseReconciles(db)),
     ...(await dispatchesHaveFees(db)),
