@@ -14,6 +14,7 @@ import { ordersRouter } from './routes/orders.js';
 import { posRouter } from './routes/pos.js';
 import { reportsRouter } from './routes/reports.js';
 import { integrationsRouter } from './routes/integrations.js';
+import { webhooksRouter } from './routes/webhooks.js';
 import type { Logger } from './logger.js';
 import { cors } from './cors.js';
 
@@ -49,8 +50,9 @@ export function createApp({ pool, logger, sessionHours = 12, orderRefKey, corsOr
   app.disable('x-powered-by');
   if (trustProxyHops > 0) app.set('trust proxy', trustProxyHops);
   app.use(cors(corsOrigins));
-  // Signed webhooks (Shopify, WooCommerce) are checked against the exact bytes received, so those routes keep the raw body.
-  app.use(express.json({ limit: '1mb', verify: (req, _res, buf) => { if ((req as express.Request).originalUrl.startsWith('/api/integrations/')) (req as express.Request & { rawBody?: Buffer }).rawBody = buf; } }));
+  // Store webhooks bring their own body parsing (raw bytes for the signature, larger bodies, WooCommerce's form-encoded ping), so they come first.
+  if (orderRefKey) app.use('/api/integrations/webhooks', webhooksRouter(pool, { logger, secretsKey, refKey: orderRefKey }));
+  app.use(express.json({ limit: '1mb' }));
 
   // The staff screens: plain files in server/public, no build step. Served under /app with strict headers (scripts and styles only
   // from this server, never framed, never sniffed).

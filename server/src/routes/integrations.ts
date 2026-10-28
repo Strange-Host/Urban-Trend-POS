@@ -1,11 +1,11 @@
 import { Router, type Request, type RequestHandler } from 'express';
 import { raiseAlert } from '../alerts/alerts.js';
 import type { Pool } from '../db/pool.js';
-import { withTransaction } from '../db/tx.js';
 import { HttpError } from '../errors.js';
 import { adaptKcb, kcbAck, isKcbIpnEnvelope } from '../integrations/kcb.js';
 import { adaptMpesaConfirmation, adaptStkCallback, CONFIRMATION_RECEIVED, shillingsToCents, TEMPORARY_FAILURE, VALIDATION_ACCEPTED, type Adapted } from '../integrations/mpesa.js';
 import { getSecret, safeEqual } from '../integrations/secrets.js';
+import { noticeHandlers, type Reply } from '../integrations/notices.js';
 import { payloadKey, recordWebhookEvent } from '../integrations/webhookEvents.js';
 import type { Logger } from '../logger.js';
 import { ingestPaybillPayment } from '../orders/payments.js';
@@ -17,8 +17,6 @@ export interface IntegrationOpts {
   /** PAYMENT_WEBHOOK_SECRET: the callback token from the environment. Accepted beside the one in the database, so URLs already registered keep working. */
   webhookSecret?: string;
 }
-
-type Reply = { status: number; body: object };
 
 /** Thrown for a token that does not match: leave this router and let the rest of the API answer. */
 class NotOurs extends Error {}
@@ -52,24 +50,7 @@ export function integrationsRouter(pool: Pool, opts: IntegrationOpts): Router {
 
   // ---- shared: a notice we cannot read, and a notice we could not finish ---------------------------------------------------
 
-  // Cannot be read as a payment: keep it exactly as received, raise one alert, and tell the sender we have it.
-  // Refusing it would only make the sender resend the same unreadable notice.
-  async function keepForReview(f: { provider: string; kind: string; body: unknown; reason: string; eventKey: string; reply: Reply }): Promise<Reply> {
-    await withTransaction(pool, async (c) => {
-      const isNew = await recordWebhookEvent(c, { provider: f.provider, kind: f.kind, eventKey: f.eventKey, status: 'malformed', payload: f.body, error: f.reason });
-      if (isNew) await raiseAlert(c, { kind: `${f.provider}_notice_unreadable`, title: `A ${f.provider.toUpperCase()} payment notice could not be read: a person must check it`, body: { reason: f.reason, eventKey: f.eventKey, kind: f.kind } });
-    });
-    logger.error({ provider: f.provider, kind: f.kind, reason: f.reason, eventKey: f.eventKey }, 'payment notice could not be read; kept for review');
-    return f.reply;
-  }
-
-  // Ours to fix (database down, a bug): say so, so the sender tries again, and keep what we can.
-  async function askToRetry(f: { provider: string; kind: string; body: unknown; eventKey: string; err: unknown; reply: Reply }): Promise<Reply> {
-    const message = f.err instanceof Error ? f.err.message : String(f.err);
-    logger.error({ err: message, provider: f.provider, kind: f.kind, eventKey: f.eventKey }, 'payment notice failed; asking the sender to retry');
-    await recordWebhookEvent(pool, { provider: f.provider, kind: f.kind, eventKey: f.eventKey, status: 'failed', payload: f.body, error: message }).catch(() => undefined);
-    return f.reply;
-  }
+  const { keepForReview, askToRetry } = noticeHandlers(pool, logger);
 
   /** One notice that carries a payment: read it, hand it to the engine, file it. Used by M-Pesa C2B and KCB. */
   async function receivePayment(f: { provider: string; kind: string; body: unknown; adapted: Adapted; ok: Reply; retry: Reply }): Promise<Reply> {
