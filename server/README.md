@@ -194,5 +194,5 @@ Routes in `src/routes/{orders,couriers,pos,payroll,reports}.ts`; screens in `pub
 
 - The added value is its own ledger entry (receivable / sales, key `order-items-added:<ref>:<n>`); the first entry is never edited. Cancelling reverses the creation entry and every merge entry.
 - Stock for the new lines is checked against what is free (`lockAndCheck`, counting what this order already holds).
-- **One deliberate loosening of the order guard** (migration 0015): while an order awaits dispatch, its subtotal and total may rise together by the same amount. Lowering them, changing only one, changing anything else, or growing after dispatch is still refused by the database. The nightly check `order_lines_match_subtotal` proves the lines add up to the subtotal.
+- **One deliberate loosening of the order guard** (migration 0016): while an order awaits dispatch, its subtotal and total may rise together by the same amount. Lowering them, changing only one, changing anything else, or growing after dispatch is still refused by the database. The nightly check `order_lines_match_subtotal` proves the lines add up to the subtotal.
 - After dispatch nothing can be added: what is in the parcel is what was agreed.
