@@ -8,14 +8,25 @@ export type Platform = 'shopify' | 'woocommerce';
 export interface IncomeSource {
   id: number; platform: Platform; name: string; shopDomain: string | null;
   isActive: boolean; liveSyncEnabled: boolean; importOrders: boolean;
+  siteUrl: string | null; apiKey: string | null; apiVersion: string | null; oauthScopes: string | null; tokenExpiresAt: Date | null;
+  lastPollAt: Date | null; lastPollOkAt: Date | null; lastPollError: string | null;
 }
 
-interface Row { id: string; platform: Platform; name: string; shop_domain: string | null; is_active: boolean; live_sync_enabled: boolean; import_orders: boolean }
-const toSource = (r: Row): IncomeSource => ({ id: Number(r.id), platform: r.platform, name: r.name, shopDomain: r.shop_domain, isActive: r.is_active, liveSyncEnabled: r.live_sync_enabled, importOrders: r.import_orders });
+interface Row {
+  id: string; platform: Platform; name: string; shop_domain: string | null; is_active: boolean; live_sync_enabled: boolean; import_orders: boolean;
+  site_url: string | null; api_key: string | null; api_version: string | null; oauth_scopes: string | null; token_expires_at: Date | null;
+  last_poll_at: Date | null; last_poll_ok_at: Date | null; last_poll_error: string | null;
+}
+const COLUMNS = `id, platform, name, shop_domain, is_active, live_sync_enabled, import_orders, site_url, api_key, api_version, oauth_scopes, token_expires_at, last_poll_at, last_poll_ok_at, last_poll_error`;
+const toSource = (r: Row): IncomeSource => ({
+  id: Number(r.id), platform: r.platform, name: r.name, shopDomain: r.shop_domain, isActive: r.is_active, liveSyncEnabled: r.live_sync_enabled, importOrders: r.import_orders,
+  siteUrl: r.site_url, apiKey: r.api_key, apiVersion: r.api_version, oauthScopes: r.oauth_scopes, tokenExpiresAt: r.token_expires_at,
+  lastPollAt: r.last_poll_at, lastPollOkAt: r.last_poll_ok_at, lastPollError: r.last_poll_error,
+});
 
 export async function getSource(db: Queryable, id: number): Promise<IncomeSource | null> {
   if (!Number.isSafeInteger(id) || id < 1) return null;
-  const { rows } = await db.query<Row>(`SELECT id, platform, name, shop_domain, is_active, live_sync_enabled, import_orders FROM income_sources WHERE id = $1`, [id]);
+  const { rows } = await db.query<Row>(`SELECT ${COLUMNS} FROM income_sources WHERE id = $1`, [id]);
   return rows[0] ? toSource(rows[0]) : null;
 }
 
@@ -23,13 +34,13 @@ export async function getSource(db: Queryable, id: number): Promise<IncomeSource
  * Registers a connection. Pass `id` only when importing from the legacy system: webhook URLs already registered with the stores end in
  * that id, so it must be kept (the sequence is moved past it so new connections never collide).
  */
-export async function createSource(db: Queryable, input: { platform: Platform; name: string; shopDomain?: string; liveSyncEnabled?: boolean; importOrders?: boolean; id?: number }): Promise<IncomeSource> {
+export async function createSource(db: Queryable, input: { platform: Platform; name: string; shopDomain?: string; siteUrl?: string; apiKey?: string; apiVersion?: string; liveSyncEnabled?: boolean; importOrders?: boolean; id?: number }): Promise<IncomeSource> {
   if (!input.name?.trim()) throw new HttpError(422, 'VALIDATION', 'A connection needs a name.');
   const { rows } = await db.query<Row>(
-    `INSERT INTO income_sources (id, platform, name, shop_domain, live_sync_enabled, import_orders)
-     VALUES (COALESCE($1::bigint, nextval(pg_get_serial_sequence('income_sources', 'id'))), $2, $3, $4, $5, $6)
-     RETURNING id, platform, name, shop_domain, is_active, live_sync_enabled, import_orders`,
-    [input.id ?? null, input.platform, input.name.trim(), input.shopDomain?.trim().toLowerCase() || null, input.liveSyncEnabled ?? false, input.importOrders ?? true]);
+    `INSERT INTO income_sources (id, platform, name, shop_domain, site_url, api_key, api_version, live_sync_enabled, import_orders)
+     VALUES (COALESCE($1::bigint, nextval(pg_get_serial_sequence('income_sources', 'id'))), $2, $3, $4, $5, $6, $7, $8, $9)
+     RETURNING ${COLUMNS}`,
+    [input.id ?? null, input.platform, input.name.trim(), input.shopDomain?.trim().toLowerCase() || null, input.siteUrl?.trim() || null, input.apiKey?.trim() || null, input.apiVersion?.trim() || null, input.liveSyncEnabled ?? false, input.importOrders ?? true]);
   if (input.id !== undefined) await db.query(`SELECT setval(pg_get_serial_sequence('income_sources', 'id'), GREATEST((SELECT max(id) FROM income_sources), 1))`);
   return toSource(rows[0]!);
 }

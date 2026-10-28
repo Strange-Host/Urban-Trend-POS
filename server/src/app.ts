@@ -15,6 +15,8 @@ import { posRouter } from './routes/pos.js';
 import { reportsRouter } from './routes/reports.js';
 import { integrationsRouter } from './routes/integrations.js';
 import { webhooksRouter } from './routes/webhooks.js';
+import { onlineOrdersRouter } from './routes/onlineOrders.js';
+import type { StoreFetch } from './integrations/storeClients.js';
 import type { Logger } from './logger.js';
 import { cors } from './cors.js';
 
@@ -41,11 +43,13 @@ export interface AppDeps {
   secretsKey?: string;
   /** PAYMENT_WEBHOOK_SECRET: the paybill callback token from the environment. */
   webhookSecret?: string;
+  /** Tests give the stores a fake to talk to; the real fetch otherwise. */
+  storeFetch?: StoreFetch;
 }
 
 export { HttpError };
 
-export function createApp({ pool, logger, sessionHours = 12, orderRefKey, corsOrigins = [], trustProxyHops = 0, secureCookies = false, cookieSameSite, accessTokenMinutes, refreshTokenDays, signInLimit, secretsKey, webhookSecret }: AppDeps) {
+export function createApp({ pool, logger, sessionHours = 12, orderRefKey, corsOrigins = [], trustProxyHops = 0, secureCookies = false, cookieSameSite, accessTokenMinutes, refreshTokenDays, signInLimit, secretsKey, webhookSecret, storeFetch }: AppDeps) {
   const app = express();
   app.disable('x-powered-by');
   if (trustProxyHops > 0) app.set('trust proxy', trustProxyHops);
@@ -86,6 +90,7 @@ export function createApp({ pool, logger, sessionHours = 12, orderRefKey, corsOr
   app.use('/api/payroll', payrollRouter(pool));
   app.use('/api', catalogRouter(pool));
   app.use('/api/customers', customersRouter(pool));
+  if (orderRefKey) app.use('/api/online-orders', onlineOrdersRouter(pool, { logger, refKey: orderRefKey, secretsKey, fetch: storeFetch }));
   app.use('/api/leads', leadsRouter(pool, { orderRefKey }));
   app.use('/api', ordersRouter(pool, { orderRefKey }));
   app.use('/api', couriersRouter(pool));
