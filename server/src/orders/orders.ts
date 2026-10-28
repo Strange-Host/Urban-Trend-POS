@@ -7,6 +7,7 @@ import { allocateOrderRef, resolveOrderRef } from '../ledger/refs.js';
 import { organizationStanding } from '../couriers/organizations.js';
 import { ensureCustomer } from '../customers/customers.js';
 import { lockAndCheck, needs, postMovements, resolveLines } from '../stock/stock.js';
+import { queueOrderReceived } from '../sms/sms.js';
 
 export interface OrderCtx {
   pool: Pool;
@@ -56,7 +57,12 @@ async function addEvent(db: Queryable, order: { id: number; order_ref: string },
  */
 export async function createOrder(ctx: OrderCtx, input: CreateOrderInput): Promise<OrderView> {
   const prepared = prepareOrder(input);
-  return withTransaction(ctx.pool, (c) => createOrderTx(c, ctx.refKey, input, prepared));
+  return withTransaction(ctx.pool, async (c) => {
+    const order = await createOrderTx(c, ctx.refKey, input, prepared);
+    // The customer's "we received your order" text is only queued here (an INSERT in this same transaction); it is sent later, and a problem with it never stops the order.
+    await queueOrderReceived(c, { orderRef: order.orderRef, customerName: order.customerName, customerPhone: order.customerPhone, itemNames: input.items.map((i) => i.name) });
+    return order;
+  });
 }
 
 export interface PreparedOrder {
