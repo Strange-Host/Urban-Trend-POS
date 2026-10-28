@@ -12,6 +12,13 @@ const schema = z.object({
   // The safety-net poll of the online stores (Shopify, WooCommerce): catches orders whose webhooks were missed. Off until turned on, so a staging copy does not
   // quietly start importing a real store's orders. How often is the live_poll_minutes setting (default 5; 0 stops it).
   STORE_POLL_JOB: z.enum(['true', 'false']).default('false'),
+  // Customer text messages (Zettatel). The worker only sends what was queued, and nothing is queued until sms_enabled is switched on in settings.
+  SMS_WORKER: z.enum(['true', 'false']).default('true'),
+  // Credentials can live in the database (Settings > SMS, encrypted) or here, for deployments that keep secrets out of the database. The database wins.
+  ZETTATEL_USER_ID: z.string().optional(),
+  ZETTATEL_PASSWORD: z.string().optional(),
+  ZETTATEL_SENDER_ID: z.string().optional(),
+  ZETTATEL_SEND_URL: z.string().url().optional(),
   INTEGRITY_HOUR: z.coerce.number().int().min(0).max(23).default(2), // shop time (East Africa Time)
   // How long a login lasts. A shift is one working day, so the default is 12 hours.
   SESSION_HOURS: z.coerce.number().positive().max(72).default(12),
