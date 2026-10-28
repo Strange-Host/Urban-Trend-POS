@@ -2,6 +2,7 @@ import type pg from 'pg';
 import { withTransaction } from '../db/tx.js';
 import type { Pool } from '../db/pool.js';
 import { HttpError } from '../errors.js';
+import { queuePaymentReceived } from '../sms/sms.js';
 
 export type ReceiptMethod = 'mpesa_paybill' | 'organization_remittance' | 'cash' | 'bank';
 
@@ -63,6 +64,8 @@ export async function issueReceiptTx(client: pg.PoolClient, input: {
        RETURNING id, receipt_no, order_ref, journal_entry_id, amount_cents, method, external_ref, issued_at, actor`,
       [receiptNo, input.orderRef, input.journalEntryId, input.amountCents, input.method, input.externalRef ?? null, at, input.actor]);
     const r = rows[0]!;
+    // The customer's "we received your payment" text: queued in this transaction (so a rolled-back payment sends nothing), sent later.
+    await queuePaymentReceived(client, { receiptId: r.id, orderRef: r.order_ref, amountCents: r.amount_cents });
     return { id: r.id, receiptNo: r.receipt_no, orderRef: r.order_ref, journalEntryId: r.journal_entry_id,
       amountCents: r.amount_cents, method: r.method, externalRef: r.external_ref, issuedAt: r.issued_at, actor: r.actor };
   } catch (err) {

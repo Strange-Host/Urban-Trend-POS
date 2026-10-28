@@ -4,6 +4,7 @@ import { HttpError } from '../errors.js';
 import { ensureCustomer, normalizePhone } from '../customers/customers.js';
 import { createOrderTx, prepareOrder, type OrderItemInput, type OrderView } from '../orders/orders.js';
 import { audit } from '../pos/audit.js';
+import { queueOrderReceived } from '../sms/sms.js';
 
 export const LEAD_SOURCES = ['manual', 'whatsapp', 'website', 'phone', 'walk_in', 'shopify', 'other'] as const;
 export const OPEN_STATUSES = ['new', 'contacted', 'qualified'] as const;
@@ -169,6 +170,7 @@ export async function convertLead(pool: Pool, refKey: string, input: {
     if (!name) throw new HttpError(422, 'LEAD_NEEDS_NAME', 'Give the customer\'s name: the lead has none.');
     const create = { customerName: name, customerPhone: l.phone, items: input.items, discountCents: input.discountCents, notes: input.notes, assignedTo: input.assignedTo ?? l.assigned_to ?? undefined, actor: input.actor };
     const order = await createOrderTx(c, refKey, create, prepareOrder(create));
+    await queueOrderReceived(c, { orderRef: order.orderRef, customerName: order.customerName, customerPhone: order.customerPhone, itemNames: input.items.map((i) => i.name) });
     await ensureCustomer(c, { name, phone: l.phone, actor: input.actor });
     await c.query(`UPDATE leads SET status = 'converted', converted_order_ref = $2, converted_at = now(), name = COALESCE(name, $3), updated_at = now() WHERE id = $1`, [l.id, order.orderRef, name]);
     await audit(c, { actor: input.actor, role: input.role, action: 'lead_converted', entityType: 'lead', entityId: l.id, amountCents: order.totalCents, details: { order_ref: order.orderRef } });

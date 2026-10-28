@@ -16,6 +16,7 @@ import { reportsRouter } from './routes/reports.js';
 import { integrationsRouter } from './routes/integrations.js';
 import { webhooksRouter } from './routes/webhooks.js';
 import { onlineOrdersRouter } from './routes/onlineOrders.js';
+import { smsRouter } from './routes/sms.js';
 import type { StoreFetch } from './integrations/storeClients.js';
 import type { Logger } from './logger.js';
 import { cors } from './cors.js';
@@ -45,11 +46,13 @@ export interface AppDeps {
   webhookSecret?: string;
   /** Tests give the stores a fake to talk to; the real fetch otherwise. */
   storeFetch?: StoreFetch;
+  /** The Zettatel credentials from the environment (used when none are stored), and the gateway address. Tests pass a fake fetch. */
+  sms?: { envCredentials?: { userId?: string; password?: string; senderId?: string }; sendUrl?: string; fetch?: typeof fetch };
 }
 
 export { HttpError };
 
-export function createApp({ pool, logger, sessionHours = 12, orderRefKey, corsOrigins = [], trustProxyHops = 0, secureCookies = false, cookieSameSite, accessTokenMinutes, refreshTokenDays, signInLimit, secretsKey, webhookSecret, storeFetch }: AppDeps) {
+export function createApp({ pool, logger, sessionHours = 12, orderRefKey, corsOrigins = [], trustProxyHops = 0, secureCookies = false, cookieSameSite, accessTokenMinutes, refreshTokenDays, signInLimit, secretsKey, webhookSecret, storeFetch, sms }: AppDeps) {
   const app = express();
   app.disable('x-powered-by');
   if (trustProxyHops > 0) app.set('trust proxy', trustProxyHops);
@@ -91,6 +94,7 @@ export function createApp({ pool, logger, sessionHours = 12, orderRefKey, corsOr
   app.use('/api', catalogRouter(pool));
   app.use('/api/customers', customersRouter(pool));
   if (orderRefKey) app.use('/api/online-orders', onlineOrdersRouter(pool, { logger, refKey: orderRefKey, secretsKey, fetch: storeFetch }));
+  app.use('/api/sms', smsRouter(pool, { logger, secretsKey, ...sms }));
   app.use('/api/leads', leadsRouter(pool, { orderRefKey }));
   app.use('/api', ordersRouter(pool, { orderRefKey }));
   app.use('/api', couriersRouter(pool));
