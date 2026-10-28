@@ -2,6 +2,7 @@ import { createApp } from './app.js';
 import { loadConfig } from './config.js';
 import { createPool } from './db/pool.js';
 import { scheduleNightlyIntegrity } from './integrity/job.js';
+import { scheduleStorePoll } from './integrations/pullOrders.js';
 import { createLogger } from './logger.js';
 
 const config = loadConfig();
@@ -16,10 +17,15 @@ const integrity = config.INTEGRITY_JOB === 'true'
   ? scheduleNightlyIntegrity(pool, { logger, hourLocal: config.INTEGRITY_HOUR })
   : undefined;
 
+const storePoll = config.STORE_POLL_JOB === 'true' && config.ORDER_REF_KEY
+  ? scheduleStorePoll({ pool, logger, refKey: config.ORDER_REF_KEY, secretsKey: config.SECRETS_KEY })
+  : undefined;
+
 // Railway sends SIGTERM on every deploy: stop taking requests, let in-flight ones finish, then close the pool.
 function shutdown(signal: string) {
   logger.info({ signal }, 'shutting down');
   integrity?.stop();
+  storePoll?.stop();
   server.close(() => { void pool.end().then(() => process.exit(0)); });
   setTimeout(() => process.exit(1), 10_000).unref();
 }

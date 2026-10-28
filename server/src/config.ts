@@ -9,6 +9,9 @@ const schema = z.object({
   // Scrambles order references. Required only when references are issued (phase 3). NEVER change it once references exist.
   ORDER_REF_KEY: z.string().min(32, 'ORDER_REF_KEY must be at least 32 characters').optional(),
   INTEGRITY_JOB: z.enum(['true', 'false']).default('true'),
+  // The safety-net poll of the online stores (Shopify, WooCommerce): catches orders whose webhooks were missed. Off until turned on, so a staging copy does not
+  // quietly start importing a real store's orders. How often is the live_poll_minutes setting (default 5; 0 stops it).
+  STORE_POLL_JOB: z.enum(['true', 'false']).default('false'),
   INTEGRITY_HOUR: z.coerce.number().int().min(0).max(23).default(2), // shop time (East Africa Time)
   // How long a login lasts. A shift is one working day, so the default is 12 hours.
   SESSION_HOURS: z.coerce.number().positive().max(72).default(12),
