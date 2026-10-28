@@ -1,0 +1,39 @@
+{
+  "total": 2,
+  "receipts": [
+    {
+      "id": 2,
+      "receiptNo": "RC-2610-000002",
+      "orderRef": "UT-NXL436YJ",
+      "amountCents": 100000,
+      "method": "cash",
+      "externalRef": null,
+      "issuedAt": "2026-10-28T08:15:45.617Z",
+      "actor": "manager2x9d6w"
+    },
+    {
+      "id": 1,
+      "receiptNo": "RC-2610-000001",
+      "orderRef": "UT-DXS2GSRT",
+      "amountCents": 200000,
+      "method": "mpesa_paybill",
+      "externalRef": "FIX0000001",
+      "issuedAt": "2026-10-28T08:15:45.602Z",
+      "actor": "mpesa"
+    }
+  ],
+  "summary": {
+    "byMethod": [
+      {
+        "method": "cash",
+        "totalCents": 100000,
+        "count": 1
+      },
+      {
+        "method": "mpesa_paybill",
+        "totalCents": 200000,
+        "count": 1
+      }
+    ]
+  }
+}

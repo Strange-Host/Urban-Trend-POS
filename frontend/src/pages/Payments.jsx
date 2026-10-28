@@ -2,6 +2,7 @@ import { useState } from 'react';
 import StatCard from '../components/StatCard';
 import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { paymentsApi } from '../api/endpoints';
+import { USE_NEW_SERVER as NEW } from '../api/newServer';
 import { getErrorMessage } from '../api/client';
 import { useToast, useDialog } from '../context/UIContext';
 import Pager, { usePager } from '../components/Pager';
@@ -86,12 +87,18 @@ export default function Payments() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
         <div>
           <h1 className="font-display font-700 text-2xl">Payments</h1>
-          <p className="text-text-muted text-sm mt-1">Layaway/partial customer payments and outgoing supplier payments — separate from Terminal checkout.</p>
+          <p className="text-text-muted text-sm mt-1">
+            {NEW
+              ? 'Every payment booked against an order. Payments are matched as they arrive; a wrong one is refunded from Payment reconciliation.'
+              : 'Layaway/partial customer payments and outgoing supplier payments — separate from Terminal checkout.'}
+          </p>
         </div>
-        <button onClick={openNew}
-          className="px-4 py-2.5 rounded-lg bg-ink text-white text-sm font-medium hover:bg-ink-soft transition-colors whitespace-nowrap">
-          + Record payment
-        </button>
+        {!NEW && (
+          <button onClick={openNew}
+            className="px-4 py-2.5 rounded-lg bg-ink text-white text-sm font-medium hover:bg-ink-soft transition-colors whitespace-nowrap">
+            + Record payment
+          </button>
+        )}
       </div>
 
       <div className="grid grid-cols-2 gap-3 mb-6">
@@ -128,14 +135,14 @@ export default function Payments() {
             )}
             {payments.map((p) => (
               <tr key={p.id} className="border-b border-line last:border-0">
-                <td className="px-4 py-3 whitespace-nowrap font-mono text-xs">{p.created_at}</td>
+                <td className="px-4 py-3 whitespace-nowrap font-mono text-xs">{NEW ? new Date(p.created_at).toLocaleString() : p.created_at}</td>
                 <td className="px-4 py-3 capitalize">{p.direction}</td>
-                <td className="px-4 py-3 whitespace-nowrap">{p.direction === 'incoming' ? `Sale #${p.sale_id}` : p.supplier_name}</td>
+                <td className="px-4 py-3 whitespace-nowrap">{p.direction === 'incoming' ? (p.order_ref ? `${p.order_ref} · ${p.receipt_no}` : `Sale #${p.sale_id}`) : p.supplier_name}</td>
                 <td className="px-4 py-3 capitalize whitespace-nowrap">{p.method.replace('_', ' ')}</td>
                 <td className="px-4 py-3 text-right font-mono">{(p.amount / 100).toFixed(2)}</td>
                 <td className="px-4 py-3"><span className={`text-xs px-2 py-1 rounded-full capitalize ${STATUS_COLORS[p.status]}`}>{p.status}</span></td>
                 <td className="px-4 py-3 text-right whitespace-nowrap">
-                  {p.status === 'completed' && (
+                  {!NEW && p.status === 'completed' && (
                     <button onClick={() => handleRefund(p)} className="text-xs text-danger hover:opacity-70">Refund</button>
                   )}
                 </td>

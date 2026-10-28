@@ -1,0 +1,20 @@
+{
+  "suggestions": [
+    {
+      "orderRef": "UT-5D4RCDR8",
+      "customerName": "Wanjiku",
+      "balanceCents": 500000,
+      "reasons": [
+        "exact_amount"
+      ]
+    },
+    {
+      "orderRef": "UT-SWN8MZF6",
+      "customerName": "Wanjiku",
+      "balanceCents": 500000,
+      "reasons": [
+        "exact_amount"
+      ]
+    }
+  ]
+}
