@@ -1,0 +1,17 @@
+{
+  "items": [
+    {
+      "exceptionId": 1,
+      "paymentId": 2,
+      "transCode": "FIX0000002",
+      "kind": "unmatched",
+      "amountCents": 500000,
+      "remainingCents": 500000,
+      "msisdn": null,
+      "payerName": "A friend",
+      "accountRaw": "no such code",
+      "intendedOrderRef": null,
+      "createdAt": "2026-10-28T08:15:45.606Z"
+    }
+  ]
+}
