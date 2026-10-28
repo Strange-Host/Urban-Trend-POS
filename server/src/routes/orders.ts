@@ -11,6 +11,7 @@ import { applySuspenseToOrder, listSuspense, recordShopCash, refundSuspense, sug
 import { moneyAtRisk } from '../orders/atRisk.js';
 import { receiveReturnedOrder } from '../orders/returns.js';
 import { addItemsToOrder } from '../orders/merge.js';
+import { listReceipts } from '../orders/receipts.js';
 import { idParam } from '../http.js';
 
 const cents = z.number().int().min(0);
@@ -37,6 +38,11 @@ export function ordersRouter(pool: Pool, opts: { orderRefKey?: string }): Router
   };
 
   // ---------------------------------------------------------------- money that needs a person: the specific paths come first
+  // Every payment booked against an order (receipts), newest first. Read-only.
+  r.get('/payments', requirePermission('payments.match'), handler(async (req, res) => {
+    const str = (v: unknown) => (typeof v === 'string' && v ? v : undefined);
+    res.json(await listReceipts(pool, { method: str(req.query.method), search: str(req.query.search), ...paging(req.query) }));
+  }));
   r.get('/payments/suspense', requirePermission('payments.match'), handler(async (_req, res) => { res.json({ items: await listSuspense(pool) }); }));
   r.get('/payments/suspense/:id/suggestions', requirePermission('payments.match'), handler(async (req, res) => {
     res.json({ suggestions: await suggestMatches(pool, idParam(req.params.id)) });
