@@ -1,13 +1,76 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
-import { paymentReconciliationApi, ordersApi } from '../api/endpoints';
+import { paymentReconciliationApi, ordersApi, custodyApi } from '../api/endpoints';
+import { USE_NEW_SERVER as NEW } from '../api/newServer';
 import { getErrorMessage } from '../api/client';
 import { PageHeader } from '../components/DataUI';
-import { useDialog } from '../context/UIContext';
+import { useDialog, useToast } from '../context/UIContext';
 import Pager, { usePager } from '../components/Pager';
 
 function money(cents) {
   return (cents / 100).toLocaleString(undefined, { style: 'currency', currency: 'KES' });
+}
+
+// Cash taken at the shop is held by the person who took it until it is deposited or handed to the till. It sits here, with the
+// other money that is waiting for a decision, and gets older on the money-at-risk page until someone clears it.
+function CashHeld() {
+  const toast = useToast();
+  const dialog = useDialog();
+  const queryClient = useQueryClient();
+  const [busyId, setBusyId] = useState(null);
+  const { data } = useQuery({ queryKey: ['custody'], queryFn: () => custodyApi.list().then((r) => r.data.data) });
+  const rows = data || [];
+  if (rows.length === 0) return null;
+
+  async function deposit(row) {
+    if (!(await dialog.confirm({ message: `Mark ${money(row.amount)} held by ${row.holder} as deposited?` }))) return;
+    setBusyId(row.id);
+    try {
+      await custodyApi.deposit(row.id);
+      queryClient.invalidateQueries({ queryKey: ['custody'] });
+      queryClient.invalidateQueries({ queryKey: ['money-at-risk'] });
+    } catch (err) {
+      toast.error(getErrorMessage(err, 'Could not record this deposit.'));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  return (
+    <div className="mt-8">
+      <h2 className="font-display font-600 mb-1">Shop cash waiting to be deposited</h2>
+      <p className="text-text-muted text-sm mb-3">Cash taken at the shop stays with the person who took it until it is deposited or handed to the till.</p>
+      <div className="bg-surface border border-line rounded-xl overflow-hidden">
+        <table className="stack-sm w-full text-sm">
+          <thead className="bg-paper text-text-muted font-mono text-xs uppercase">
+            <tr>
+              <th className="text-left px-4 py-3">Taken</th>
+              <th className="text-left px-4 py-3">Held by</th>
+              <th className="text-left px-4 py-3">Order</th>
+              <th className="text-right px-4 py-3">Amount</th>
+              <th className="px-4 py-3" />
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-line">
+            {rows.map((r) => (
+              <tr key={r.id}>
+                <td className="px-4 py-3 font-mono text-xs text-text-muted">{new Date(r.opened_at).toLocaleString()}</td>
+                <td className="px-4 py-3">{r.holder}</td>
+                <td className="px-4 py-3 font-mono text-xs">{r.order_id}{r.receipt_no ? ` · ${r.receipt_no}` : ''}</td>
+                <td className="px-4 py-3 text-right font-mono font-600">{money(r.amount)}</td>
+                <td className="px-4 py-3 text-right">
+                  <button onClick={() => deposit(r)} disabled={busyId === r.id}
+                    className="px-3 py-1.5 rounded-lg bg-ink text-white text-xs font-medium hover:bg-ink-soft disabled:opacity-50">
+                    Deposited
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
 }
 
 export default function PaymentReconciliation() {
@@ -36,6 +99,13 @@ export default function PaymentReconciliation() {
     enabled: !!selected && orderSearch.trim().length >= 3,
   });
 
+  // New server: orders this money probably belongs to (same phone, or owing exactly this amount), so a person need not search at all.
+  const { data: suggested } = useQuery({
+    queryKey: ['payment-reconciliation', 'suggestions', selected?.id],
+    queryFn: () => paymentReconciliationApi.suggestions(selected.id).then((r) => r.data.data),
+    enabled: NEW && !!selected,
+  });
+
   async function handleMatch(orderId) {
     setBusy(true);
     setError('');
@@ -43,6 +113,7 @@ export default function PaymentReconciliation() {
       await paymentReconciliationApi.match(selected.id, orderId);
       queryClient.invalidateQueries({ queryKey: ['payment-reconciliation'] });
       queryClient.invalidateQueries({ queryKey: ['orders'] });
+      queryClient.invalidateQueries({ queryKey: ['payments'] });
       setSelected(null);
       setOrderSearch('');
     } catch (err) {
@@ -53,8 +124,11 @@ export default function PaymentReconciliation() {
   }
 
   async function handleIgnore(row) {
-    const notes = await dialog.prompt('Why is this payment being ignored? (e.g. provider test transaction)');
+    const notes = await dialog.prompt(NEW
+      ? 'Why is this payment being refunded? (required, e.g. paid by mistake)'
+      : 'Why is this payment being ignored? (e.g. provider test transaction)');
     if (notes === null) return; // cancelled the prompt
+    if (NEW && !notes.trim()) { setError('Say why this payment is being refunded.'); return; }
     setBusy(true);
     setError('');
     try {
@@ -62,7 +136,7 @@ export default function PaymentReconciliation() {
       queryClient.invalidateQueries({ queryKey: ['payment-reconciliation'] });
       if (selected?.id === row.id) setSelected(null);
     } catch (err) {
-      setError(getErrorMessage(err, 'Could not ignore this payment.'));
+      setError(getErrorMessage(err, NEW ? 'Could not refund this payment.' : 'Could not ignore this payment.'));
     } finally {
       setBusy(false);
     }
@@ -132,7 +206,7 @@ export default function PaymentReconciliation() {
                       disabled={busy}
                       className="ml-2 px-3 py-1.5 rounded-lg border border-line text-xs hover:border-text-muted disabled:opacity-50"
                     >
-                      Ignore
+                      {NEW ? 'Refund' : 'Ignore'}
                     </button>
                   </td>
                 </tr>
@@ -159,6 +233,30 @@ export default function PaymentReconciliation() {
             </div>
             <button onClick={() => setSelected(null)} className="text-text-muted hover:text-text" aria-label="Close">✕</button>
           </div>
+
+          {NEW && (suggested || []).length > 0 && (
+            <div className="mb-4">
+              <div className="text-sm font-medium mb-1.5">Likely orders</div>
+              <div className="divide-y divide-line border border-line rounded-lg overflow-hidden">
+                {suggested.map((o) => (
+                  <div key={o.id} className="px-4 py-3 flex items-center justify-between gap-4">
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium truncate">{o.customer_name} <span className="font-mono text-xs text-text-muted">{o.id}</span></div>
+                      <div className="text-xs text-text-muted font-mono">
+                        outstanding {money(o.outstanding)}
+                        {o.same_phone && <span className="text-success"> · same phone number</span>}
+                        {o.exact_amount && <span className="text-success"> · exact amount</span>}
+                      </div>
+                    </div>
+                    <button onClick={() => handleMatch(o.id)} disabled={busy}
+                      className="px-3 py-1.5 rounded-lg bg-ink text-white text-xs font-medium hover:bg-ink-soft disabled:opacity-50 shrink-0">
+                      Match
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           <label className="block text-sm font-medium mb-1.5">Find the order this belongs to</label>
           <input
@@ -207,6 +305,8 @@ export default function PaymentReconciliation() {
           </p>
         </div>
       )}
+
+      {NEW && <CashHeld />}
     </div>
   );
 }
