@@ -22,24 +22,44 @@ function getById(id, storeId) {
   return row;
 }
 
-function create({ storeId, staffId, name, phone, vehicle, courierType, notes }) {
-  if (!TYPES.includes(courierType)) throw new ApiError(400, `courier_type must be one of ${TYPES.join(', ')}.`);
-  const result = db.prepare(`INSERT INTO couriers (store_id, name, phone, vehicle, courier_type, notes) VALUES (?, ?, ?, ?, ?, ?)`)
-    .run(storeId, name, phone || null, vehicle || null, courierType, notes || null);
+const KINDS = ['rider', 'organization'];
+
+function create({ storeId, staffId, name, phone, vehicle, courierType, notes, kind = 'rider', collectsPayment, contactPerson, overdueLimit, overdueAfterDays }) {
+  if (!KINDS.includes(kind)) throw new ApiError(400, `kind must be one of ${KINDS.join(', ')}.`);
+  // An organization is a firm, not a rider on a bike: it defaults to the 'g4s' (outside Nairobi) type.
+  const type = courierType ?? (kind === 'organization' ? 'g4s' : undefined);
+  if (!TYPES.includes(type)) throw new ApiError(400, `courier_type must be one of ${TYPES.join(', ')}.`);
+  if (kind === 'rider' && (collectsPayment || contactPerson || (overdueLimit !== undefined && overdueLimit !== null))) {
+    throw new ApiError(422, 'Riders never collect payment and have no contact person or overdue limit.');
+  }
+  const result = db.prepare(`
+    INSERT INTO couriers (store_id, name, phone, vehicle, courier_type, notes, kind, collects_payment, contact_person, overdue_limit, overdue_after_days)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(storeId, name, phone || null, vehicle || null, type, notes || null, kind, collectsPayment ? 1 : 0,
+    contactPerson || null, overdueLimit ?? null, overdueAfterDays ?? 14);
   const row = getById(result.lastInsertRowid, storeId);
   logStaffAction({ staffId, action: 'create', entityType: 'courier', entityId: row.id, after: row });
   return row;
 }
 
-function update({ id, storeId, staffId, name, phone, vehicle, courierType, notes, isActive }) {
+function update({ id, storeId, staffId, name, phone, vehicle, courierType, notes, isActive, collectsPayment, contactPerson, overdueLimit, overdueAfterDays }) {
   const existing = getById(id, storeId);
+  const orgFieldsGiven = collectsPayment !== undefined || contactPerson !== undefined || overdueLimit !== undefined || overdueAfterDays !== undefined;
+  if (existing.kind !== 'organization' && orgFieldsGiven && (collectsPayment || contactPerson || (overdueLimit !== undefined && overdueLimit !== null))) {
+    throw new ApiError(422, 'Riders never collect payment and have no contact person or overdue limit.');
+  }
   if (courierType !== undefined && !TYPES.includes(courierType)) throw new ApiError(400, `courier_type must be one of ${TYPES.join(', ')}.`);
   db.prepare(`
-    UPDATE couriers SET name = ?, phone = ?, vehicle = ?, courier_type = ?, notes = ?, is_active = ?, updated_at = datetime('now') WHERE id = ?
+    UPDATE couriers SET name = ?, phone = ?, vehicle = ?, courier_type = ?, notes = ?, is_active = ?,
+      collects_payment = ?, contact_person = ?, overdue_limit = ?, overdue_after_days = ?, updated_at = datetime('now') WHERE id = ?
   `).run(
     name ?? existing.name, phone !== undefined ? phone : existing.phone, vehicle !== undefined ? vehicle : existing.vehicle,
     courierType ?? existing.courier_type, notes !== undefined ? notes : existing.notes,
-    isActive === undefined ? existing.is_active : (isActive ? 1 : 0), id,
+    isActive === undefined ? existing.is_active : (isActive ? 1 : 0),
+    collectsPayment === undefined ? existing.collects_payment : (collectsPayment ? 1 : 0),
+    contactPerson !== undefined ? contactPerson : existing.contact_person,
+    overdueLimit !== undefined ? overdueLimit : existing.overdue_limit,
+    overdueAfterDays ?? existing.overdue_after_days, id,
   );
   const row = getById(id, storeId);
   logStaffAction({ staffId, action: 'update', entityType: 'courier', entityId: id, before: existing, after: row });
