@@ -35,6 +35,7 @@ const incomeSourcesRoutes = require('./routes/incomeSources.routes');
 const backupsRoutes = require('./routes/backups.routes');
 const cashSessionsRoutes = require('./routes/cashSessions.routes');
 const ordersRoutes = require('./routes/orders.routes');
+const custodyRoutes = require('./routes/custody.routes');
 const paymentReconciliationRoutes = require('./routes/paymentReconciliation.routes');
 const paymentWebhooksRoutes = require('./routes/paymentWebhooks.routes');
 const paymentCallbacksRoutes = require('./routes/paymentCallbacks.routes');
@@ -130,6 +131,7 @@ app.use('/api/income-sources', incomeSourcesRoutes);
 app.use('/api/backups', backupsRoutes);
 app.use('/api/cash-sessions', cashSessionsRoutes);
 app.use('/api/orders', ordersRoutes);
+app.use('/api/custody', custodyRoutes);
 app.use('/api/payment-reconciliation', paymentReconciliationRoutes);
 app.use('/api/integrations/payments', paymentWebhooksRoutes);
 // Raw provider callbacks — Safaricom/KCB's actual payload shapes, auth'd
