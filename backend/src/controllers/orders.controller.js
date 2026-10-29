@@ -2,6 +2,7 @@ const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const { parsePagination, paginatedResponse } = require('../utils/paginate');
 const ordersService = require('../services/orders.service');
+const reconciliationService = require('../services/reconciliation.service');
 
 // GET /api/orders?status=&assigned_staff_id=&search=&page=&limit=
 const list = asyncHandler(async (req, res) => {
@@ -11,6 +12,11 @@ const list = asyncHandler(async (req, res) => {
     assignedStaffId: req.query.assigned_staff_id, search: req.query.search, limit, offset,
   });
   res.json({ ...paginatedResponse({ rows, total, page, limit }), summary });
+});
+
+// GET /api/orders/integrity — orders whose lines/subtotal/total disagree (detect-only; empty = all good)
+const checkIntegrity = asyncHandler(async (req, res) => {
+  res.json({ data: reconciliationService.findOrderLineMismatches({ storeId: req.user.storeId }) });
 });
 
 // GET /api/orders/:id — includes items, payments, and status history
@@ -144,7 +150,7 @@ const resolveDispute = asyncHandler(async (req, res) => {
 });
 
 module.exports = {
-  list, getById, create, mergeItems, confirmCod, setCourier, dispatch, recordPayment,
+  list, checkIntegrity, getById, create, mergeItems, confirmCod, setCourier, dispatch, recordPayment,
   markReturnedInTransit, markReturnedAwaitingInspection, inspectReturn, decideOwnerAction,
   listPendingOwnerDecisions, openDispute, resolveDispute, cancel, expireUnconfirmed,
 };
