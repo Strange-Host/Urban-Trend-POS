@@ -217,7 +217,11 @@ function mergeItems({ orderId, storeId, staffId, items }) {
 
     const newSubtotal = order.subtotal + addedSubtotal;
     const newTotal = newSubtotal - order.discount_total;
-    db.prepare(`UPDATE orders SET subtotal = ?, total = ?, updated_at = datetime('now') WHERE id = ?`).run(newSubtotal, newTotal, orderId);
+    // The delivery fee is tiered on the order total (flat under the threshold, a percentage above it), so a
+    // merge that moves the total across the threshold must move the fee too. Same rule create() applies.
+    const newDeliveryFee = computeDeliveryFee(newTotal, settingsService.getAll());
+    db.prepare(`UPDATE orders SET subtotal = ?, total = ?, delivery_fee = ?, updated_at = datetime('now') WHERE id = ?`)
+      .run(newSubtotal, newTotal, newDeliveryFee, orderId);
 
     if (order.lead_id) {
       db.prepare(`
@@ -225,7 +229,7 @@ function mergeItems({ orderId, storeId, staffId, items }) {
       `).run(order.lead_id, `Merged ${items.length} item(s) into order #${orderId}`, staffId);
     }
 
-    logStaffAction({ staffId, action: 'update', entityType: 'order', entityId: orderId, before: { subtotal: order.subtotal, total: order.total }, after: { subtotal: newSubtotal, total: newTotal } });
+    logStaffAction({ staffId, action: 'update', entityType: 'order', entityId: orderId, before: { subtotal: order.subtotal, total: order.total, delivery_fee: order.delivery_fee }, after: { subtotal: newSubtotal, total: newTotal, delivery_fee: newDeliveryFee } });
     return db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId);
   });
 
