@@ -36,6 +36,11 @@ const recordPaymentSchema = z.object({
   reference: z.string().trim().min(1).optional(),
 });
 
+const shopCashSchema = z.object({
+  amount: z.number().int().positive(), // integer cents
+  reason: z.string().trim().min(1, 'Cash at the shop is an exception: a reason is required.'),
+});
+
 const inspectReturnSchema = z.object({
   result: z.enum(['good', 'damaged']),
   notes: z.string().trim().min(1).optional(),
@@ -65,6 +70,6 @@ const resolveDisputeSchema = z.object({
 });
 
 module.exports = {
-  createOrderSchema, mergeItemsSchema, setCourierSchema, recordPaymentSchema, inspectReturnSchema,
+  createOrderSchema, mergeItemsSchema, setCourierSchema, recordPaymentSchema, shopCashSchema, inspectReturnSchema,
   notesOnlySchema, returnedInTransitSchema, ownerDecisionSchema, openDisputeSchema, resolveDisputeSchema,
 };

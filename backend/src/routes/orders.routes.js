@@ -4,7 +4,7 @@ const ctrl = require('../controllers/orders.controller');
 const { authenticate, requireRole, requirePermission } = require('../middleware/auth');
 const validate = require('../middleware/validate');
 const {
-  createOrderSchema, mergeItemsSchema, setCourierSchema, recordPaymentSchema, inspectReturnSchema,
+  createOrderSchema, mergeItemsSchema, setCourierSchema, recordPaymentSchema, shopCashSchema, inspectReturnSchema,
   notesOnlySchema, returnedInTransitSchema, ownerDecisionSchema, openDisputeSchema, resolveDisputeSchema,
 } = require('../validation/orders.schema');
 
@@ -35,6 +35,8 @@ router.get('/:id/receipt', require('../controllers/receipts.controller').orderRe
 router.post('/:id/courier', validate(setCourierSchema), ctrl.setCourier);
 router.post('/:id/dispatch', ctrl.dispatch);
 router.post('/:id/payments', validate(recordPaymentSchema), ctrl.recordPayment);
+// Cash taken at the shop: needs a reason, is capped at what the order owes, and the taker holds it until it is deposited (see custody.service.js).
+router.post('/:id/shop-cash', validate(shopCashSchema), ctrl.recordShopCash);
 router.post('/:id/returned-in-transit', validate(returnedInTransitSchema), ctrl.markReturnedInTransit);
 router.post('/:id/returned-awaiting-inspection', ctrl.markReturnedAwaitingInspection);
 // Inspection decides whether stock comes back — manager/admin only (§6 RMA: "Manager approval required for resale").

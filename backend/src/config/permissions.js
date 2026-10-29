@@ -37,6 +37,7 @@ const PERMISSIONS = {
   'couriers.costs.record': { group: 'Orders',    label: 'Enter courier costs (fuel, return trip, airtime)', roles: ['admin', 'manager', 'cashier'] },
   'couriers.costs.approve':{ group: 'Money',     label: 'Approve or reject courier costs',            roles: ['admin', 'manager'] },
   'couriers.pay':          { group: 'Money',     label: 'View courier payables and pay couriers',     roles: ['admin', 'manager'] },
+  'custody.manage':        { group: 'Money',     label: 'See shop cash held by staff and mark it deposited', roles: ['admin', 'manager'] },
   'leads.intake_routes':   { group: 'Sales',     label: 'Manage web-form lead routing',               roles: ['admin', 'manager'] },
 };
 

@@ -5,8 +5,8 @@ const db = require('../config/db');
 //
 // Ported from the update branch's server/src/orders/atRisk.ts. That version reads a double-entry
 // ledger and delivery_attempts; this one reads the SQLite tables that exist today, so the kinds
-// below are the five that can be built from them. The other four (till variance unsigned, courier
-// unpaid, organization overdue, cash not deposited) need data this schema does not hold yet: see
+// below are the six that can be built from them. The other three (till variance unsigned, courier
+// unpaid, organization overdue) need data this schema does not hold yet: see
 // the note at the bottom of this file.
 //
 // "Delivered" is the one concept that does not carry over. This app has no delivered event: a
@@ -16,13 +16,14 @@ const db = require('../config/db');
 //   dispatched_partial the customer has paid part and still owes  -> delivered_unpaid
 // If a real delivered/failed marker is added to orders later, those two queries are where it plugs in.
 
-const KINDS = ['dispatched_no_outcome', 'delivered_unpaid', 'unmatched_payment', 'returning', 'till_session_left_open'];
+const KINDS = ['dispatched_no_outcome', 'delivered_unpaid', 'unmatched_payment', 'returning', 'till_session_left_open', 'cash_not_deposited'];
 
 const DEFAULTS = {
   dispatchedNoOutcomeDays: 3, // dispatched, nothing paid, nothing heard, for this long
   deliveredUnpaidDays: 2,     // part paid and the balance is still owed, this long after the last payment
   returningDays: 3,           // on its way back to the shop for this long
   sessionOpenHours: 20,       // a till session should have been closed out by now
+  cashHeldDays: 2,            // shop cash still in a staff member's hands (custody) for this long
 };
 
 const DAY_MS = 86_400_000;
@@ -122,6 +123,20 @@ function moneyAtRisk({ storeId, now = new Date(), ...overrides }) {
     });
   }
 
+  // Shop cash still in someone's hands: a custody record that has stayed open. The holder is the owner.
+  const held = db.prepare(`
+    SELECT c.id, c.order_id, o.product_code, c.amount, c.opened_at AS since, u.name AS holder
+      FROM custody_records c
+      JOIN users u ON u.id = c.holder_staff_id
+      JOIN orders o ON o.id = c.order_id
+     WHERE c.store_id = ? AND c.status = 'open' AND c.opened_at < ?`).all(storeId, cutoffDays(t.cashHeldDays));
+  for (const k of held) {
+    items.push({
+      kind: 'cash_not_deposited', order_id: k.order_id, order_ref: ref(k), amount: k.amount, since: k.since, owner: k.holder,
+      detail: `Shop cash held by ${k.holder}, not yet deposited`,
+    });
+  }
+
   return items
     .map((i) => ({ ...i, age_days: Math.max(0, Math.floor((now.getTime() - fromSql(i.since).getTime()) / DAY_MS)) }))
     .sort((a, b) => b.age_days - a.age_days || b.amount - a.amount);
@@ -145,7 +160,6 @@ function summarize(items) {
 //                           plus a rule for how big a closing difference must be before it needs one.
 //   courier_unpaid          what the shop owes a courier (package fees / approved costs) and when it was paid.
 //   organization_overdue    organizations that collect payment on the shop's behalf, their collections and limits.
-//   cash_not_deposited      a custody record for shop cash held by a staff member until it is deposited.
 // Each is one more query in moneyAtRisk and one more entry in KINDS once its table exists.
 
 module.exports = { moneyAtRisk, summarize, KINDS, DEFAULTS };
