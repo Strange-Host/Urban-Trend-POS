@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { ordersApi, couriersApi } from '../api/endpoints';
 import PrintReceiptButton from '../components/PrintReceipt';
+import PrintWaybillButton from '../components/PrintWaybill';
 import { getErrorMessage } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { useDialog } from '../context/UIContext';
@@ -271,6 +272,7 @@ export default function Orders() {
                 <h2 className="font-display font-700 text-lg">{order.product_code}</h2>
                 <StatusPill tone={STATUS_TONES[order.status]}>{STATUS_LABELS[order.status]}</StatusPill>
                 <PrintReceiptButton kind="order" id={order.id} label="Print" className="ml-auto px-3 py-1.5 rounded-lg border border-line text-xs font-medium hover:border-text-muted disabled:opacity-50" />
+                <PrintWaybillButton orderId={order.id} status={order.status} className="ml-2 px-3 py-1.5 rounded-lg border border-line text-xs font-medium hover:border-text-muted disabled:opacity-50" />
               </div>
               <div className="text-sm mb-1">{order.customer?.name}</div>
               <div className="text-xs text-text-muted font-mono mb-4">
