@@ -3,6 +3,7 @@ import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-quer
 import { ordersApi, couriersApi } from '../api/endpoints';
 import PrintReceiptButton from '../components/PrintReceipt';
 import PrintWaybillButton from '../components/PrintWaybill';
+import AddItemsSheet from '../components/AddItemsSheet';
 import { getErrorMessage } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { useDialog } from '../context/UIContext';
@@ -81,6 +82,7 @@ export default function Orders() {
   const [selectedId, setSelectedId] = useState(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [addingItems, setAddingItems] = useState(false);
   const [paymentForm, setPaymentForm] = useState({ method: 'mobile_money', amount: '', reference: '' });
 
   const { data, isLoading } = useQuery({
@@ -325,6 +327,13 @@ export default function Orders() {
 
                 {order.status === 'awaiting_dispatch' && (
                   <>
+                    <button
+                      onClick={() => setAddingItems(true)}
+                      disabled={busy}
+                      className="w-full py-2 rounded-lg border border-line text-sm font-medium hover:border-text-muted disabled:opacity-50"
+                    >
+                      Add items to this order
+                    </button>
                     <div className="flex gap-2">
                       {['boda', 'g4s'].map((c) => (
                         <button
@@ -516,6 +525,10 @@ export default function Orders() {
           )}
         </div>
       </div>
+
+      {addingItems && order && order.status === 'awaiting_dispatch' && (
+        <AddItemsSheet order={order} onClose={() => setAddingItems(false)} onAdded={invalidate} />
+      )}
     </div>
   );
 }

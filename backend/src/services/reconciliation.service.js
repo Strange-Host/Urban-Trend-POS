@@ -59,4 +59,48 @@ function reconcile() {
   return drifted;
 }
 
-module.exports = { findDrift, reconcile };
+/**
+ * Order integrity: an order's lines must add up to its subtotal, and its total
+ * must equal subtotal minus the order-level discount. Every writer (create,
+ * mergeItems, the online-order pulls) keeps these in step inside one
+ * transaction, so a mismatch means something changed a row outside those
+ * paths. Same idea as findDrift: detect and report, never auto-fix, because a
+ * human has to decide whether the lines or the amount is the wrong side.
+ *
+ * Soft-deleted orders are skipped. Returns one entry per broken order:
+ * { order_id, product_code, status, subtotal, lines_total, total, expected_total, problems }.
+ * An empty array means every order reconciles.
+ */
+function findOrderLineMismatches({ storeId } = {}) {
+  const rows = db.prepare(`
+    SELECT
+      o.id AS order_id, o.product_code, o.status,
+      o.subtotal, o.discount_total, o.total,
+      COALESCE(SUM(i.line_total), 0) AS lines_total
+    FROM orders o
+    LEFT JOIN order_items i ON i.order_id = o.id
+    WHERE o.deleted_at IS NULL AND (? IS NULL OR o.store_id = ?)
+    GROUP BY o.id
+    HAVING o.subtotal != COALESCE(SUM(i.line_total), 0)
+        OR o.total != o.subtotal - o.discount_total
+    ORDER BY o.id
+  `).all(storeId ?? null, storeId ?? null);
+
+  return rows.map((r) => {
+    const problems = [];
+    if (r.subtotal !== r.lines_total) problems.push('lines_do_not_match_subtotal');
+    if (r.total !== r.subtotal - r.discount_total) problems.push('total_does_not_match_subtotal_less_discount');
+    return {
+      order_id: r.order_id,
+      product_code: r.product_code,
+      status: r.status,
+      subtotal: r.subtotal,
+      lines_total: r.lines_total,
+      total: r.total,
+      expected_total: r.subtotal - r.discount_total,
+      problems,
+    };
+  });
+}
+
+module.exports = { findDrift, reconcile, findOrderLineMismatches };
