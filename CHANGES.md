@@ -1,3 +1,26 @@
+# Money at risk: the manager's daily list of where money or goods may be going missing
+
+New page **Money > Money at risk** (`/money-at-risk`, API `GET /api/orders/at-risk`), ported from the `update` branch's
+`orders/atRisk.ts` onto the SQLite backend. Each line has what it is, the order, how many days it has been waiting, whose
+it is and the amount; oldest first, with tiles per kind that filter the list. Needs the new `atrisk.view` permission
+(admin and manager by default, grantable per person like the others).
+
+Five kinds are built, all from tables that already exist:
+
+1. **No outcome**: dispatched, nothing paid, not on its way back, for 3+ days.
+2. **Balance owed**: part paid and the rest still owed, 2+ days after the last payment.
+3. **Unmatched payment**: money received that matched no order. Flagged from the moment it lands; it leaves the list when
+   it is matched or ignored on the Reconciliation page.
+4. **Parcel returning**: on its way back for 3+ days (the amount is the value of the goods).
+5. **Till left open**: a till session still open after 20 hours.
+
+Thresholds can be overridden with `dispatched_no_outcome_days`, `delivered_unpaid_days`, `returning_days` and
+`session_open_hours`. This app has no "delivered" event, so a payment is the only outcome it can see: kinds 1 and 2 are
+read from the order's payment status, not from a delivery record. Not built yet because the data does not exist here:
+till variance unsigned (needs a manager sign-off on cash sessions), courier unpaid, organization overdue and cash not
+deposited (need courier payables, organizations and custody records). See the note at the bottom of
+`services/atRisk.service.js`.
+
 # Backups: remembered schedule, verified copies, mandatory passphrase, in-app alerts; Resend removed
 
 **Resend removed.** Outgoing email is SMTP only again. Settings > Email lost the method switch and the Resend

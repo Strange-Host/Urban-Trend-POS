@@ -25,6 +25,8 @@ router.get('/', ctrl.list);
 router.get('/pending-owner-decision', requireRole('admin', 'manager'), ctrl.listPendingOwnerDecisions);
 // Also before '/:id'. Detect-only check that every order's lines add up to its subtotal.
 router.get('/integrity', requireRole('admin', 'manager'), ctrl.checkIntegrity);
+// Also before '/:id'. The manager's money-at-risk list (see services/atRisk.service.js).
+router.get('/at-risk', requirePermission('atrisk.view'), ctrl.atRisk);
 router.post('/', validate(createOrderSchema), ctrl.create);
 router.get('/:id', ctrl.getById);
 router.post('/:id/merge-items', validate(mergeItemsSchema), ctrl.mergeItems);

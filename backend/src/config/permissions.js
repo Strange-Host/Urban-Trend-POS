@@ -22,6 +22,7 @@ const PERMISSIONS = {
   'payments.manage':       { group: 'Money',     label: 'Record and refund payments',                 roles: ['admin', 'manager'] },
   'payments.reconcile':    { group: 'Money',     label: 'Match unmatched payments to orders',         roles: ['admin', 'manager'] },
   'requisitions.approve':  { group: 'Money',     label: 'Approve or reject requisitions',             roles: ['admin', 'manager'] },
+  'atrisk.view':           { group: 'Money',     label: 'View the money-at-risk page',                roles: ['admin', 'manager'] },
   'cashsessions.view':     { group: 'Money',     label: 'View other staff\'s cash sessions',          roles: ['admin', 'manager'] },
   'sales.void':            { group: 'Sales',     label: 'Void a completed sale',                      roles: ['admin', 'manager'] },
   'orders.pull_online':    { group: 'Orders',    label: 'Pull to-ship orders from Shopify / WooCommerce', roles: ['admin', 'manager'] },

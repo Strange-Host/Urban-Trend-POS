@@ -3,6 +3,7 @@ const asyncHandler = require('../utils/asyncHandler');
 const { parsePagination, paginatedResponse } = require('../utils/paginate');
 const ordersService = require('../services/orders.service');
 const reconciliationService = require('../services/reconciliation.service');
+const atRiskService = require('../services/atRisk.service');
 
 // GET /api/orders?status=&assigned_staff_id=&search=&page=&limit=
 const list = asyncHandler(async (req, res) => {
@@ -17,6 +18,22 @@ const list = asyncHandler(async (req, res) => {
 // GET /api/orders/integrity — orders whose lines/subtotal/total disagree (detect-only; empty = all good)
 const checkIntegrity = asyncHandler(async (req, res) => {
   res.json({ data: reconciliationService.findOrderLineMismatches({ storeId: req.user.storeId }) });
+});
+
+// GET /api/orders/at-risk — the manager's daily list of where money or goods may be going missing.
+// Optional thresholds (whole days, or hours for the till): dispatched_no_outcome_days, delivered_unpaid_days,
+// returning_days, session_open_hours. A bad or negative value falls back to the default.
+const atRisk = asyncHandler(async (req, res) => {
+  const num = (v) => (v === undefined || v === '' ? undefined : Math.min(Number(v), 3650));
+  const q = req.query;
+  const data = atRiskService.moneyAtRisk({
+    storeId: req.user.storeId,
+    dispatchedNoOutcomeDays: num(q.dispatched_no_outcome_days),
+    deliveredUnpaidDays: num(q.delivered_unpaid_days),
+    returningDays: num(q.returning_days),
+    sessionOpenHours: num(q.session_open_hours),
+  });
+  res.json({ data, summary: atRiskService.summarize(data) });
 });
 
 // GET /api/orders/:id — includes items, payments, and status history
@@ -150,7 +167,7 @@ const resolveDispute = asyncHandler(async (req, res) => {
 });
 
 module.exports = {
-  list, checkIntegrity, getById, create, mergeItems, confirmCod, setCourier, dispatch, recordPayment,
+  list, checkIntegrity, atRisk, getById, create, mergeItems, confirmCod, setCourier, dispatch, recordPayment,
   markReturnedInTransit, markReturnedAwaitingInspection, inspectReturn, decideOwnerAction,
   listPendingOwnerDecisions, openDispute, resolveDispute, cancel, expireUnconfirmed,
 };

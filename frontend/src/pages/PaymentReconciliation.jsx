@@ -42,6 +42,7 @@ export default function PaymentReconciliation() {
     try {
       await paymentReconciliationApi.match(selected.id, orderId);
       queryClient.invalidateQueries({ queryKey: ['payment-reconciliation'] });
+      queryClient.invalidateQueries({ queryKey: ['money-at-risk'] });
       queryClient.invalidateQueries({ queryKey: ['orders'] });
       setSelected(null);
       setOrderSearch('');
@@ -60,6 +61,7 @@ export default function PaymentReconciliation() {
     try {
       await paymentReconciliationApi.ignore(row.id, notes || undefined);
       queryClient.invalidateQueries({ queryKey: ['payment-reconciliation'] });
+      queryClient.invalidateQueries({ queryKey: ['money-at-risk'] });
       if (selected?.id === row.id) setSelected(null);
     } catch (err) {
       setError(getErrorMessage(err, 'Could not ignore this payment.'));
