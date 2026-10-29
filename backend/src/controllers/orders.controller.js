@@ -76,7 +76,7 @@ const mergeItems = asyncHandler(async (req, res) => {
   res.json({ data: order });
 });
 
-// POST /api/orders/:id/dispatch
+// POST /api/orders/:id/dispatch  — body (optional): { package_fee } in cents, what the order's named courier earns
 const dispatch = asyncHandler(async (req, res) => {
   // package_fee (cents) and package_fee_zero_reason: required only when the order's courier is an organization.
   const { package_fee, package_fee_zero_reason } = req.body || {};
