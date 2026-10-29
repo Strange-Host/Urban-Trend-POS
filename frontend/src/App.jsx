@@ -20,6 +20,7 @@ const ChangePassword = lazy(() => import('./pages/ChangePassword'));
 const Security = lazy(() => import('./pages/Security'));
 const Orders = lazy(() => import('./pages/Orders'));
 const PaymentReconciliation = lazy(() => import('./pages/PaymentReconciliation'));
+const MoneyAtRisk = lazy(() => import('./pages/MoneyAtRisk'));
 const Attendance = lazy(() => import('./pages/Attendance'));
 const Payroll = lazy(() => import('./pages/Payroll'));
 const Employees = lazy(() => import('./pages/Employees'));
@@ -83,6 +84,10 @@ export default function App() {
                 <Route
                   path="/orders"
                   element={<ProtectedRoute roles={['admin', 'manager', 'cashier']}><Orders /></ProtectedRoute>}
+                />
+                <Route
+                  path="/money-at-risk"
+                  element={<ProtectedRoute roles={['admin', 'manager']} permission="atrisk.view"><MoneyAtRisk /></ProtectedRoute>}
                 />
                 <Route
                   path="/reconciliation"

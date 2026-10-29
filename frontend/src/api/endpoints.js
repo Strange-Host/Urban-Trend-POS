@@ -202,6 +202,7 @@ export const staffLogsApi = {  list: (params) => client.get('/staff-logs', { par
 
 export const ordersApi = {
   list: (params) => client.get('/orders', { params }),
+  atRisk: (params) => client.get('/orders/at-risk', { params }),
   get: (id) => client.get(`/orders/${id}`),
   create: (data) => client.post('/orders', data),
   mergeItems: (id, items) => client.post(`/orders/${id}/merge-items`, { items }),
