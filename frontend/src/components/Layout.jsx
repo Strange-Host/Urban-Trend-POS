@@ -41,6 +41,7 @@ const GROUPS = [
     id: 'money',
     label: 'Money',
     items: [
+      { to: '/money-at-risk', label: 'Money at risk', icon: '⚑', roles: ['admin', 'manager'], perm: 'atrisk.view' },
       { to: '/finance', label: 'Finance', icon: '◈', roles: ['admin', 'manager'] },
       { to: '/reconciliation', label: 'Reconciliation', icon: '⇌', roles: ['admin', 'manager'], perm: 'payments.reconcile' },
       { to: '/requisitions', label: 'Requisitions', icon: '⇵', roles: ['admin', 'manager', 'cashier'], module: 'hr' },
