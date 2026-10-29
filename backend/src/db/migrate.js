@@ -122,6 +122,14 @@ const ADDITIVE_COLUMNS = {
     `dispute_resolution_notes TEXT`,
   ],
   // Phase 6 (salary-advance requisitions §10):
+  couriers: [
+    // Courier organizations (services/courierOrganizations.service.js). Existing couriers stay riders.
+    `kind TEXT NOT NULL DEFAULT 'rider' CHECK (kind IN ('rider','organization'))`,
+    `collects_payment INTEGER NOT NULL DEFAULT 0`,
+    `contact_person TEXT`,
+    `overdue_limit INTEGER CHECK (overdue_limit IS NULL OR overdue_limit >= 0)`,
+    `overdue_after_days INTEGER NOT NULL DEFAULT 14 CHECK (overdue_after_days > 0)`,
+  ],
   requisitions: [
     `type TEXT NOT NULL DEFAULT 'shop_operational' CHECK (type IN ('shop_operational','salary_advance'))`,
     `amount INTEGER`,

@@ -78,7 +78,12 @@ const mergeItems = asyncHandler(async (req, res) => {
 
 // POST /api/orders/:id/dispatch
 const dispatch = asyncHandler(async (req, res) => {
-  const order = ordersService.dispatch({ orderId: req.params.id, storeId: req.user.storeId, staffId: req.user.id });
+  // package_fee (cents) and package_fee_zero_reason: required only when the order's courier is an organization.
+  const { package_fee, package_fee_zero_reason } = req.body || {};
+  const order = ordersService.dispatch({
+    orderId: req.params.id, storeId: req.user.storeId, staffId: req.user.id,
+    packageFee: package_fee, packageFeeZeroReason: package_fee_zero_reason,
+  });
   res.json({ data: order });
 });
 

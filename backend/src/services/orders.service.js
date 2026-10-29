@@ -6,6 +6,7 @@ const customersService = require('./customers.service');
 const settingsService = require('./settings.service');
 const smsService = require('./sms.service');
 const couriersService = require('./couriers.service');
+const courierOrganizations = require('./courierOrganizations.service');
 const notificationsService = require('./notifications.service');
 const { determineDeliveryZone, suggestCourier, computeDeliveryFee } = require('../utils/delivery');
 const telesalesDistribution = require('./telesalesDistribution.service');
@@ -327,7 +328,7 @@ function setCourier({ orderId, storeId, staffId, courierType, courierId }) {
 // happens ONLY when Dispatched is ticked"). COD orders must be confirmed
 // first (§1 Confirmation Gate) — an unconfirmed COD order that's also past
 // its expiry window is auto-cancelled right here rather than dispatched.
-function dispatch({ orderId, storeId, staffId }) {
+function dispatch({ orderId, storeId, staffId, packageFee, packageFeeZeroReason }) {
   const txn = db.transaction(() => {
     const order = db.prepare('SELECT * FROM orders WHERE id = ? AND store_id = ? AND deleted_at IS NULL').get(orderId, storeId);
     if (!order) throw new ApiError(404, 'Order not found.');
@@ -343,6 +344,10 @@ function dispatch({ orderId, storeId, staffId }) {
       }
       throw new ApiError(409, 'This COD order must be confirmed before it can be dispatched.');
     }
+
+    // A parcel going out with a courier ORGANIZATION gets its package fee line now: the fee we will owe
+    // that organization, netted off when it remits. Riders are unaffected. Rolls back with the dispatch.
+    courierOrganizations.recordPackageFeeAtDispatch({ order, storeId, staffId, packageFee, zeroReason: packageFeeZeroReason });
 
     const items = db.prepare('SELECT * FROM order_items WHERE order_id = ?').all(orderId);
     const checkStock = db.prepare('SELECT quantity FROM inventory WHERE product_id = ? AND store_id = ?');
@@ -709,7 +714,7 @@ function list({ storeId, status, channel, assignedStaffId, search, limit, offset
 }
 
 module.exports = {
-  TRANSITIONS, ACTIVE_STATUSES, assertValidTransition, findDuplicateActiveOrder, findByProductCode,
+  TRANSITIONS, ACTIVE_STATUSES, assertValidTransition, transitionTo, findDuplicateActiveOrder, findByProductCode,
   create, mergeItems, confirmCod, expireUnconfirmedOrders, setCourier, dispatch, recordPayment, refundPayment,
   markReturnedInTransit, markReturnedAwaitingInspection, inspectReturn, decideOwnerAction, listPendingOwnerDecisions,
   openDispute, resolveDispute, cancel,

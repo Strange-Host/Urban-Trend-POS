@@ -966,6 +966,13 @@ CREATE TABLE IF NOT EXISTS couriers (
   courier_type  TEXT NOT NULL DEFAULT 'boda' CHECK (courier_type IN ('boda','g4s')),
   notes         TEXT,
   is_active     INTEGER NOT NULL DEFAULT 1,
+  -- Organizations (e.g. a courier firm that collects the customer's payment and remits it later).
+  -- A rider never handles customer money. kind never changes after creation (enforced in couriers.service.js).
+  kind               TEXT NOT NULL DEFAULT 'rider' CHECK (kind IN ('rider','organization')),
+  collects_payment   INTEGER NOT NULL DEFAULT 0,
+  contact_person     TEXT,
+  overdue_limit      INTEGER CHECK (overdue_limit IS NULL OR overdue_limit >= 0),  -- cents; NULL = no limit
+  overdue_after_days INTEGER NOT NULL DEFAULT 14 CHECK (overdue_after_days > 0),
   created_at    TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -1063,3 +1070,88 @@ WHEN NEW.quantity < 0
 BEGIN
   SELECT RAISE(ABORT, 'Insufficient stock: quantity cannot go below zero.');
 END;
+
+
+-- ---------------------------------------------------------------------
+-- COURIER ORGANIZATIONS — firms that collect the customer's payment and remit it later.
+-- Ported from the update branch's server/src/couriers/organizations.ts, without its ledger:
+-- an organization's receivable is COLLECTED minus (REMITTED + FEES NETTED) over its statements,
+-- read from these tables (see services/courierOrganizations.service.js). All amounts are cents.
+-- ---------------------------------------------------------------------
+
+-- The fee we owe a courier organization for one dispatched parcel. One dispatch, one fee line;
+-- a zero fee needs a reason. Written by orders.dispatch() when the order's courier is an organization.
+CREATE TABLE IF NOT EXISTS package_fees (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  store_id     INTEGER NOT NULL REFERENCES stores(id),
+  order_id     INTEGER NOT NULL UNIQUE REFERENCES orders(id),
+  courier_id   INTEGER NOT NULL REFERENCES couriers(id),
+  amount       INTEGER NOT NULL CHECK (amount >= 0),
+  zero_reason  TEXT,
+  recorded_by  INTEGER NOT NULL REFERENCES users(id),
+  recorded_at  TEXT NOT NULL DEFAULT (datetime('now')),
+  CHECK (amount > 0 OR (zero_reason IS NOT NULL AND length(trim(zero_reason)) > 0))
+);
+CREATE INDEX IF NOT EXISTS idx_package_fees_courier ON package_fees(courier_id);
+
+-- Money the organization collected from the customer for an order and now holds. Never edited or deleted.
+CREATE TABLE IF NOT EXISTS org_collections (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  store_id      INTEGER NOT NULL REFERENCES stores(id),
+  courier_id    INTEGER NOT NULL REFERENCES couriers(id),
+  order_id      INTEGER NOT NULL REFERENCES orders(id),
+  amount        INTEGER NOT NULL CHECK (amount > 0),
+  collected_on  TEXT NOT NULL,              -- the shop's calendar date, YYYY-MM-DD
+  recorded_by   INTEGER NOT NULL REFERENCES users(id),
+  created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_org_collections_courier ON org_collections(courier_id, collected_on);
+CREATE INDEX IF NOT EXISTS idx_org_collections_order ON org_collections(order_id);
+CREATE TRIGGER IF NOT EXISTS org_collections_no_update BEFORE UPDATE ON org_collections BEGIN SELECT RAISE(ABORT, 'org_collections are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS org_collections_no_delete BEFORE DELETE ON org_collections BEGIN SELECT RAISE(ABORT, 'org_collections are immutable'); END;
+
+-- The package fees we owe, settled by netting them off a remittance. payout_items.package_fee_id is UNIQUE so a fee is paid once.
+CREATE TABLE IF NOT EXISTS courier_payouts (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  store_id     INTEGER NOT NULL REFERENCES stores(id),
+  courier_id   INTEGER NOT NULL REFERENCES couriers(id),
+  total        INTEGER NOT NULL CHECK (total > 0),
+  method       TEXT NOT NULL CHECK (method IN ('netted_on_remittance')),
+  payment_ref  TEXT,
+  paid_by      INTEGER NOT NULL REFERENCES users(id),
+  created_at   TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS payout_items (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  payout_id       INTEGER NOT NULL REFERENCES courier_payouts(id),
+  package_fee_id  INTEGER NOT NULL UNIQUE REFERENCES package_fees(id),
+  amount          INTEGER NOT NULL CHECK (amount > 0)
+);
+
+-- A settlement: expected (collections), charged (entered by staff vs our own fee records), received (remitted) and variance.
+CREATE TABLE IF NOT EXISTS org_statements (
+  id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+  store_id             INTEGER NOT NULL REFERENCES stores(id),
+  courier_id           INTEGER NOT NULL REFERENCES couriers(id),
+  period_start         TEXT NOT NULL,
+  period_end           TEXT NOT NULL,
+  collections          INTEGER NOT NULL,
+  charge_entered       INTEGER NOT NULL CHECK (charge_entered >= 0),
+  fees                 INTEGER NOT NULL CHECK (fees >= 0),
+  remitted             INTEGER NOT NULL CHECK (remitted >= 0),
+  charge_variance      INTEGER NOT NULL,   -- charge entered - our package fees
+  cash_variance        INTEGER NOT NULL,   -- collections - our fees - remitted; positive = still owed by the organization
+  remittance_ref       TEXT,
+  payout_id            INTEGER REFERENCES courier_payouts(id),
+  created_by           INTEGER NOT NULL REFERENCES users(id),
+  created_at           TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_org_statements_courier ON org_statements(courier_id);
+CREATE TABLE IF NOT EXISTS org_statement_lines (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  statement_id   INTEGER NOT NULL REFERENCES org_statements(id),
+  collection_id  INTEGER NOT NULL UNIQUE REFERENCES org_collections(id),  -- a parcel is on one statement only
+  secured        INTEGER NOT NULL CHECK (secured >= 0)  -- what this statement actually secured of the parcel (oldest first)
+);
+CREATE TRIGGER IF NOT EXISTS org_statements_no_update BEFORE UPDATE ON org_statements BEGIN SELECT RAISE(ABORT, 'org_statements are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS org_statements_no_delete BEFORE DELETE ON org_statements BEGIN SELECT RAISE(ABORT, 'org_statements are immutable'); END;
