@@ -1210,3 +1210,35 @@ CREATE TABLE IF NOT EXISTS org_statement_lines (
 );
 CREATE TRIGGER IF NOT EXISTS org_statements_no_update BEFORE UPDATE ON org_statements BEGIN SELECT RAISE(ABORT, 'org_statements are immutable'); END;
 CREATE TRIGGER IF NOT EXISTS org_statements_no_delete BEFORE DELETE ON org_statements BEGIN SELECT RAISE(ABORT, 'org_statements are immutable'); END;
+
+-- ---------------------------------------------------------------------
+-- SHOP CASH CUSTODY. Cash taken at the shop is held by the staff member who took it until it is deposited
+-- or handed to the till. Ported from the update branch's orders/custody.ts (no ledger here). Open custody
+-- ages on the money-at-risk page. The amount, holder and order never change, and a deposited record is
+-- closed for good; records are never deleted.
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS custody_records (
+  id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+  store_id           INTEGER NOT NULL REFERENCES stores(id),
+  holder_staff_id    INTEGER NOT NULL REFERENCES users(id),
+  order_id           INTEGER NOT NULL REFERENCES orders(id),
+  payment_record_id  INTEGER NOT NULL UNIQUE REFERENCES payment_records(id),
+  amount             INTEGER NOT NULL CHECK (amount > 0),     -- integer cents
+  reason             TEXT NOT NULL,
+  status             TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','deposited')),
+  opened_at          TEXT NOT NULL DEFAULT (datetime('now')),
+  deposited_by       INTEGER REFERENCES users(id),
+  deposited_at       TEXT,
+  CHECK ((status = 'open' AND deposited_by IS NULL AND deposited_at IS NULL)
+      OR (status = 'deposited' AND deposited_by IS NOT NULL AND deposited_at IS NOT NULL))
+);
+CREATE INDEX IF NOT EXISTS idx_custody_open ON custody_records(store_id, status, opened_at);
+CREATE INDEX IF NOT EXISTS idx_custody_order ON custody_records(order_id);
+CREATE TRIGGER IF NOT EXISTS custody_closed_never_changes BEFORE UPDATE ON custody_records WHEN OLD.status = 'deposited'
+BEGIN SELECT RAISE(ABORT, 'a deposited custody record never changes'); END;
+CREATE TRIGGER IF NOT EXISTS custody_fields_never_change BEFORE UPDATE ON custody_records
+WHEN NEW.amount <> OLD.amount OR NEW.holder_staff_id <> OLD.holder_staff_id OR NEW.order_id <> OLD.order_id
+  OR NEW.store_id <> OLD.store_id OR NEW.payment_record_id <> OLD.payment_record_id OR NEW.opened_at <> OLD.opened_at OR NEW.reason <> OLD.reason
+BEGIN SELECT RAISE(ABORT, 'custody amount, holder and order never change'); END;
+CREATE TRIGGER IF NOT EXISTS custody_no_delete BEFORE DELETE ON custody_records
+BEGIN SELECT RAISE(ABORT, 'custody records cannot be deleted'); END;

@@ -32,6 +32,7 @@ const atRisk = asyncHandler(async (req, res) => {
     deliveredUnpaidDays: num(q.delivered_unpaid_days),
     returningDays: num(q.returning_days),
     sessionOpenHours: num(q.session_open_hours),
+    cashHeldDays: num(q.cash_held_days),
   });
   res.json({ data, summary: atRiskService.summarize(data) });
 });
@@ -94,6 +95,14 @@ const recordPayment = asyncHandler(async (req, res) => {
     orderId: req.params.id, storeId: req.user.storeId, staffId: req.user.id, method, amount, reference,
   });
   res.status(201).json({ data: order });
+});
+
+// POST /api/orders/:id/shop-cash  { amount, reason }
+const recordShopCash = asyncHandler(async (req, res) => {
+  const result = require('../services/custody.service').recordShopCash({
+    orderId: req.params.id, storeId: req.user.storeId, staffId: req.user.id, amount: req.body.amount, reason: req.body.reason,
+  });
+  res.status(201).json({ data: result });
 });
 
 // POST /api/orders/:id/returned-in-transit
@@ -172,7 +181,7 @@ const resolveDispute = asyncHandler(async (req, res) => {
 });
 
 module.exports = {
-  list, checkIntegrity, atRisk, getById, create, mergeItems, confirmCod, setCourier, dispatch, recordPayment,
+  list, checkIntegrity, atRisk, getById, create, mergeItems, confirmCod, setCourier, dispatch, recordPayment, recordShopCash,
   markReturnedInTransit, markReturnedAwaitingInspection, inspectReturn, decideOwnerAction,
   listPendingOwnerDecisions, openDispute, resolveDispute, cancel, expireUnconfirmed,
 };
