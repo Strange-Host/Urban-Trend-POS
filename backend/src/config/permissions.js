@@ -33,6 +33,7 @@ const PERMISSIONS = {
   'shopify.sync':          { group: 'Stock',     label: 'Use Shopify / WooCommerce sync',             roles: ['admin', 'manager'] },
   'sms.view':              { group: 'Messaging', label: 'View SMS delivery and retry failed messages', roles: ['admin', 'manager'] },
   'couriers.manage':       { group: 'Orders',    label: 'Add and edit couriers',                      roles: ['admin', 'manager'] },
+  'couriers.settle':       { group: 'Money',     label: 'Record courier-organization collections and settle their statements', roles: ['admin', 'manager'] },
   'leads.intake_routes':   { group: 'Sales',     label: 'Manage web-form lead routing',               roles: ['admin', 'manager'] },
 };
 
