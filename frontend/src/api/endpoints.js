@@ -1,11 +1,6 @@
 import client from './client';
-import { USE_NEW_SERVER } from './newServer';
-import { newAuthApi } from './adapters/auth';
-import { newOrdersApi } from './adapters/orders';
-import { newCouriersApi } from './adapters/couriers';
-import { newPaymentsApi, newPaymentReconciliationApi, newCustodyApi } from './adapters/payments';
 
-const legacyAuthApi = {
+export const authApi = {
   login: (email, password, remember = false) => client.post('/auth/login', { email, password, remember }),
   verifyOtp: (challengeToken, code, remember = false) => client.post('/auth/verify-otp', { challengeToken, code, remember }),
   unlock: (secret) => client.post('/auth/unlock', secret),          // { password } or { pin }
@@ -19,9 +14,6 @@ const legacyAuthApi = {
   me: () => client.get('/auth/me'),
   changePassword: (currentPassword, newPassword) => client.post('/auth/change-password', { currentPassword, newPassword }),
 };
-
-// With VITE_USE_NEW_SERVER=true the same screens talk to the new server through the adapter; otherwise nothing changes.
-export const authApi = USE_NEW_SERVER ? newAuthApi : legacyAuthApi;
 
 export const productsApi = {
   list: (params) => client.get('/products', { params }),
@@ -165,7 +157,7 @@ export const expensesApi = {
   createCategory: (name) => client.post('/expenses/categories', { name }),
 };
 
-const legacyPaymentsApi = {
+export const paymentsApi = {
   list: (params) => client.get('/payments', { params }),
   summary: (params) => client.get('/payments/summary', { params }),
   create: (data) => client.post('/payments', data),
@@ -208,7 +200,7 @@ export const staffLogsApi = {  list: (params) => client.get('/staff-logs', { par
 
 // --- Phase 5 modules: shipped backends that previously had no UI ---
 
-const legacyOrdersApi = {
+export const ordersApi = {
   list: (params) => client.get('/orders', { params }),
   get: (id) => client.get(`/orders/${id}`),
   create: (data) => client.post('/orders', data),
@@ -230,7 +222,7 @@ const legacyOrdersApi = {
   cancel: (id, notes) => client.post(`/orders/${id}/cancel`, { notes }),
 };
 
-const legacyPaymentReconciliationApi = {
+export const paymentReconciliationApi = {
   unmatched: (params) => client.get('/payment-reconciliation/unmatched', { params }),
   match: (id, orderId) => client.post(`/payment-reconciliation/${id}/match`, { order_id: orderId }),
   ignore: (id, notes) => client.post(`/payment-reconciliation/${id}/ignore`, { notes }),
@@ -259,19 +251,12 @@ export const telesalesApi = {
   rebalance: () => client.post('/telesales/rebalance'),
 };
 
-const legacyCouriersApi = {
+export const couriersApi = {
   list: (params) => client.get('/couriers', { params }),
   create: (data) => client.post('/couriers', data),
   update: (id, data) => client.patch(`/couriers/${id}`, data),
   remove: (id) => client.delete(`/couriers/${id}`),
 };
-
-export const ordersApi = USE_NEW_SERVER ? newOrdersApi : legacyOrdersApi;
-export const paymentsApi = USE_NEW_SERVER ? newPaymentsApi : legacyPaymentsApi;
-export const paymentReconciliationApi = USE_NEW_SERVER ? newPaymentReconciliationApi : legacyPaymentReconciliationApi;
-// Cash taken at the shop and not yet deposited. The legacy app has no such list, so this is only used on the new server.
-export const custodyApi = newCustodyApi;
-export const couriersApi = USE_NEW_SERVER ? newCouriersApi : legacyCouriersApi;
 
 export const shiftApi = {
   handover: () => client.get('/shift/handover'),

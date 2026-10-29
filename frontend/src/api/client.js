@@ -1,13 +1,11 @@
 import axios from 'axios';
-import { USE_NEW_SERVER, NEW_API_BASE_URL } from './newServer';
-import { adaptSessionPayload } from './adapters/auth-shape';
 
 // Zero-config default: the API is on the same machine that served this page,
 // port 4000. Opening the app from a phone at http://192.168.1.42:5173 therefore
 // talks to http://192.168.1.42:4000 by itself - no .env needed. Set VITE_API_URL
 // only if the backend lives somewhere else (a different host, a public domain).
-export const API_BASE_URL = USE_NEW_SERVER ? NEW_API_BASE_URL : (import.meta.env.VITE_API_URL
-  || `${window.location.protocol}//${window.location.hostname || 'localhost'}:4000/api`);
+export const API_BASE_URL = import.meta.env.VITE_API_URL
+  || `${window.location.protocol}//${window.location.hostname || 'localhost'}:4000/api`;
 
 // 2.3 — the access token lives ONLY in this module-level variable, never
 // in localStorage/sessionStorage. Anything that can read localStorage
@@ -77,8 +75,7 @@ export function performRefresh() {
     // browser attaches it automatically because of withCredentials above.
     // Plain axios, not `client` — going through `client` here would recurse into this same interceptor.
     refreshPromise = axios.post(`${API_BASE_URL}/auth/refresh`, {}, { withCredentials: true })
-      .then((res) => {
-        const data = adaptSessionPayload(res.data); // a no-op on the legacy server's answer
+      .then(({ data }) => {
         setAccessToken(data.token);
         return data; // { token, user, session } — AuthContext's boot check needs `user`, the 401 retry path below only needs `token`
       })
