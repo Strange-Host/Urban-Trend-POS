@@ -23,6 +23,8 @@ router.post('/pull-online', pullLimiter, requirePermission('orders.pull_online')
 router.get('/', ctrl.list);
 // Must come before GET /:id — otherwise Express matches "pending-owner-decision" as an :id.
 router.get('/pending-owner-decision', requireRole('admin', 'manager'), ctrl.listPendingOwnerDecisions);
+// Also before '/:id'. Detect-only check that every order's lines add up to its subtotal.
+router.get('/integrity', requireRole('admin', 'manager'), ctrl.checkIntegrity);
 router.post('/', validate(createOrderSchema), ctrl.create);
 router.get('/:id', ctrl.getById);
 router.post('/:id/merge-items', validate(mergeItemsSchema), ctrl.mergeItems);
