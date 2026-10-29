@@ -1,6 +1,0 @@
-{
-  "error": {
-    "code": "BAD_CREDENTIALS",
-    "message": "Wrong username or password."
-  }
-}
