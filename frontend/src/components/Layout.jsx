@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import NotificationBell from './NotificationBell';
 import useStackedTableLabels from './useStackedTableLabels';
 import useModules from '../hooks/useModules';
+import useSlidingPill from '../hooks/useSlidingPill';
 
 // Grouped by "what am I doing right now", not by which backend module a
 // page belongs to — that's why Attendance sits under Team next to Payroll
@@ -73,9 +74,11 @@ function NavItem({ item, onNavigate, nested = false }) {
       end={item.to === '/'}
       onClick={onNavigate}
       className={({ isActive }) =>
-        `flex items-center gap-3 rounded-lg text-sm transition-colors ${nested ? 'pl-8 pr-3 py-2' : 'px-3 py-2.5 font-medium'} ${
+        // `relative` so the item paints above the sliding pill (the amber highlight that
+        // glides to the active item); the active item itself has no background of its own.
+        `relative flex items-center gap-3 rounded-lg text-sm transition-colors ${nested ? 'pl-8 pr-3 py-2' : 'px-3 py-2.5 font-medium'} ${
           isActive
-            ? 'bg-accent text-accent-ink font-medium'
+            ? 'text-accent-ink font-medium'
             : 'text-white/70 hover:bg-white/10 hover:text-white'
         }`
       }
@@ -93,6 +96,7 @@ export default function Layout() {
   const mainRef = useRef(null);
   useStackedTableLabels(mainRef);
   const modules = useModules();
+  const { rootRef: navRootRef, pillProps: navPill } = useSlidingPill('y', location.pathname);
 
   // Which groups the user has collapsed. Persisted so the sidebar looks
   // the same every shift — a cashier who only ever uses Sell shouldn't
@@ -172,6 +176,9 @@ export default function Layout() {
         </div>
 
         <nav className="flex-1 px-3 py-4 overflow-y-auto">
+          {/* Inner wrapper is the pill's positioning context: it is as tall as the full list, so the pill scrolls with it. */}
+          <div ref={navRootRef} className="relative">
+          <span {...navPill} className="sliding-pill rounded-lg bg-accent" />
           <div className="space-y-1">
             {visible(PINNED_TOP).map((item) => (
               <NavItem key={item.to} item={item} onNavigate={closeNav} />
@@ -214,6 +221,7 @@ export default function Layout() {
               ))}
             </div>
           )}
+          </div>
         </nav>
 
         <div className="px-3 py-4 border-t border-white/10">

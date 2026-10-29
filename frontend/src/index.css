@@ -166,3 +166,26 @@ main pre { white-space: pre-wrap; }
 @keyframes sheet-pop { from { transform: scale(0.97); opacity: 0; } to { transform: none; opacity: 1; } }
 @keyframes sheet-fade { from { opacity: 0; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .sheet, .sheet-backdrop { animation: none; } }
+
+/* ---------------------------------------------------------------------
+   Sliding pill (hooks/useSlidingPill.js): the highlight behind the active
+   sidebar item / range button. It stretches like a drop while it moves -
+   the edge it is heading towards runs ahead fast, the trailing edge
+   follows slower. Position is set inline by the hook; only timing is here.
+   --------------------------------------------------------------------- */
+.sliding-pill { position: absolute; pointer-events: none; opacity: 0; }
+.sliding-pill[data-visible="true"] { opacity: 1; }
+.sliding-pill[data-animate="true"] { transition: opacity 0.15s ease-out; }
+.sliding-pill[data-animate="true"][data-axis="y"][data-dir="fwd"] {
+  transition: top 0.55s cubic-bezier(0.65, 0, 0.35, 1), bottom 0.36s cubic-bezier(0.33, 1, 0.68, 1), opacity 0.15s ease-out;
+}
+.sliding-pill[data-animate="true"][data-axis="y"][data-dir="back"] {
+  transition: top 0.36s cubic-bezier(0.33, 1, 0.68, 1), bottom 0.55s cubic-bezier(0.65, 0, 0.35, 1), opacity 0.15s ease-out;
+}
+.sliding-pill[data-animate="true"][data-axis="x"][data-dir="fwd"] {
+  transition: left 0.55s cubic-bezier(0.65, 0, 0.35, 1), right 0.36s cubic-bezier(0.33, 1, 0.68, 1), opacity 0.15s ease-out;
+}
+.sliding-pill[data-animate="true"][data-axis="x"][data-dir="back"] {
+  transition: left 0.36s cubic-bezier(0.33, 1, 0.68, 1), right 0.55s cubic-bezier(0.65, 0, 0.35, 1), opacity 0.15s ease-out;
+}
+@media (prefers-reduced-motion: reduce) { .sliding-pill { transition: none !important; } }
