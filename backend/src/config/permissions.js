@@ -34,6 +34,9 @@ const PERMISSIONS = {
   'sms.view':              { group: 'Messaging', label: 'View SMS delivery and retry failed messages', roles: ['admin', 'manager'] },
   'couriers.manage':       { group: 'Orders',    label: 'Add and edit couriers',                      roles: ['admin', 'manager'] },
   'couriers.settle':       { group: 'Money',     label: 'Record courier-organization collections and settle their statements', roles: ['admin', 'manager'] },
+  'couriers.costs.record': { group: 'Orders',    label: 'Enter courier costs (fuel, return trip, airtime)', roles: ['admin', 'manager', 'cashier'] },
+  'couriers.costs.approve':{ group: 'Money',     label: 'Approve or reject courier costs',            roles: ['admin', 'manager'] },
+  'couriers.pay':          { group: 'Money',     label: 'View courier payables and pay couriers',     roles: ['admin', 'manager'] },
   'leads.intake_routes':   { group: 'Sales',     label: 'Manage web-form lead routing',               roles: ['admin', 'manager'] },
 };
 

@@ -7,6 +7,7 @@ const settingsService = require('./settings.service');
 const smsService = require('./sms.service');
 const couriersService = require('./couriers.service');
 const courierOrganizations = require('./courierOrganizations.service');
+const courierPayablesService = require('./courierPayables.service');
 const notificationsService = require('./notifications.service');
 const { determineDeliveryZone, suggestCourier, computeDeliveryFee } = require('../utils/delivery');
 const telesalesDistribution = require('./telesalesDistribution.service');
@@ -381,6 +382,12 @@ function dispatch({ orderId, storeId, staffId, packageFee, packageFeeZeroReason 
 
     transitionTo(orderId, order, 'dispatched_unpaid', staffId);
     db.prepare(`UPDATE orders SET dispatched_at = datetime('now') WHERE id = ?`).run(orderId);
+
+    // What the named courier earns for this parcel (cents), entered by staff now and owed whether or not the
+    // customer collects. Same transaction as the dispatch: no fee without a dispatch, no dispatch with a refused fee.
+    if (packageFee !== undefined && packageFee !== null) {
+      courierPayablesService.recordPackageFee({ order, amount: packageFee, staffId });
+    }
 
     // An order that arrived ALREADY PAID (a prepaid Shopify order) must not sit as
     // "unpaid" until someone records a payment that has in fact already happened.

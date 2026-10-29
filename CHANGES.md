@@ -1,3 +1,30 @@
+# Rider payables: package fees, approved costs, payouts
+
+Ported from the `update` branch's `couriers/payables.ts` (`services/courierPayables.service.js`). It covers **riders**;
+courier organizations keep their own rules (see the organizations entry): their fee is required at dispatch and netted
+off their statements, and these endpoints answer 409 for them. Amounts are integer cents. New tables (`schema.sql`):
+`courier_costs`, `rider_payouts`, `rider_payout_items`; the fee goes in the existing `package_fees`.
+
+1. **Package fee**: `POST /api/orders/:id/dispatch` with `{ "package_fee": 15000 }`. A rider fee needs a named courier on
+   the order, is written in the same transaction as the dispatch (a refused fee cancels the dispatch), and is owed
+   whether or not the customer collects: a returned parcel does not cancel it. A 0 fee, or none, records nothing for a
+   rider (`package_fees` rows of 0 need a reason, which only organizations give). Bad amounts answer 422.
+2. **Extra costs** (`return_trip`, `fuel`, `airtime`, `handling`, `repair`, `other`): `POST /api/couriers/:id/costs`, then
+   `POST /api/couriers/costs/:id/approve` or `/reject` (a reason is required). The approver must be a different person
+   from the one who entered it, checked in the service and again by a CHECK constraint. Only approved costs are owed.
+3. **Payouts**: `POST /api/couriers/:id/payouts` with `method` (`mpesa`, `bank`, `cash`; mpesa and bank need
+   `payment_ref`) and optionally `items` to settle only some. The total is the sum of the items. A payout returns
+   `fee_lines` and `cost_lines` separately, and is mirrored into `expenses` as two rows (categories "Courier package fees"
+   and "Courier costs"). Each item can be paid once (UNIQUE on `rider_payout_items`). These are separate from
+   `courier_payouts`, which only records organization fees netted on a remittance.
+4. **Reading**: `GET /api/couriers/payables` (overview), `/:id/payables` (balance with fees and costs separate, plus
+   unpaid items), `/costs?status=pending`, `/payouts`, `/payouts/:id`.
+
+New permissions: `couriers.costs.record` (everyone), `couriers.costs.approve` and `couriers.pay` (admin and manager;
+grantable per person). No screens yet: this is the API and the data only.
+
+Not changed: the till's expected cash ignores every cash expense today, so a cash payout does not reduce it either.
+
 # Money at risk: the manager's daily list of where money or goods may be going missing
 
 New page **Money > Money at risk** (`/money-at-risk`, API `GET /api/orders/at-risk`), ported from the `update` branch's

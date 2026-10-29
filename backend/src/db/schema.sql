@@ -979,6 +979,61 @@ CREATE TABLE IF NOT EXISTS couriers (
 CREATE INDEX IF NOT EXISTS idx_couriers_store ON couriers(store_id, is_active);
 
 -- ---------------------------------------------------------------------
+-- RIDER PAYABLES — what the business owes riders, kept apart from customer money.
+--   package_fees  (defined with the organizations below) what a courier earns per dispatch. Entered at dispatch and
+--                  owed whether or not the customer collects, so a return never cancels it. A rider's fee is paid here;
+--                  an organization's fee is netted off its remittance instead (courier_payouts, statements).
+--   courier_costs  extras (fuel, return trip, airtime...). Entered by one person, approved or rejected by ANOTHER;
+--                  only an approved cost is owed.
+--   rider_payouts / rider_payout_items  (separate from courier_payouts, which only nets organization fees) a payout lists every fee and cost it settles as its own line, and each item can
+--                  be settled once (the UNIQUE indexes), so nothing is paid twice. Amounts are cents.
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS courier_costs (
+  id               INTEGER PRIMARY KEY AUTOINCREMENT,
+  store_id         INTEGER NOT NULL REFERENCES stores(id),
+  courier_id       INTEGER NOT NULL REFERENCES couriers(id),
+  order_id         INTEGER REFERENCES orders(id),
+  kind             TEXT NOT NULL CHECK (kind IN ('return_trip','fuel','airtime','handling','repair','other')),
+  amount           INTEGER NOT NULL CHECK (amount > 0),
+  description      TEXT NOT NULL,
+  receipt_ref      TEXT,
+  status           TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected')),
+  recorded_by      INTEGER NOT NULL REFERENCES users(id),
+  decided_by       INTEGER REFERENCES users(id),
+  decided_at       TEXT,
+  decision_reason  TEXT,
+  created_at       TEXT NOT NULL DEFAULT (datetime('now')),
+  CHECK (decided_by IS NULL OR decided_by != recorded_by)   -- the second pair of eyes, enforced in the database too
+);
+CREATE INDEX IF NOT EXISTS idx_courier_costs_courier ON courier_costs(courier_id, status);
+
+CREATE TABLE IF NOT EXISTS rider_payouts (
+  id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+  store_id            INTEGER NOT NULL REFERENCES stores(id),
+  courier_id          INTEGER NOT NULL REFERENCES couriers(id),
+  fees_total          INTEGER NOT NULL CHECK (fees_total >= 0),
+  costs_total         INTEGER NOT NULL CHECK (costs_total >= 0),
+  total               INTEGER NOT NULL CHECK (total > 0),
+  method              TEXT NOT NULL CHECK (method IN ('mpesa','bank','cash')),
+  payment_ref         TEXT,
+  paid_by             INTEGER NOT NULL REFERENCES users(id),
+  fees_expense_id     INTEGER REFERENCES expenses(id),   -- mirrored into expenses, fees and costs on separate lines
+  costs_expense_id    INTEGER REFERENCES expenses(id),
+  created_at          TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_rider_payouts_courier ON rider_payouts(courier_id, created_at);
+
+CREATE TABLE IF NOT EXISTS rider_payout_items (
+  id               INTEGER PRIMARY KEY AUTOINCREMENT,
+  payout_id        INTEGER NOT NULL REFERENCES rider_payouts(id),
+  package_fee_id   INTEGER UNIQUE REFERENCES package_fees(id),
+  courier_cost_id  INTEGER UNIQUE REFERENCES courier_costs(id),
+  amount           INTEGER NOT NULL CHECK (amount >= 0),
+  CHECK ((package_fee_id IS NULL) != (courier_cost_id IS NULL))   -- exactly one of the two
+);
+CREATE INDEX IF NOT EXISTS idx_rider_payout_items_payout ON rider_payout_items(payout_id);
+
+-- ---------------------------------------------------------------------
 -- TWO-FACTOR (SMS one-time codes) for users with users.two_factor_enabled = 1.
 -- Codes are never stored: only an HMAC (keyed with JWT_SECRET) of token+code,
 -- so a leaked database can't be turned back into valid codes.
