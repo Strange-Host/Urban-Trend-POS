@@ -10,7 +10,8 @@
     "migrate": "node src/db/migrate.js",
     "seed": "node src/db/seed.js",
     "test": "vitest run",
-    "disable-2fa": "node scripts/disable-2fa.js"
+    "disable-2fa": "node scripts/disable-2fa.js",
+    "integrity": "node scripts/integrity-check.js"
   },
   "dependencies": {
     "axios": "^1.7.7",

@@ -11,6 +11,7 @@ const alerting = require('./services/alerting.service');
 const smsService = require('./services/sms.service');
 const notificationsService = require('./services/notifications.service');
 const liveSync = require('./services/liveSync.service');
+const { scheduleNightlyIntegrity } = require('./integrity/job');
 
 validateEnv();
 
@@ -143,4 +144,8 @@ app.listen(PORT, () => {
     }
   }, TWENTY_FOUR_HOURS_MS);
   reconciliationCheck.unref?.();
+
+  // Nightly integrity check (02:00 shop time): proves the data rules still hold by looking at the data itself, and raises an
+  // alert if not. Detect-only. A restart does not repeat a run that finished in the last 20 hours. Also: npm run integrity.
+  scheduleNightlyIntegrity();
 });
