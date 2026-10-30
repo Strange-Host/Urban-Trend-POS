@@ -117,4 +117,13 @@ function alertInventoryDrift(driftRows) {
   });
 }
 
-module.exports = { sendAlert, alertBackupFailure, alertBackupEmailFailure, alertInventoryDrift, resolveNotices };
+function alertIntegrityFailure(violations) {
+  const preview = violations.slice(0, 10).map((v) => `  [rule ${v.rule ?? '-'}] ${v.message}`).join('\n');
+  return sendAlert({
+    notice: { type: 'integrity_failed', dedupeKey: 'integrity_failed', body: `The nightly integrity check found ${violations.length} problem${violations.length === 1 ? '' : 's'}. Nothing was changed automatically; run "npm run integrity" on the server for the full list.` },
+    subject: `Integrity check found ${violations.length} problem${violations.length === 1 ? '' : 's'}`,
+    message: `The nightly integrity check found ${violations.length} problem${violations.length === 1 ? '' : 's'}:\n\n${preview}${violations.length > 10 ? `\n  …and ${violations.length - 10} more` : ''}\n\nThis is detect-only: nothing was changed. Run "npm run integrity" on the server for the full list.`,
+  });
+}
+
+module.exports = { sendAlert, alertBackupFailure, alertBackupEmailFailure, alertInventoryDrift, alertIntegrityFailure, resolveNotices };

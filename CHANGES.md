@@ -1,3 +1,30 @@
+# Nightly integrity job
+
+Ported from the `update` branch's `integrity/checks.ts`, `job.ts` and `cli.ts` (`backend/src/integrity/checks.js`,
+`job.js`, `scripts/integrity-check.js`). The database already refuses to break the data rules; this proves it by looking
+at the data itself, and catches the case where the guards were bypassed (a restored backup, a hand-run script, a dropped
+trigger). Detect-only: it never changes data. It replaces nothing: `GET /api/orders/integrity` still works, and its
+line-versus-subtotal check is now one of the job's checks.
+
+**Checked** (the rules that do not need a ledger): **2** an order's paid amount equals its payments plus organization
+collections (never a free-standing counter); **6** payments never exceed what is owed, and paid is never negative;
+**7** protection triggers are in place; **8** every commissioned order is still fully secure and became secure within its
+run's period, every commission line is recorded, and a statement secures what it settled; **9** a locked payroll run still
+hashes to its approval fingerprint; **10** order references are present, unique (ignoring case) and well formed (`UT000123`);
+**11** every parcel dispatched with a courier organization has a package fee line, no fee sits on an undispatched parcel,
+and the fee is owed to the order's courier; **12** payout lines are exactly one fee or one cost, match their records, and
+add up to their payout's totals. Plus: an order's lines add up to its subtotal.
+
+**Not ported, reported as not applicable in every report**: rules 1, 3, 4 and 5 all compare a record against the double-entry
+ledger, which the SQLite version does not have. A rider's zero package fee records nothing by design, so rule 11 holds only
+organizations (whose fee is mandatory) to it.
+
+**The job**: runs every night at 02:00 shop time (`scheduleNightlyIntegrity`, started from `server.js`), stores each run in
+the new `integrity_runs` table, and skips one if another finished in the last 20 hours, so a restart does not repeat it. A
+failure is logged, and raises an admin alert (in-app, plus email when set up) that stays until a later clean run clears it.
+`npm run integrity` runs it once, right now, ignoring the 20-hour skip: exit 0 when clean, exit 1 listing each problem
+(`--json` prints the full report).
+
 # Locked payroll runs, and commission only on secure money
 
 Ported from the `update` branch's `payroll/runs.ts` and `payroll/commission.ts` (`services/payrollRuns.service.js`,

@@ -1377,3 +1377,20 @@ CREATE TRIGGER IF NOT EXISTS commissioned_orders_ins_locked BEFORE INSERT ON com
 BEGIN SELECT RAISE(ABORT, 'this payroll run is locked: its figures never change'); END;
 CREATE TRIGGER IF NOT EXISTS commissioned_orders_no_update BEFORE UPDATE ON commissioned_orders BEGIN SELECT RAISE(ABORT, 'commissioned orders never change'); END;
 CREATE TRIGGER IF NOT EXISTS commissioned_orders_no_delete BEFORE DELETE ON commissioned_orders BEGIN SELECT RAISE(ABORT, 'commissioned orders never change'); END;
+
+-- ---------------------------------------------------------------------
+-- NIGHTLY INTEGRITY RUNS. One row per run of integrity/checks.js (ported from the update branch's integrity job):
+-- whether every data rule held, the violations it found, and what it looked at. Kept so the history is visible
+-- and so a restart does not repeat a check that already ran today.
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS integrity_runs (
+  id               INTEGER PRIMARY KEY AUTOINCREMENT,
+  ran_at           TEXT NOT NULL DEFAULT (datetime('now')),
+  source           TEXT NOT NULL DEFAULT 'nightly' CHECK (source IN ('nightly','cli')),
+  ok               INTEGER NOT NULL CHECK (ok IN (0,1)),
+  violation_count  INTEGER NOT NULL CHECK (violation_count >= 0),
+  violations       TEXT NOT NULL,   -- JSON array
+  counts           TEXT NOT NULL,   -- JSON object
+  duration_ms      INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_integrity_runs_ran_at ON integrity_runs(ran_at);
