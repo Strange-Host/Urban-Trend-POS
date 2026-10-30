@@ -87,6 +87,7 @@ export default function Employees() {
           <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}
             className="px-3 py-2 rounded-lg border border-line bg-surface text-sm outline-none focus:border-accent">
             <option value="cashier">Cashier / telesales</option>
+            <option value="store">Storekeeper</option>
             <option value="manager">Manager</option>
             <option value="admin">Admin</option>
           </select>

@@ -33,8 +33,10 @@ export default function ProtectedRoute({ children, roles, permission, module }) 
 
   // A route with a `permission` is decided by that permission alone (it already
   // includes the role default plus any per-person grant/revoke); otherwise by role.
+  // `permission` may also be a list, meaning "holds at least one of these".
   if (permission) {
-    if (!can(permission)) return <Navigate to="/" replace />;
+    const allowed = Array.isArray(permission) ? permission.some((p) => can(p)) : can(permission);
+    if (!allowed) return <Navigate to="/" replace />;
   } else if (roles && !roles.includes(user.role)) {
     return <Navigate to="/" replace />;
   }

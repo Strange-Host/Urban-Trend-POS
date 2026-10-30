@@ -7,6 +7,21 @@ const db = require('../config/db');
 // existing database needs these backfilled by hand — this does it safely,
 // column by column, without ever touching existing data.
 const ADDITIVE_COLUMNS = {
+  products: [
+    `approval_status TEXT NOT NULL DEFAULT 'approved' CHECK (approval_status IN ('approved','pending','rejected'))`,
+    `submitted_by_staff_id INTEGER REFERENCES users(id)`,
+    `reviewed_by_staff_id INTEGER REFERENCES users(id)`,
+    `reviewed_at TEXT`,
+    `review_note TEXT`,
+  ],
+  expenses: [
+    // Rows recorded before the approval workflow existed were already counted, so they stay 'approved'.
+    `status TEXT NOT NULL DEFAULT 'approved' CHECK (status IN ('pending','approved','rejected'))`,
+    `reviewed_by_staff_id INTEGER REFERENCES users(id)`,
+    `reviewed_at TEXT`,
+    `review_note TEXT`,
+    `paid_from TEXT NOT NULL DEFAULT 'main' CHECK (paid_from IN ('main','petty_cash'))`,
+  ],
   users: [
     `token_version INTEGER NOT NULL DEFAULT 1`,
     // Phase 7 (employee onboarding & e-signature) — 'active' default keeps
@@ -500,6 +515,56 @@ function rebuildLeadsConvertedOrderFk() {
   console.log(`  + leads rebuilt; ${cleared} unverifiable converted_order_id value(s) cleared, ${linked} link(s) restored from orders.lead_id`);
 }
 
+// The users.role CHECK only allowed admin/manager/cashier. Adding the storekeeper ('store') role means changing that
+// CHECK, which SQLite can only do by rebuilding the table (same careful procedure as the rebuilds above: build the
+// replacement under a temp name with the original definition edited, copy every row across, drop, rename). Nothing
+// else about the table changes: all columns, ids and the indexes are carried over, and the foreign keys of other
+// tables keep pointing at `users` by name.
+function needsUsersStoreRoleRebuild() {
+  if (!tableExists('users')) return false; // fresh install - schema.sql already allows it
+  const row = db.prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='users'`).get();
+  return Boolean(row && row.sql && !/'store'/.test(row.sql));
+}
+
+function rebuildUsersForStoreRole() {
+  console.log("  Rebuilding users table to allow the 'store' role...");
+  const wasForeignKeysOn = db.pragma('foreign_keys', { simple: true }) === 1;
+  db.pragma('foreign_keys = OFF');
+
+  const tmp = 'users_store_role_new';
+  const originalSql = db.prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='users'`).get().sql;
+  const roleCheck = /CHECK\s*\(\s*role\s+IN\s*\(\s*'admin'\s*,\s*'manager'\s*,\s*'cashier'\s*\)\s*\)/i;
+  const fixedSql = originalSql
+    .replace(/^\s*CREATE\s+TABLE\s+(IF\s+NOT\s+EXISTS\s+)?["`]?users["`]?/i, `CREATE TABLE ${tmp}`)
+    .replace(roleCheck, "CHECK (role IN ('admin','manager','cashier','store'))");
+  if (!/'store'/.test(fixedSql) || !fixedSql.includes(tmp)) {
+    db.pragma(`foreign_keys = ${wasForeignKeysOn ? 'ON' : 'OFF'}`);
+    throw new Error('Could not rewrite the users table definition safely; leaving it unchanged.');
+  }
+
+  const indexSql = db.prepare(`SELECT sql FROM sqlite_master WHERE type='index' AND tbl_name='users' AND sql IS NOT NULL`).all().map((r) => r.sql);
+  const triggerSql = db.prepare(`SELECT sql FROM sqlite_master WHERE type='trigger' AND tbl_name='users' AND sql IS NOT NULL`).all().map((r) => r.sql);
+
+  let copied = 0;
+  const txn = db.transaction(() => {
+    db.exec(`DROP TABLE IF EXISTS ${tmp}`);
+    db.exec(fixedSql);
+    const cols = db.prepare(`PRAGMA table_info(users)`).all().map((c) => c.name).join(', ');
+    copied = db.prepare(`INSERT INTO ${tmp} (${cols}) SELECT ${cols} FROM users`).run().changes;
+    db.exec('DROP TABLE users');
+    db.exec(`ALTER TABLE ${tmp} RENAME TO users`);
+    for (const sql of [...indexSql, ...triggerSql]) db.exec(sql);
+  });
+  txn();
+
+  const violations = db.pragma('foreign_key_check');
+  if (violations.length > 0) {
+    throw new Error(`users table rebuild left foreign key violations: ${JSON.stringify(violations)}`);
+  }
+  if (wasForeignKeysOn) db.pragma('foreign_keys = ON');
+  console.log(`  + users rebuilt; ${copied} account(s) carried over`);
+}
+
 function migrate() {
   const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8');
 
@@ -513,6 +578,10 @@ function migrate() {
 
   if (needsLeadsConvertedOrderRebuild()) {
     rebuildLeadsConvertedOrderFk();
+  }
+
+  if (needsUsersStoreRoleRebuild()) {
+    rebuildUsersForStoreRole();
   }
 
   for (const [table, columns] of Object.entries(CURRENCY_COLUMNS)) {

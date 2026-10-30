@@ -9,7 +9,7 @@ const { assertStrongPassword } = require('../utils/passwordPolicy');
 const sessionsService = require('./sessions.service');
 const loginGuard = require('./loginGuard.service');
 
-const VALID_ROLES = ['admin', 'manager', 'cashier'];
+const VALID_ROLES = ['admin', 'manager', 'cashier', 'store'];
 
 // This module doubles as the Staff module (§5) — it operates on the
 // existing `users` table rather than a parallel `staff` table, since JWTs

@@ -2,11 +2,12 @@ const router = require('express').Router();
 const rateLimit = require('express-rate-limit');
 const { RATE_LIMITS } = require('../config/limits');
 const ctrl = require('../controllers/sales.controller');
-const { authenticate, requirePermission, requireRecentAuth } = require('../middleware/auth');
+const { authenticate, requireRole, requirePermission, requireRecentAuth } = require('../middleware/auth');
 const validate = require('../middleware/validate');
 const { checkoutSchema } = require('../validation/sales.schema');
 
-router.use(authenticate);
+// The storekeeper ('store') role has no till: it cannot ring up or browse sales.
+router.use(authenticate, requireRole('admin', 'manager', 'cashier'));
 
 // Generous limit — a busy register can legitimately ring up many sales in
 // a window — but checkout is the one high-frequency endpoint that writes

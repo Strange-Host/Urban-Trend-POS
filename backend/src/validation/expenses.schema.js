@@ -6,6 +6,7 @@ const createExpenseSchema = z.object({
   description: z.string().trim().min(1).nullish(),
   expense_date: z.string().trim().min(1),
   receipt_url: z.string().trim().min(1).nullish(),
+  paid_from: z.enum(['main', 'petty_cash']).optional(), // 'petty_cash' draws on the store's petty-cash float
 });
 
 // PATCH allows partial updates — whatever's omitted keeps its existing

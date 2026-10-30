@@ -294,7 +294,7 @@ const profitSummary = asyncHandler(async (req, res) => {
 
   const businessExpenses = db.prepare(`
     SELECT COALESCE(SUM(amount), 0) AS total FROM expenses
-    WHERE store_id = ? AND expense_date BETWEEN ? AND ? AND deleted_at IS NULL
+    WHERE store_id = ? AND expense_date BETWEEN ? AND ? AND deleted_at IS NULL AND status = 'approved'
   `).get(storeId, from, to).total;
 
   const telesalesStaff = db.prepare(`SELECT id FROM users WHERE store_id = ? AND role = 'cashier' AND is_active = 1`).all(storeId);
