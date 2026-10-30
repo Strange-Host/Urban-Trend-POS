@@ -4,6 +4,8 @@ const { parsePagination, paginatedResponse } = require('../utils/paginate');
 const ordersService = require('../services/orders.service');
 const reconciliationService = require('../services/reconciliation.service');
 const atRiskService = require('../services/atRisk.service');
+const settingsService = require('../services/settings.service');
+const { maxPercentFor } = require('../utils/discounts');
 
 // GET /api/orders?status=&assigned_staff_id=&search=&page=&limit=
 const list = asyncHandler(async (req, res) => {
@@ -52,6 +54,7 @@ const create = asyncHandler(async (req, res) => {
     storeId: req.user.storeId, staffId: req.user.id,
     name, phone, email, city, leadId: lead_id, assignedStaffId: assigned_staff_id, channel,
     items, discountTotal: discount_total, notes, paymentType: payment_type, courierType: courier_type,
+    discountMaxPercent: maxPercentFor(req.user.role, settingsService.getAll()),
   });
   res.status(201).json({ data: ordersService.getOrderWithItems(order.id, req.user.storeId) });
 });

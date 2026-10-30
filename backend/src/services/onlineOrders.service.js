@@ -10,7 +10,8 @@ const telesalesDistribution = require('./telesalesDistribution.service');
 const salesSync = require('./salesSync.service');
 const shopify = require('../config/shopify');
 const woocommerce = require('../config/woocommerce');
-const { determineDeliveryZone, suggestCourier, computeDeliveryFee } = require('../utils/delivery');
+const { determineDeliveryZone, suggestCourier } = require('../utils/delivery');
+const deliveryAreas = require('./deliveryAreas.service');
 const { fromUpstreamError } = require('../utils/upstreamError');
 
 // "Pull online orders" on the Orders page.
@@ -109,6 +110,7 @@ function createFulfilmentOrder({ source, info, raw, norm, storeId, userId }) {
 
   const settings = settingsService.getAll();
   const zone = determineDeliveryZone(customer.city);
+  const { fee, area } = deliveryAreas.resolveFee({ town: customer.city, totalCents: total, settings });
   const paymentType = norm.paid ? 'prepaid' : 'cod';
   const windowMinutes = parseInt(settings.cod_confirmation_window_minutes, 10) || 120;
   const expires = paymentType === 'cod' ? db.prepare(`SELECT datetime('now', '+' || ? || ' minutes') AS v`).get(windowMinutes).v : null;
@@ -119,7 +121,7 @@ function createFulfilmentOrder({ source, info, raw, norm, storeId, userId }) {
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(storeId, customer.id, telesalesDistribution.autoAssignOrder(storeId) || null, info.channel, norm.externalId, source.id, subtotal, discount, total,
     norm.paid ? total : 0, `Imported from ${info.label} order ${norm.label}${norm.note ? ` - customer note: ${norm.note}` : ''}`,
-    paymentType, suggestCourier(zone), zone, computeDeliveryFee(total, settings), expires);
+    paymentType, area?.courier_type || suggestCourier(zone), zone, fee, expires);
   const orderId = inserted.lastInsertRowid;
 
   db.prepare('UPDATE orders SET product_code = ? WHERE id = ?').run(`UT${String(orderId).padStart(6, '0')}`, orderId);
