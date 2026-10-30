@@ -1,8 +1,9 @@
 const router = require('express').Router();
 const ctrl = require('../controllers/cashSessions.controller');
-const { authenticate, requirePermission } = require('../middleware/auth');
+const { authenticate, requireRole, requirePermission } = require('../middleware/auth');
 
-router.use(authenticate);
+// The storekeeper ('store') role has no till, so no cash session either.
+router.use(authenticate, requireRole('admin', 'manager', 'cashier'));
 
 // Any authenticated staff member can open/close their own session — a
 // cashier working the register needs this same as an admin covering a

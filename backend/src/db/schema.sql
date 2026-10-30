@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS users (
   phone          TEXT,                       -- Staff module (§5): reuses this table, doesn't duplicate identity
   password_hash  TEXT NOT NULL,
   pin_code_hash  TEXT,                       -- fast register login (4-6 digit PIN)
-  role           TEXT NOT NULL CHECK (role IN ('admin','manager','cashier')),
+  role           TEXT NOT NULL CHECK (role IN ('admin','manager','cashier','store')),
   is_active      INTEGER NOT NULL DEFAULT 1, -- Staff "soft delete": DELETE sets this to 0, never removes the row
   -- Phase 7 (employee onboarding & e-signature): defaults to 'active' so
   -- every EXISTING staff member and every account made through the plain
@@ -222,6 +222,14 @@ CREATE TABLE IF NOT EXISTS products (
                                                                        -- from one store could match against and silently
                                                                        -- overwrite a product that actually belongs to a
                                                                        -- different connected store.
+  -- Approval of products proposed by staff who may not create them outright (the storekeeper). A proposal is saved
+  -- with is_active = 0 so every existing screen that only lists active products (till, orders, stock) ignores it
+  -- until a manager approves it. Everything that existed before this column keeps the default 'approved'.
+  approval_status             TEXT NOT NULL DEFAULT 'approved' CHECK (approval_status IN ('approved','pending','rejected')),
+  submitted_by_staff_id       INTEGER REFERENCES users(id),
+  reviewed_by_staff_id        INTEGER REFERENCES users(id),
+  reviewed_at                 TEXT,
+  review_note                 TEXT,
   created_at                  TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at                  TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -657,7 +665,7 @@ CREATE TABLE IF NOT EXISTS staff_logs (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
   staff_id    INTEGER REFERENCES users(id),
   action      TEXT NOT NULL CHECK (action IN ('create','update','delete')),
-  entity_type TEXT NOT NULL,          -- 'lead','requisition','expense','payment','staff'
+  entity_type TEXT NOT NULL,          -- 'lead','requisition','expense','payment','staff' (approvals/rejections are 'update' rows whose diff shows the status change)
   entity_id   INTEGER NOT NULL,
   changes     TEXT NOT NULL DEFAULT '{}', -- JSON diff (or full snapshot on delete)
   created_at  TEXT NOT NULL DEFAULT (datetime('now'))
@@ -840,10 +848,33 @@ CREATE TABLE IF NOT EXISTS expenses (
   expense_date          TEXT NOT NULL,   -- calendar date (YYYY-MM-DD), distinct from created_at
   recorded_by_staff_id  INTEGER NOT NULL REFERENCES users(id),
   receipt_url           TEXT,
+  -- Approval workflow. Rows that existed before it was introduced default to 'approved' (they were already counted).
+  status                TEXT NOT NULL DEFAULT 'approved' CHECK (status IN ('pending','approved','rejected')),
+  reviewed_by_staff_id  INTEGER REFERENCES users(id),
+  reviewed_at           TEXT,
+  review_note           TEXT,
+  paid_from             TEXT NOT NULL DEFAULT 'main' CHECK (paid_from IN ('main','petty_cash')),
   created_at            TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at            TEXT NOT NULL DEFAULT (datetime('now')),
   deleted_at            TEXT
 );
+
+-- Money put into the petty-cash float. Spending from it is an ordinary expense with paid_from = 'petty_cash', so it
+-- flows through the same approval and the same profit figures; the float balance is top-ups minus those expenses.
+CREATE TABLE IF NOT EXISTS petty_cash_topups (
+  id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+  store_id              INTEGER NOT NULL REFERENCES stores(id),
+  amount                INTEGER NOT NULL CHECK (amount > 0),       -- smallest KES subunit (cents)
+  note                  TEXT,
+  topup_date            TEXT NOT NULL,
+  recorded_by_staff_id  INTEGER NOT NULL REFERENCES users(id),
+  status                TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected')),
+  reviewed_by_staff_id  INTEGER REFERENCES users(id),
+  reviewed_at           TEXT,
+  review_note           TEXT,
+  created_at            TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_petty_cash_topups_store ON petty_cash_topups(store_id);
 CREATE INDEX IF NOT EXISTS idx_expenses_date ON expenses(expense_date);
 CREATE INDEX IF NOT EXISTS idx_expenses_category ON expenses(category_id);
 

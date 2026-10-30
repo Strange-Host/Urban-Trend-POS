@@ -18,7 +18,8 @@ const PERMISSIONS = {
   'payroll.view':          { group: 'Team',      label: 'View payroll and commission',                roles: ['admin', 'manager'] },
   'staff.view':            { group: 'Team',      label: 'View the staff list',                        roles: ['admin', 'manager'] },
   'attendance.view':       { group: 'Team',      label: 'View today\'s attendance and absences',      roles: ['admin', 'manager'] },
-  'expenses.manage':       { group: 'Money',     label: 'Record and edit expenses',                   roles: ['admin', 'manager'] },
+  'expenses.manage':       { group: 'Money',     label: 'Record and edit expenses and petty cash top-ups', roles: ['admin', 'manager'] },
+  'expenses.approve':      { group: 'Money',     label: 'Approve or reject expenses and petty cash top-ups', roles: ['admin', 'manager'] },
   'payments.manage':       { group: 'Money',     label: 'Record and refund payments',                 roles: ['admin', 'manager'] },
   'payments.reconcile':    { group: 'Money',     label: 'Match unmatched payments to orders',         roles: ['admin', 'manager'] },
   'requisitions.approve':  { group: 'Money',     label: 'Approve or reject requisitions',             roles: ['admin', 'manager'] },
@@ -29,6 +30,9 @@ const PERMISSIONS = {
   'orders.inspect':        { group: 'Orders',    label: 'Inspect returned parcels',                   roles: ['admin', 'manager'] },
   'orders.resolve_dispute':{ group: 'Orders',    label: 'Resolve payment disputes',                   roles: ['admin', 'manager'] },
   'products.manage':       { group: 'Stock',     label: 'Create, edit and delete products and categories', roles: ['admin', 'manager'] },
+  'products.propose':      { group: 'Stock',     label: 'Propose new products (they stay hidden until approved)', roles: ['admin', 'manager', 'store'] },
+  'products.approve':      { group: 'Stock',     label: 'Approve or reject proposed products',        roles: ['admin', 'manager'] },
+  'products.view_cost':    { group: 'Stock',     label: 'See buying (cost) prices',                   roles: ['admin', 'manager'] },
   'inventory.adjust':      { group: 'Stock',     label: 'Adjust stock and view the stock check',      roles: ['admin', 'manager'] },
   'shopify.sync':          { group: 'Stock',     label: 'Use Shopify / WooCommerce sync',             roles: ['admin', 'manager'] },
   'sms.view':              { group: 'Messaging', label: 'View SMS delivery and retry failed messages', roles: ['admin', 'manager'] },
@@ -41,7 +45,9 @@ const PERMISSIONS = {
   'leads.intake_routes':   { group: 'Sales',     label: 'Manage web-form lead routing',               roles: ['admin', 'manager'] },
 };
 
-const ROLES = ['admin', 'manager', 'cashier'];
+// 'store' = the storekeeper who receives shipments. Deliberately narrower than cashier: no till, no sales,
+// no buying prices. Everything it can do is listed above (products.propose) or is a plain sign-in feature.
+const ROLES = ['admin', 'manager', 'cashier', 'store'];
 
 function defaultAllows(role, key) {
   const p = PERMISSIONS[key];

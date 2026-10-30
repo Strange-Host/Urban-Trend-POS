@@ -5,7 +5,7 @@ const { logStaffAction } = require('../utils/auditLog');
 const settingsService = require('./settings.service');
 
 const REQUIRED_DOC_TYPES = ['national_id', 'cv', 'contract'];
-const VALID_ROLES = ['admin', 'manager', 'cashier'];
+const VALID_ROLES = ['admin', 'manager', 'cashier', 'store'];
 
 // §11 Employee Onboarding & Profile Activation: created inactive
 // (is_active = 0) and 'pending_documents' — this is a DIFFERENT path from
