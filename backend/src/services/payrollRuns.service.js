@@ -101,21 +101,25 @@ const totalsOf = (items) => ({
   payable: sumOf(items, 'payable'), shortfall: sumOf(items, 'shortfall'), commission: sumOf(items, 'commission'),
 });
 
+const RUN_SELECT = `SELECT r.*, (SELECT name FROM users WHERE id = r.created_by) AS created_by_name,
+  (SELECT name FROM users WHERE id = r.approved_by) AS approved_by_name, (SELECT name FROM users WHERE id = r.paid_by) AS paid_by_name FROM payroll_runs r`;
+
 const viewOf = (r) => ({
+  createdByName: r.created_by_name, approvedByName: r.approved_by_name, paidByName: r.paid_by_name,
   id: r.id, periodStart: r.period_start, periodEnd: r.period_end, status: r.status, createdBy: r.created_by, createdAt: r.created_at,
   approvedBy: r.approved_by, approvedAt: r.approved_at, paidBy: r.paid_by, paidAt: r.paid_at,
   paymentMethod: r.payment_method, paymentRef: r.payment_ref, checksum: r.checksum,
 });
 
 function getRun({ runId, storeId }) {
-  const r = db.prepare('SELECT * FROM payroll_runs WHERE id = ? AND store_id = ?').get(runId, storeId);
+  const r = db.prepare(`${RUN_SELECT} WHERE r.id = ? AND r.store_id = ?`).get(runId, storeId);
   if (!r) throw runError(404, 'RUN_NOT_FOUND', 'Payroll run not found.');
   const items = loadItems(r.id);
   return { ...viewOf(r), items, totals: totalsOf(items) };
 }
 
 function listRuns({ storeId }) {
-  return db.prepare('SELECT * FROM payroll_runs WHERE store_id = ? ORDER BY period_start DESC, id DESC').all(storeId).map(viewOf);
+  return db.prepare(`${RUN_SELECT} WHERE r.store_id = ? ORDER BY r.period_start DESC, r.id DESC`).all(storeId).map(viewOf);
 }
 
 /**

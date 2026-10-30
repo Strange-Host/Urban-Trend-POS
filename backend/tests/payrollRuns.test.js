@@ -124,6 +124,7 @@ describe('locked payroll runs (Rule 9)', () => {
     expect(run.status).toBe('approved');
     expect(run.checksum).toMatch(/^[0-9a-f]{64}$/);
     expect(run.approvedBy).toBe(adminId);
+    expect(run.approvedByName).toBeTruthy();
 
     const commissioned = db.prepare('SELECT order_id FROM commissioned_orders WHERE run_id = ?').all(runId);
     expect(commissioned.length).toBe(commissionLines(run).length);

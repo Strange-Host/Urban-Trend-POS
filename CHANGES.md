@@ -21,7 +21,14 @@ periods are shop dates. New tables (`schema.sql`): `payroll_runs`, `payroll_item
    commissioned orders are frozen once the run is approved; a run only moves draft -> approved -> paid and each step
    changes only its own columns; locked runs cannot be deleted; two locked runs cannot cover the same day.
 
-Not changed: no screens yet (the Payroll page still reads the live summary). A deduction dated inside an already-locked
+4. **Payroll page.** Money > Team > Payroll now has two tabs. **Pay runs** (new, `pages/PayrollRuns.jsx`): pick a period and
+   calculate a draft, open a run to see each person's gross, deductions and payable (expand for the itemised lines), then
+   *Approve and lock* (asks for confirmation) and *Mark as paid* (M-Pesa and bank need a reference). A stale draft explains
+   itself and offers *Recalculate*; a locked run shows "Fingerprint verified", or an alert if the stored figures no longer
+   match. Managers see Approve and Mark as paid but they are disabled, because the server allows only admins. **Live summary**
+   is the previous page, unchanged apart from its description.
+
+Not changed: a deduction dated inside an already-locked
 period is not carried forward, so lock a period only once it is over.
 
 # Rider payables: package fees, approved costs, payouts
