@@ -2,6 +2,7 @@ import { useState } from 'react';
 import TabBar from '../components/TabBar';
 import Products from './Products';
 import Categories from './Categories';
+import { useAuth } from '../context/AuthContext';
 
 // Merges the old separate Products / Inventory / Categories nav items into
 // one page. The underlying data stays split across two backend tables
@@ -16,11 +17,14 @@ const TABS = [
 
 export default function Catalog() {
   const [tab, setTab] = useState('products');
+  const { can } = useAuth();
+  // A storekeeper can only propose products; managing categories needs the full products permission.
+  const canManage = can('products.manage');
 
   return (
     <div>
-      <TabBar tabs={TABS} active={tab} onChange={setTab} className="px-4 md:px-8 pt-4 md:pt-6" />
-      {tab === 'products' ? <Products /> : <Categories />}
+      {canManage && <TabBar tabs={TABS} active={tab} onChange={setTab} className="px-4 md:px-8 pt-4 md:pt-6" />}
+      {tab === 'products' || !canManage ? <Products /> : <Categories />}
     </div>
   );
 }

@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { productsApi, categoriesApi, inventoryApi } from '../api/endpoints';
 import { getErrorMessage } from '../api/client';
-import { useDialog } from '../context/UIContext';
+import { useDialog, useToast } from '../context/UIContext';
+import { useAuth } from '../context/AuthContext';
 
 import Sheet from '../components/Sheet';
 import Picker, { Segmented } from '../components/Picker';
@@ -11,6 +12,17 @@ const emptyAdjustForm = { mode: 'add', qty: '', reason: 'restock' };
 
 export default function Products() {
   const dialog = useDialog();
+  const toast = useToast();
+  const { can } = useAuth();
+  // What this person may do. The server enforces every one of these; the screen just doesn't offer the rest.
+  const canManage = can('products.manage');
+  const canPropose = can('products.propose');
+  const canApprove = can('products.approve');
+  const canSeeCost = can('products.view_cost');
+  const canAdjust = can('inventory.adjust');
+  const [approving, setApproving] = useState(null); // the proposed product being approved, or null
+  const [approveForm, setApproveForm] = useState({ cost_price: '', sell_price: '' });
+  const [approveError, setApproveError] = useState('');
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [editing, setEditing] = useState(null); // null = closed, {} = new, {...} = edit
@@ -31,6 +43,44 @@ export default function Products() {
     queryFn: () => categoriesApi.list().then((r) => r.data.data),
   });
 
+  const { data: pending } = useQuery({
+    queryKey: ['products', 'pending'],
+    queryFn: () => productsApi.listPending().then((r) => r.data.data),
+    enabled: canApprove || canPropose,
+  });
+
+  function openApprove(p) {
+    setApproveForm({ cost_price: canSeeCost && p.cost_price ? (p.cost_price / 100).toString() : '', sell_price: (p.sell_price / 100).toString() });
+    setApproveError('');
+    setApproving(p);
+  }
+
+  async function handleApprove(e) {
+    e.preventDefault();
+    setApproveError('');
+    const payload = { sell_price: Math.round(parseFloat(approveForm.sell_price) * 100) };
+    if (canSeeCost) payload.cost_price = Math.round((parseFloat(approveForm.cost_price) || 0) * 100);
+    try {
+      await productsApi.approve(approving.id, payload);
+      queryClient.invalidateQueries({ queryKey: ['products'] });
+      toast.success(`"${approving.name}" approved and added to the catalog.`);
+      setApproving(null);
+    } catch (err) {
+      setApproveError(getErrorMessage(err, 'Could not approve product.'));
+    }
+  }
+
+  async function handleReject(p) {
+    const note = await dialog.prompt({ message: `Why are you rejecting "${p.name}"? The storekeeper will see this.`, required: true, confirmLabel: 'Reject' });
+    if (!note) return;
+    try {
+      await productsApi.reject(p.id, note);
+      queryClient.invalidateQueries({ queryKey: ['products'] });
+    } catch (err) {
+      toast.error(getErrorMessage(err, 'Could not reject product.'));
+    }
+  }
+
   function openNew() {
     setForm(emptyForm);
     setError('');
@@ -40,7 +90,7 @@ export default function Products() {
   function openEdit(p) {
     setForm({
       sku: p.sku, barcode: p.barcode || '', name: p.name,
-      category_id: p.category_id || '', cost_price: (p.cost_price / 100).toString(),
+      category_id: p.category_id || '', cost_price: p.cost_price != null ? (p.cost_price / 100).toString() : '',
       sell_price: (p.sell_price / 100).toString(),
     });
     setError('');
@@ -57,11 +107,13 @@ export default function Products() {
       category_id: form.category_id || null,
       barcode: form.barcode || null,
     };
+    if (!canSeeCost) delete payload.cost_price; // buying price is not theirs to set
     try {
       if (editing.id) {
         await productsApi.update(editing.id, payload);
       } else {
-        await productsApi.create(payload);
+        const res = await productsApi.create(payload);
+        if (res.data?.data?.approval_status === 'pending') toast.success('Sent for approval. It will appear in the catalog once a manager approves it.');
       }
       queryClient.invalidateQueries({ queryKey: ['products'] });
       setEditing(null);
@@ -104,13 +156,44 @@ export default function Products() {
           <h1 className="font-display font-700 text-2xl">Products</h1>
           <p className="text-text-muted text-sm mt-1">{data?.total ?? '—'} products in catalog</p>
         </div>
-        <button
-          onClick={openNew}
-          className="px-4 py-2.5 rounded-lg bg-ink text-white text-sm font-medium hover:bg-ink-soft transition-colors"
-        >
-          + Add product
-        </button>
+        {(canManage || canPropose) && (
+          <button
+            onClick={openNew}
+            className="px-4 py-2.5 rounded-lg bg-ink text-white text-sm font-medium hover:bg-ink-soft transition-colors"
+          >
+            {canManage ? '+ Add product' : '+ Propose product'}
+          </button>
+        )}
       </div>
+
+      {pending?.length > 0 && (
+        <div className="mb-6 bg-surface border border-line rounded-xl overflow-hidden">
+          <div className="px-4 py-3 border-b border-line flex items-center gap-2">
+            <span className="px-2 py-0.5 rounded-full bg-accent text-accent-ink text-xs font-medium">{pending.length}</span>
+            <h2 className="font-display font-700 text-sm">{canApprove ? 'Waiting for your approval' : 'Waiting for approval'}</h2>
+          </div>
+          <ul>
+            {pending.map((p) => (
+              <li key={p.id} className="px-4 py-3 border-b border-line last:border-0 flex flex-wrap items-center gap-x-4 gap-y-2">
+                <div className="min-w-0 flex-1">
+                  <div className="font-medium truncate">{p.name}</div>
+                  <div className="text-xs text-text-muted font-mono">
+                    {p.sku} · KES {(p.sell_price / 100).toFixed(2)}{p.submitted_by_name ? ` · proposed by ${p.submitted_by_name}` : ''}
+                  </div>
+                </div>
+                {canApprove ? (
+                  <div className="flex gap-3 whitespace-nowrap">
+                    <button onClick={() => openApprove(p)} className="text-xs font-medium text-success hover:opacity-70">Approve</button>
+                    <button onClick={() => handleReject(p)} className="text-xs text-danger hover:opacity-70">Reject</button>
+                  </div>
+                ) : (
+                  <span className="text-xs text-text-muted">Not in the catalog yet</span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <input
         type="text"
@@ -146,9 +229,9 @@ export default function Products() {
                   {p.total_stock}
                 </td>
                 <td className="px-4 py-3 text-right whitespace-nowrap">
-                  <button onClick={() => openAdjust(p)} className="text-xs text-text-muted hover:text-text mr-3">Adjust stock</button>
-                  <button onClick={() => openEdit(p)} className="text-xs text-text-muted hover:text-text mr-3">Edit</button>
-                  <button onClick={() => handleDelete(p.id)} className="text-xs text-danger hover:opacity-70">Remove</button>
+                  {canAdjust && <button onClick={() => openAdjust(p)} className="text-xs text-text-muted hover:text-text mr-3">Adjust stock</button>}
+                  {canManage && <button onClick={() => openEdit(p)} className="text-xs text-text-muted hover:text-text mr-3">Edit</button>}
+                  {canManage && <button onClick={() => handleDelete(p.id)} className="text-xs text-danger hover:opacity-70">Remove</button>}
                 </td>
               </tr>
             ))}
@@ -172,7 +255,12 @@ export default function Products() {
 
       {editing !== null && (
         <Sheet onClose={() => setEditing(null)} size="md" as="form" onSubmit={handleSave}>
-            <h2 className="font-display font-700 text-lg mb-4">{editing.id ? 'Edit product' : 'New product'}</h2>
+            <h2 className="font-display font-700 text-lg mb-4">{editing.id ? 'Edit product' : canManage ? 'New product' : 'Propose a product'}</h2>
+            {!canManage && !editing.id && (
+              <p className="mb-3 px-3 py-2 rounded-lg bg-paper border border-line text-xs text-text-muted">
+                A manager reviews new products and sets the buying price before they appear in the catalog or at the till.
+              </p>
+            )}
 
             {error && <div className="mb-3 px-3 py-2 rounded-lg bg-danger-soft text-danger text-sm">{error}</div>}
 
@@ -199,18 +287,20 @@ export default function Products() {
                   onChange={(v) => setForm({ ...form, category_id: v })}
                   options={(categories || []).map((c) => ({ value: c.id, label: c.name }))}
                   allowClear clearLabel="None" createLabel="New category"
-                  onCreate={async (name) => {
+                  onCreate={canManage ? async (name) => {
                     const { data } = await categoriesApi.create({ name });
                     queryClient.invalidateQueries({ queryKey: ['categories'] });
                     return data.data.id;
-                  }}
+                  } : undefined}
                 />
               </div>
-              <div>
-                <label className="block text-xs font-medium text-text-muted mb-1">Cost price</label>
-                <input type="number" step="0.01" value={form.cost_price} onChange={(e) => setForm({ ...form, cost_price: e.target.value })}
-                  className="w-full px-3 py-2 rounded-lg border border-line outline-none focus:border-accent" />
-              </div>
+              {canSeeCost && (
+                <div>
+                  <label className="block text-xs font-medium text-text-muted mb-1">Cost price</label>
+                  <input type="number" step="0.01" value={form.cost_price} onChange={(e) => setForm({ ...form, cost_price: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg border border-line outline-none focus:border-accent" />
+                </div>
+              )}
               <div>
                 <label className="block text-xs font-medium text-text-muted mb-1">Sell price</label>
                 <input required type="number" step="0.01" value={form.sell_price} onChange={(e) => setForm({ ...form, sell_price: e.target.value })}
@@ -225,6 +315,32 @@ export default function Products() {
               <button type="submit" className="flex-1 py-2.5 rounded-lg bg-ink text-white text-sm font-medium hover:bg-ink-soft">
                 Save
               </button>
+            </div>
+          </Sheet>
+      )}
+
+      {approving && (
+        <Sheet onClose={() => setApproving(null)} size="sm" as="form" onSubmit={handleApprove}>
+            <h2 className="font-display font-700 text-lg mb-1">Approve product</h2>
+            <p className="text-text-muted text-sm mb-4">{approving.name} <span className="font-mono">({approving.sku})</span></p>
+            {approveError && <div className="mb-3 px-3 py-2 rounded-lg bg-danger-soft text-danger text-sm">{approveError}</div>}
+
+            {canSeeCost && (
+              <>
+                <label className="block text-xs font-medium text-text-muted mb-1">Buying (cost) price</label>
+                <input type="number" step="0.01" min="0" value={approveForm.cost_price}
+                  onChange={(e) => setApproveForm({ ...approveForm, cost_price: e.target.value })}
+                  className="w-full px-3 py-2 rounded-lg border border-line outline-none focus:border-accent mb-3" />
+              </>
+            )}
+            <label className="block text-xs font-medium text-text-muted mb-1">Selling price</label>
+            <input required type="number" step="0.01" min="0" value={approveForm.sell_price}
+              onChange={(e) => setApproveForm({ ...approveForm, sell_price: e.target.value })}
+              className="w-full px-3 py-2 rounded-lg border border-line outline-none focus:border-accent mb-5" />
+
+            <div className="flex gap-2">
+              <button type="button" onClick={() => setApproving(null)} className="flex-1 py-2.5 rounded-lg border border-line text-sm font-medium">Cancel</button>
+              <button type="submit" className="flex-1 py-2.5 rounded-lg bg-ink text-white text-sm font-medium hover:bg-ink-soft">Approve</button>
             </div>
           </Sheet>
       )}

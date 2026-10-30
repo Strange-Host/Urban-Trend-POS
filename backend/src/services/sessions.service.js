@@ -9,6 +9,7 @@ const settingsService = require('./settings.service');
 //              length for the role: signing in again is the only way back
 // Refresh tokens rotate INSIDE a session and can never stretch it past absolute_expires_at.
 
+// A 'store' account has no timing rules of its own: policyFor() falls back to the cashier rules for it.
 const ROLES = ['admin', 'manager', 'cashier'];
 const WRITE_THROTTLE_MS = 15 * 1000;          // don't hit the disk for every click
 const HOUR = 3600 * 1000;

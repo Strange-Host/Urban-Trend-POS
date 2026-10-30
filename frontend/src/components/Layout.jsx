@@ -34,7 +34,7 @@ const GROUPS = [
     id: 'stock',
     label: 'Stock',
     items: [
-      { to: '/catalog', label: 'Catalog', icon: '▤', roles: ['admin', 'manager'], perm: 'products.manage' },
+      { to: '/catalog', label: 'Catalog', icon: '▤', roles: ['admin', 'manager', 'store'], perm: ['products.manage', 'products.propose'] },
       { to: '/shopify-sync', label: 'Shopify sync', icon: '⇄', roles: ['admin', 'manager'], perm: 'shopify.sync' },
     ],
   },
@@ -112,7 +112,7 @@ export default function Layout() {
   // `module` marks menu items that belong to an optional module (hidden while it is switched off).
   const visible = (items) => items
     .filter((i) => !i.module || modules[i.module])
-    .filter((i) => (i.perm ? can(i.perm) : hasRole(...i.roles)));
+    .filter((i) => (i.perm ? (Array.isArray(i.perm) ? i.perm.some((p) => can(p)) : can(i.perm)) : hasRole(...i.roles)));
   const activeGroupId = GROUPS.find((g) => g.items.some((i) => i.to === location.pathname))?.id;
 
   useEffect(() => {

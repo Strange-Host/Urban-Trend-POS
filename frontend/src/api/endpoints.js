@@ -21,6 +21,9 @@ export const productsApi = {
   create: (data) => client.post('/products', data),
   update: (id, data) => client.put(`/products/${id}`, data),
   remove: (id) => client.delete(`/products/${id}`),
+  listPending: () => client.get('/products/pending/list'),
+  approve: (id, data) => client.post(`/products/${id}/approve`, data || {}),
+  reject: (id, note) => client.post(`/products/${id}/reject`, { note }),
 };
 
 export const categoriesApi = {
@@ -155,6 +158,15 @@ export const expensesApi = {
   remove: (id) => client.delete(`/expenses/${id}`),
   listCategories: () => client.get('/expenses/categories'),
   createCategory: (name) => client.post('/expenses/categories', { name }),
+  approve: (id) => client.post(`/expenses/${id}/approve`),
+  reject: (id, note) => client.post(`/expenses/${id}/reject`, { note }),
+};
+
+export const pettyCashApi = {
+  overview: () => client.get('/petty-cash'),
+  createTopup: (data) => client.post('/petty-cash/topups', data),
+  approveTopup: (id) => client.post(`/petty-cash/topups/${id}/approve`),
+  rejectTopup: (id, note) => client.post(`/petty-cash/topups/${id}/reject`, { note }),
 };
 
 export const paymentsApi = {
