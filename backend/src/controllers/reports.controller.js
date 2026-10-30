@@ -1,7 +1,6 @@
 const db = require('../config/db');
 const asyncHandler = require('../utils/asyncHandler');
-const payrollService = require('../services/payroll.service');
-const { monthSegments } = require('../utils/payCycle');
+const pnlService = require('../services/reportsPnl.service');
 const { PAGINATION } = require('../config/limits');
 const { dateOf, localDate, dateParam } = require('../utils/storeTime');
 
@@ -258,68 +257,9 @@ const unpaidParcels = asyncHandler(async (req, res) => {
 // in this app (only telesales retainer+commission is), so they're not in
 // this number — a real "total salaries" figure needs that added first.
 const profitSummary = asyncHandler(async (req, res) => {
-  const storeId = req.user.storeId;
   const from = dateParam(req.query.from, 'from', isoDaysAgo(29));
   const to = dateParam(req.query.to, 'to', isoDaysAgo(0));
-
-  // POS: line totals are already net of per-line discounts, but a sale can also carry a
-  // sale-level discount (sales.discount_total) that never reaches the lines. Revenue is what the
-  // customer actually paid for goods, so take that discount off too.
-  const posRevenueCost = db.prepare(`
-    SELECT COALESCE(SUM(si.line_total), 0) AS revenue, COALESCE(SUM(si.quantity * p.cost_price), 0) AS cost
-    FROM sale_items si JOIN sales s ON s.id = si.sale_id JOIN products p ON p.id = si.product_id
-    WHERE s.store_id = ? AND s.status = 'completed' AND ${dateOf('s.created_at')} BETWEEN ? AND ?
-  `).get(storeId, from, to);
-  const posSaleDiscounts = db.prepare(`
-    SELECT COALESCE(SUM(discount_total), 0) AS total FROM sales s
-    WHERE s.store_id = ? AND s.status = 'completed' AND ${dateOf('s.created_at')} BETWEEN ? AND ?
-  `).get(storeId, from, to).total;
-  posRevenueCost.revenue -= posSaleDiscounts;
-
-  // Online: count only the collected share of an order. A part-paid order (dispatched_partial)
-  // used to count its FULL value as revenue; now both revenue and the cost of the goods are
-  // scaled by amount_paid / total (capped at 1), matching the dashboard's "sold = collected".
-  const onlineRevenueCost = db.prepare(`
-    SELECT
-      COALESCE(SUM(CAST(ROUND(oi.line_total * MIN(o.amount_paid, o.total) * 1.0 / o.total) AS INTEGER)), 0) AS revenue,
-      COALESCE(SUM(CAST(ROUND(oi.quantity * p.cost_price * MIN(o.amount_paid, o.total) * 1.0 / o.total) AS INTEGER)), 0) AS cost
-    FROM order_items oi JOIN orders o ON o.id = oi.order_id JOIN products p ON p.id = oi.product_id
-    WHERE o.store_id = ? AND o.status IN ('dispatched_paid','dispatched_partial') AND o.total > 0
-      AND ${dateOf('o.dispatched_at')} BETWEEN ? AND ? AND o.deleted_at IS NULL AND o.sale_id IS NULL
-  `).get(storeId, from, to);
-
-  const deliveryFees = db.prepare(`
-    SELECT COALESCE(SUM(delivery_fee), 0) AS total FROM orders
-    WHERE store_id = ? AND status IN ('dispatched_unpaid','dispatched_partial','dispatched_paid') AND ${dateOf('dispatched_at')} BETWEEN ? AND ? AND deleted_at IS NULL
-  `).get(storeId, from, to).total;
-
-  const businessExpenses = db.prepare(`
-    SELECT COALESCE(SUM(amount), 0) AS total FROM expenses
-    WHERE store_id = ? AND expense_date BETWEEN ? AND ? AND deleted_at IS NULL AND status = 'approved'
-  `).get(storeId, from, to).total;
-
-  const telesalesStaff = db.prepare(`SELECT id FROM users WHERE store_id = ? AND role = 'cashier' AND is_active = 1`).all(storeId);
-  let laborCost = 0;
-  for (const staff of telesalesStaff) {
-    // Commission targets reset each month, so a range that spans months is costed month by month and added up.
-    for (const seg of monthSegments(from, to)) {
-      const summary = payrollService.getSummary({ staffId: staff.id, storeId, periodStart: seg.from, periodEnd: seg.to });
-      laborCost += summary.dailyRetainer.total + summary.commission.commissionTotal;
-    }
-  }
-
-  const revenue = posRevenueCost.revenue + onlineRevenueCost.revenue;
-  const costOfGoodsSold = posRevenueCost.cost + onlineRevenueCost.cost;
-  const netProfit = revenue - costOfGoodsSold - deliveryFees - laborCost - businessExpenses;
-
-  res.json({
-    data: {
-      period: { from, to },
-      revenue, costOfGoodsSold, deliveryFees, laborCost, businessExpenses,
-      grossMargin: revenue - costOfGoodsSold,
-      netProfit,
-    },
-  });
+  res.json({ data: pnlService.profitLoss({ storeId: req.user.storeId, from, to }) });
 });
 
 // GET /api/reports/top-products-by-profit?from=&to=&limit=10 — combines
