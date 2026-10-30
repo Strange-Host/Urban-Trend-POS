@@ -1,13 +1,13 @@
 const db = require('../config/db');
 const ApiError = require('../utils/ApiError');
-const { assertLineDiscount, assertSaleDiscount } = require('../utils/discounts');
+const { assertLineDiscount, assertSaleDiscount, assertDiscountPercent } = require('../utils/discounts');
 
 /**
  * items: [{ product_id, quantity, discount? }]
  * payments: [{ method, amount, reference? }]
  * clientSaleId: optional client-generated UUID for idempotency (offline register queue)
  */
-function checkout({ storeId, cashierId, customerId, cashSessionId, items, payments, discountTotal = 0, clientSaleId = null }) {
+function checkout({ storeId, cashierId, customerId, cashSessionId, items, payments, discountTotal = 0, clientSaleId = null, discountMaxPercent = 0 }) {
   if (!items || items.length === 0) throw new ApiError(400, 'Sale must contain at least one item.');
   if (!payments || payments.length === 0) throw new ApiError(400, 'At least one payment is required.');
 
@@ -29,6 +29,8 @@ function checkout({ storeId, cashierId, customerId, cashSessionId, items, paymen
     const productMap = new Map(products.map((p) => [p.id, p]));
 
     let subtotal = 0;
+    let grossTotal = 0;
+    let lineDiscountTotal = 0;
     const lineItems = [];
 
     // The same product can appear on more than one line (the till lets you add it twice,
@@ -66,6 +68,8 @@ function checkout({ storeId, cashierId, customerId, cashSessionId, items, paymen
       const lineTotal = unitPrice * item.quantity - discount;
 
       subtotal += lineTotal;
+      grossTotal += unitPrice * item.quantity;
+      lineDiscountTotal += discount;
 
       lineItems.push({
         product_id: product.id,
@@ -79,6 +83,7 @@ function checkout({ storeId, cashierId, customerId, cashSessionId, items, paymen
 
     const taxTotal = 0;
     assertSaleDiscount({ discountTotal, subtotal });
+    assertDiscountPercent({ lineDiscountTotal, saleDiscount: discountTotal, grossTotal, maxPercent: discountMaxPercent });
     const total = subtotal - discountTotal;
     const paymentsSum = payments.reduce((s, p) => s + p.amount, 0);
     // Amounts are integer cents now — an exact match is the correct check

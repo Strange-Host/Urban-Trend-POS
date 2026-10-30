@@ -1585,3 +1585,36 @@ CREATE TABLE IF NOT EXISTS rate_limits (
   count           INTEGER NOT NULL CHECK (count >= 0)
 );
 CREATE INDEX IF NOT EXISTS idx_rate_limits_window ON rate_limits(window_start_ms);
+
+-- ---------------------------------------------------------------------
+-- DELIVERY AREAS (Joyfull Cargo rate card): one row per area with its own
+-- delivery fee. When an order's town matches an area, this fee replaces the
+-- flat/percent rule (see utils/delivery.js resolveDeliveryFee).
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS delivery_areas (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  area_name     TEXT NOT NULL,
+  area_key      TEXT NOT NULL UNIQUE,          -- lower-cased, punctuation stripped: the lookup key
+  fee           INTEGER NOT NULL CHECK (fee >= 0),   -- smallest KES subunit (cents), never float
+  courier_type  TEXT CHECK (courier_type IN ('boda','g4s')),
+  notes         TEXT,
+  is_active     INTEGER NOT NULL DEFAULT 1,
+  created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- ---------------------------------------------------------------------
+-- SALES FORECASTS: what the branch expected to sell and spend in a month,
+-- compared against actuals in the P&L (reports/pnl.service.js).
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS sales_forecasts (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  store_id        INTEGER NOT NULL REFERENCES stores(id),
+  month           TEXT NOT NULL CHECK (month GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]'),  -- YYYY-MM
+  revenue_target  INTEGER NOT NULL DEFAULT 0 CHECK (revenue_target >= 0),   -- cents
+  expense_budget  INTEGER NOT NULL DEFAULT 0 CHECK (expense_budget >= 0),   -- cents
+  notes           TEXT,
+  updated_by      INTEGER REFERENCES users(id),
+  updated_at      TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (store_id, month)
+);

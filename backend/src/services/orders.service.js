@@ -9,9 +9,10 @@ const couriersService = require('./couriers.service');
 const courierOrganizations = require('./courierOrganizations.service');
 const courierPayablesService = require('./courierPayables.service');
 const notificationsService = require('./notifications.service');
-const { determineDeliveryZone, suggestCourier, computeDeliveryFee } = require('../utils/delivery');
+const { determineDeliveryZone, suggestCourier } = require('../utils/delivery');
+const deliveryAreas = require('./deliveryAreas.service');
 const telesalesDistribution = require('./telesalesDistribution.service');
-const { assertLineDiscount, assertSaleDiscount } = require('../utils/discounts');
+const { assertLineDiscount, assertSaleDiscount, assertDiscountPercent } = require('../utils/discounts');
 const commissionReversal = require('./commissionReversal.service');
 
 // State machine — see schema.sql's CHECK on orders.status for the full
@@ -95,13 +96,15 @@ function findByProductCode({ storeId, productCode }) {
   `).get(storeId, productCode);
 }
 
-function computeTotals(items, discountTotal = 0) {
+function computeTotals(items, discountTotal = 0, maxPercent = 0) {
   const productIds = items.map((i) => i.product_id);
   const placeholders = productIds.map(() => '?').join(',');
   const products = db.prepare(`SELECT * FROM products WHERE id IN (${placeholders}) AND is_active = 1`).all(...productIds);
   const productMap = new Map(products.map((p) => [p.id, p]));
 
   let subtotal = 0;
+  let grossTotal = 0;
+  let lineDiscountTotal = 0;
   const lineItems = [];
   for (const item of items) {
     const product = productMap.get(item.product_id);
@@ -113,10 +116,13 @@ function computeTotals(items, discountTotal = 0) {
     assertLineDiscount({ discount, unitPrice, quantity: item.quantity, productName: product.name });
     const lineTotal = unitPrice * item.quantity - discount;
     subtotal += lineTotal;
+    grossTotal += unitPrice * item.quantity;
+    lineDiscountTotal += discount;
     lineItems.push({ product_id: product.id, quantity: item.quantity, unit_price: unitPrice, discount, line_total: lineTotal });
   }
 
   assertSaleDiscount({ discountTotal, subtotal });
+  assertDiscountPercent({ lineDiscountTotal, saleDiscount: discountTotal, grossTotal, maxPercent });
   return { subtotal, total: subtotal - discountTotal, lineItems };
 }
 
@@ -125,7 +131,7 @@ function computeTotals(items, discountTotal = 0) {
 // by phone against any ACTIVE order for this store; a genuine duplicate
 // surfaces as 409 with the existing order id so the caller can offer the
 // merge-items path instead of a silent second order.
-function create({ storeId, staffId, name, phone, email, city, leadId, assignedStaffId, channel, items, discountTotal, notes, paymentType, courierType }) {
+function create({ storeId, staffId, name, phone, email, city, leadId, assignedStaffId, channel, items, discountTotal, notes, paymentType, courierType, discountMaxPercent = 0 }) {
   if (!phone) throw new ApiError(400, 'phone is required.');
   if (!items || items.length === 0) throw new ApiError(400, 'Order must contain at least one item.');
   if (channel && !CHANNELS.includes(channel)) throw new ApiError(400, `channel must be one of ${CHANNELS.join(', ')}.`);
@@ -139,7 +145,7 @@ function create({ storeId, staffId, name, phone, email, city, leadId, assignedSt
 
   const txn = db.transaction(() => {
     const customer = customersService.findOrCreate({ name, phone, email, city });
-    const { subtotal, total, lineItems } = computeTotals(items, discountTotal || 0);
+    const { subtotal, total, lineItems } = computeTotals(items, discountTotal || 0, discountMaxPercent);
 
     // Delivery zone/courier/fee (§1/§7) — computed once at creation from
     // what's known then (customer's city); a manual courier override is
@@ -147,8 +153,10 @@ function create({ storeId, staffId, name, phone, email, city, leadId, assignedSt
     // the auto-suggestion always runs first so there's always a sane default.
     const settings = settingsService.getAll();
     const deliveryZone = determineDeliveryZone(customer.city);
-    const finalCourierType = courierType || suggestCourier(deliveryZone);
-    const deliveryFee = computeDeliveryFee(total, settings);
+    // A town on the delivery-area rate card sets the fee (and suggests its courier); anything else
+    // falls back to the flat/percent rule.
+    const { fee: deliveryFee, area: deliveryArea } = deliveryAreas.resolveFee({ town: customer.city, totalCents: total, settings });
+    const finalCourierType = courierType || deliveryArea?.courier_type || suggestCourier(deliveryZone);
     const finalPaymentType = paymentType || 'cod';
 
     // §3 Equal Distribution — same reasoning as leads.service.js: an
@@ -232,7 +240,8 @@ function mergeItems({ orderId, storeId, staffId, items }) {
     const newTotal = newSubtotal - order.discount_total;
     // The delivery fee is tiered on the order total (flat under the threshold, a percentage above it), so a
     // merge that moves the total across the threshold must move the fee too. Same rule create() applies.
-    const newDeliveryFee = computeDeliveryFee(newTotal, settingsService.getAll());
+    const mergeCity = db.prepare('SELECT city FROM customers WHERE id = ?').get(order.customer_id)?.city;
+    const newDeliveryFee = deliveryAreas.resolveFee({ town: mergeCity, totalCents: newTotal, settings: settingsService.getAll() }).fee;
     db.prepare(`UPDATE orders SET subtotal = ?, total = ?, delivery_fee = ?, updated_at = datetime('now') WHERE id = ?`)
       .run(newSubtotal, newTotal, newDeliveryFee, orderId);
 
