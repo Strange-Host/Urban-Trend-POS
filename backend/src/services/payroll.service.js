@@ -2,6 +2,7 @@ const db = require('../config/db');
 const { dateOf, sqlOffset } = require('../utils/storeTime');
 const ApiError = require('../utils/ApiError');
 const settingsService = require('./settings.service');
+const { securedOrders } = require('./commission.service');
 
 // §12 Attendance & Deductions, computed fresh from staff_attendance every
 // time — see payroll_adjustments' comment in schema.sql for why this isn't
@@ -22,6 +23,7 @@ function computeAttendanceDeductions({ staffId, periodStart, periodEnd, settings
   `).all(staffId, periodStart, periodEnd);
 
   let daysLoggedIn = 0;
+  const loggedInDates = [];
   let absenceTotal = 0;
   let lateTotal = 0;
   let missingHoursTotal = 0;
@@ -34,6 +36,7 @@ function computeAttendanceDeductions({ staffId, periodStart, periodEnd, settings
       continue;
     }
     daysLoggedIn += 1;
+    loggedInDates.push(row.work_date);
 
     // clock_in_at is stored in UTC; the shift start hour is the SHOP's clock (Nairobi, UTC+3).
     // Measure the hour on the shop clock, or 8:00 am local (05:00 UTC) would look like 5 and never be late.
@@ -60,47 +63,80 @@ function computeAttendanceDeductions({ staffId, periodStart, periodEnd, settings
     }
   }
 
-  return { daysLoggedIn, absenceTotal, lateTotal, missingHoursTotal, breakdown };
+  return { daysLoggedIn, loggedInDates, absenceTotal, lateTotal, missingHoursTotal, breakdown };
 }
 
 // §6 Commission tiers — see settings.service.js DEFAULTS for the "best
 // guess pending confirmation" caveat on the actual numbers. Achievement is
-// this staff member's dispatched-and-paid sales value in the period versus
-// their configured target; the rate that tier earns is then paid PER UNIT
+// this staff member's SECURED sales value in the period versus their
+// configured target; the rate that tier earns is then paid PER UNIT
 // (order_item quantity) they actually sold — not a flat percentage of
-// revenue. Only counts orders that reached dispatched_paid — commission on
-// money that was never actually collected isn't commission, it's a
-// projection.
-function computeCommission({ staffId, periodStart, periodEnd, settings }) {
+// revenue.
+//
+// RULE 8: commission is paid only on secure money (see commission.service.js):
+// a dispatched, fully paid order whose money has actually landed — not shop
+// cash still in someone's pocket, not money a courier organization has
+// collected but not remitted. An order counts in the period its money became
+// secure. Achievement is kept in basis points (10000 = 100%) so there is no
+// floating point in the tier boundaries.
+function computeCommission({ staffId, storeId, periodStart, periodEnd, settings, excludeCommissioned = false }) {
   const target = parseInt(settings.commission_sales_target_kes, 10) * 100;
   const rateBelow70 = parseInt(settings.commission_below_70_percent_kes, 10) * 100;
   const rateAt70 = parseInt(settings.commission_at_70_percent_kes, 10) * 100;
   const rateAt80 = parseInt(settings.commission_at_80_percent_kes, 10) * 100;
 
-  const salesRow = db.prepare(`
-    SELECT COALESCE(SUM(total), 0) AS achieved
-    FROM orders
-    WHERE assigned_staff_id = ? AND status = 'dispatched_paid'
-      AND ${dateOf('dispatched_at')} BETWEEN ? AND ? AND deleted_at IS NULL
-  `).get(staffId, periodStart, periodEnd);
-  const achievedSales = salesRow.achieved;
-  const achievementPercent = target > 0 ? (achievedSales / target) * 100 : 0;
-
-  const unitsRow = db.prepare(`
-    SELECT COALESCE(SUM(oi.quantity), 0) AS units
-    FROM order_items oi JOIN orders o ON o.id = oi.order_id
-    WHERE o.assigned_staff_id = ? AND o.status = 'dispatched_paid'
-      AND ${dateOf('o.dispatched_at')} BETWEEN ? AND ? AND o.deleted_at IS NULL
-  `).get(staffId, periodStart, periodEnd);
-  const unitsSold = unitsRow.units;
+  const orders = securedOrders({ storeId, from: periodStart, to: periodEnd, staffId, excludeCommissioned });
+  const achievedSales = orders.reduce((n, o) => n + o.total, 0);
+  const unitsSold = orders.reduce((n, o) => n + o.units, 0);
+  const achievementBp = target > 0 ? Math.floor((achievedSales * 10000) / target) : 0;
 
   let rate;
   let tier;
-  if (achievementPercent >= 80) { rate = rateAt80; tier = '>=80%'; }
-  else if (achievementPercent >= 70) { rate = rateAt70; tier = '70-80%'; }
+  if (achievementBp >= 8000) { rate = rateAt80; tier = '>=80%'; }
+  else if (achievementBp >= 7000) { rate = rateAt70; tier = '70-80%'; }
   else { rate = rateBelow70; tier = '<70%'; }
 
-  return { achievedSales, target, achievementPercent, unitsSold, tier, rate, commissionTotal: unitsSold * rate };
+  return {
+    achievedSales, target, achievementBp, achievementPercent: achievementBp / 100, unitsSold, tier, rate,
+    commissionTotal: unitsSold * rate, orders,
+  };
+}
+
+// One person's pay for a period, worked out from the records as they are right now. getSummary() serves it live;
+// payrollRuns.service.js snapshots it into a locked run.
+function calculateStaff({ staffId, storeId, periodStart, periodEnd, settings, excludeCommissioned = false }) {
+  const attendance = computeAttendanceDeductions({ staffId, periodStart, periodEnd, settings });
+  const commission = computeCommission({ staffId, storeId, periodStart, periodEnd, settings, excludeCommissioned });
+  const retainerPerDay = parseInt(settings.daily_retainer_kes, 10) * 100;
+  const dailyRetainerTotal = attendance.daysLoggedIn * retainerPerDay;
+
+  const adjustments = db.prepare(`
+    SELECT *, ${dateOf('created_at')} AS shop_date FROM payroll_adjustments
+     WHERE staff_id = ? AND ${dateOf('created_at')} BETWEEN ? AND ? ORDER BY created_at, id
+  `).all(staffId, periodStart, periodEnd);
+  const adjustmentsTotal = adjustments.reduce((sum, a) => sum + a.amount, 0);
+  const advancesTotal = adjustments.filter((a) => a.type === 'salary_advance').reduce((n, a) => n + a.amount, 0);
+  const lossDeductionsTotal = adjustments.filter((a) => a.type === 'loss_deduction').reduce((n, a) => n + a.amount, 0);
+
+  const grossPay = dailyRetainerTotal + commission.commissionTotal;
+  const totalDeductions = attendance.absenceTotal + attendance.lateTotal + attendance.missingHoursTotal + adjustmentsTotal;
+  const netPayable = grossPay - totalDeductions;
+
+  // Itemised lines: what a locked run keeps so every figure can be traced to the day, the order or the reason.
+  const lines = [
+    ...attendance.loggedInDates.map((d) => ({ kind: 'retainer_day', refDate: d, refText: null, quantity: null, amountCents: retainerPerDay })),
+    ...commission.orders.map((o) => ({ kind: 'commission_order', refDate: o.securedDate, refText: o.orderRef, quantity: o.units, amountCents: o.units * commission.rate })),
+    ...attendance.breakdown.map((b) => ({
+      kind: b.type, refDate: b.date, refText: null, quantity: b.hoursLate ?? b.hoursMissing ?? null, amountCents: b.amount,
+    })),
+    ...adjustments.map((a) => ({ kind: a.type, refDate: a.shop_date, refText: a.notes || null, quantity: null, amountCents: a.amount })),
+  ];
+
+  return {
+    dailyRetainer: { daysLoggedIn: attendance.daysLoggedIn, total: dailyRetainerTotal },
+    commission, attendance, adjustments, adjustmentsTotal, advancesTotal, lossDeductionsTotal,
+    grossPay, totalDeductions, netPayable, lines,
+  };
 }
 
 function getSummary({ staffId, storeId, periodStart, periodEnd }) {
@@ -108,34 +144,21 @@ function getSummary({ staffId, storeId, periodStart, periodEnd }) {
   const staff = db.prepare('SELECT id, name FROM users WHERE id = ? AND store_id = ?').get(staffId, storeId);
   if (!staff) throw new ApiError(404, 'Staff member not found.');
 
-  const settings = settingsService.getAll();
-  const attendance = computeAttendanceDeductions({ staffId, periodStart, periodEnd, settings });
-  const commission = computeCommission({ staffId, periodStart, periodEnd, settings });
-  const dailyRetainerTotal = attendance.daysLoggedIn * parseInt(settings.daily_retainer_kes, 10) * 100;
-
-  const adjustments = db.prepare(`
-    SELECT * FROM payroll_adjustments WHERE staff_id = ? AND ${dateOf('created_at')} BETWEEN ? AND ? ORDER BY created_at
-  `).all(staffId, periodStart, periodEnd);
-  const adjustmentsTotal = adjustments.reduce((sum, a) => sum + a.amount, 0);
-
-  const grossPay = dailyRetainerTotal + commission.commissionTotal;
-  const totalDeductions = attendance.absenceTotal + attendance.lateTotal + attendance.missingHoursTotal + adjustmentsTotal;
-  const netPayable = grossPay - totalDeductions;
-
+  const c = calculateStaff({ staffId, storeId, periodStart, periodEnd, settings: settingsService.getAll() });
   return {
     staff: { id: staff.id, name: staff.name },
     period: { start: periodStart, end: periodEnd },
-    dailyRetainer: { daysLoggedIn: attendance.daysLoggedIn, total: dailyRetainerTotal },
-    commission,
+    dailyRetainer: c.dailyRetainer,
+    commission: c.commission,
     attendanceDeductions: {
-      absenceTotal: attendance.absenceTotal, lateTotal: attendance.lateTotal, missingHoursTotal: attendance.missingHoursTotal,
-      breakdown: attendance.breakdown,
+      absenceTotal: c.attendance.absenceTotal, lateTotal: c.attendance.lateTotal, missingHoursTotal: c.attendance.missingHoursTotal,
+      breakdown: c.attendance.breakdown,
     },
-    adjustments,
-    adjustmentsTotal,
-    grossPay,
-    totalDeductions,
-    netPayable,
+    adjustments: c.adjustments,
+    adjustmentsTotal: c.adjustmentsTotal,
+    grossPay: c.grossPay,
+    totalDeductions: c.totalDeductions,
+    netPayable: c.netPayable,
   };
 }
 
@@ -152,4 +175,4 @@ function recordLossDeduction({ staffId, storeId, amount, notes, createdBy }) {
   return db.prepare('SELECT * FROM payroll_adjustments WHERE id = ?').get(result.lastInsertRowid);
 }
 
-module.exports = { getSummary, recordLossDeduction, computeAttendanceDeductions, computeCommission };
+module.exports = { getSummary, recordLossDeduction, computeAttendanceDeductions, computeCommission, calculateStaff };
