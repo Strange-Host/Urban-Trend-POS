@@ -13,7 +13,7 @@ import { passwordHint } from '../utils/passwordRules';
 
 import Sheet from '../components/Sheet';
 const emptyForm = { name: '', phone: '', email: '', password: '', pin: '', role: 'cashier' };
-const ROLES = ['admin', 'manager', 'cashier'];
+const ROLES = ['admin', 'manager', 'cashier', 'store'];
 
 export default function Staff() {
   const toast = useToast();

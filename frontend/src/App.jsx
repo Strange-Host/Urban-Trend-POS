@@ -1,7 +1,7 @@
 import { Suspense, lazy } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { AuthProvider } from './context/AuthContext';
+import { AuthProvider, useAuth } from './context/AuthContext';
 import { ToastProvider, DialogProvider } from './context/UIContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import Layout from './components/Layout';
@@ -45,6 +45,13 @@ function RouteFallback() {
   return <div className="p-8 text-text-muted text-sm">Loading…</div>;
 }
 
+// The storekeeper has no till, so the Terminal is not their home: they land on the catalog instead.
+function Home() {
+  const { user } = useAuth();
+  if (user?.role === 'store') return <Navigate to="/catalog" replace />;
+  return <POSTerminal />;
+}
+
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
@@ -66,12 +73,12 @@ export default function App() {
                   </ProtectedRoute>
                 }
               >
-                <Route path="/" element={<POSTerminal />} />
+                <Route path="/" element={<Home />} />
                 <Route path="/security" element={<Security />} />
                 <Route
                   path="/catalog"
                   element={
-                    <ProtectedRoute roles={['admin', 'manager']} permission="products.manage">
+                    <ProtectedRoute roles={['admin', 'manager', 'store']} permission={['products.manage', 'products.propose']}>
                       <Catalog />
                     </ProtectedRoute>
                   }

@@ -109,4 +109,16 @@ function requirePermission(key) {
   };
 }
 
-module.exports = { authenticate, requireRole, requirePermission, requireRecentAuth };
+// Usage: requireAnyPermission('products.manage', 'products.propose') — passes when the person holds at least one.
+// The route can then decide what each permission is allowed to do.
+function requireAnyPermission(...keys) {
+  return (req, res, next) => {
+    const permissionsService = require('../services/permissions.service');
+    if (!req.user || !keys.some((k) => permissionsService.can(req.user, k))) {
+      throw new ApiError(403, 'You do not have permission to do that.', null, 'FORBIDDEN');
+    }
+    next();
+  };
+}
+
+module.exports = { authenticate, requireRole, requirePermission, requireAnyPermission, requireRecentAuth };
