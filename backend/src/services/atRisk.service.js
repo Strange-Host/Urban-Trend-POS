@@ -1,13 +1,14 @@
 const db = require('../config/db');
+const courierPayables = require('./courierPayables.service');
+const courierOrganizations = require('./courierOrganizations.service');
 
 // "Money at risk": every place where money or goods could be going missing, with its age and whose
 // it is. This is the data behind the manager's daily page (GET /api/orders/at-risk).
 //
 // Ported from the update branch's server/src/orders/atRisk.ts. That version reads a double-entry
 // ledger and delivery_attempts; this one reads the SQLite tables that exist today, so the kinds
-// below are the six that can be built from them. The other three (till variance unsigned, courier
-// unpaid, organization overdue) need data this schema does not hold yet: see
-// the note at the bottom of this file.
+// below are the eight that can be built from them. The ninth (till variance unsigned) needs data this
+// schema does not hold yet: see the note at the bottom of this file.
 //
 // "Delivered" is the one concept that does not carry over. This app has no delivered event: a
 // parcel is dispatched_unpaid / dispatched_partial / dispatched_paid, and money arriving is the
@@ -16,7 +17,8 @@ const db = require('../config/db');
 //   dispatched_partial the customer has paid part and still owes  -> delivered_unpaid
 // If a real delivered/failed marker is added to orders later, those two queries are where it plugs in.
 
-const KINDS = ['dispatched_no_outcome', 'delivered_unpaid', 'unmatched_payment', 'returning', 'till_session_left_open', 'cash_not_deposited'];
+const KINDS = ['dispatched_no_outcome', 'delivered_unpaid', 'unmatched_payment', 'returning', 'till_session_left_open', 'cash_not_deposited',
+  'courier_unpaid', 'organization_overdue'];
 
 const DEFAULTS = {
   dispatchedNoOutcomeDays: 3, // dispatched, nothing paid, nothing heard, for this long
@@ -24,6 +26,7 @@ const DEFAULTS = {
   returningDays: 3,           // on its way back to the shop for this long
   sessionOpenHours: 20,       // a till session should have been closed out by now
   cashHeldDays: 2,            // shop cash still in a staff member's hands (custody) for this long
+  courierUnpaidDays: 7,       // a rider's oldest unpaid fee or approved cost has been waiting this long
 };
 
 const DAY_MS = 86_400_000;
@@ -137,6 +140,30 @@ function moneyAtRisk({ storeId, now = new Date(), ...overrides }) {
     });
   }
 
+  // Money we owe a rider and have not paid: one line per courier, aged by their OLDEST unpaid item. Package fees are owed
+  // whether or not the customer collected, and only approved costs count (pending and rejected ones are not owed).
+  const unpaidCutoff = cutoffDays(t.courierUnpaidDays);
+  for (const c of db.prepare(`SELECT id, name FROM couriers WHERE store_id = ? AND kind = 'rider' ORDER BY name`).all(storeId)) {
+    const owed = courierPayables.unpaidItems(c.id); // oldest first
+    if (owed.length === 0 || owed[0].since >= unpaidCutoff) continue;
+    items.push({
+      kind: 'courier_unpaid', order_id: null, order_ref: null, amount: owed.reduce((n, i) => n + i.amount, 0), since: owed[0].since, owner: null,
+      detail: `We owe ${c.name} for ${owed.length} unpaid item${owed.length === 1 ? '' : 's'}`,
+    });
+  }
+
+  // A courier organization holding customer money past its overdue limit. Aged from its oldest collection; the detail says
+  // when it is also paused for new collect-on-delivery parcels.
+  for (const o of db.prepare(`SELECT id, name FROM couriers WHERE store_id = ? AND kind = 'organization' AND collects_payment = 1 ORDER BY name`).all(storeId)) {
+    const standing = courierOrganizations.organizationStanding({ storeId, courierId: o.id, now });
+    if (standing.overdue <= 0) continue;
+    const oldest = db.prepare('SELECT MIN(collected_on) AS d FROM org_collections WHERE courier_id = ?').get(o.id).d;
+    items.push({
+      kind: 'organization_overdue', order_id: null, order_ref: null, amount: standing.overdue, since: `${oldest} 00:00:00`, owner: null,
+      detail: `${o.name} holds overdue money${standing.paused ? ' and is paused for new collect-on-delivery parcels' : ''}`,
+    });
+  }
+
   return items
     .map((i) => ({ ...i, age_days: Math.max(0, Math.floor((now.getTime() - fromSql(i.since).getTime()) / DAY_MS)) }))
     .sort((a, b) => b.age_days - a.age_days || b.amount - a.amount);
@@ -155,11 +182,9 @@ function summarize(items) {
   return { count: items.length, amount, by_kind: byKind };
 }
 
-// NOT BUILT YET, and what each one needs:
+// NOT BUILT YET, and what it needs:
 //   till_variance_unsigned  a manager sign-off on cash_sessions (a signoff_required flag and who/when signed),
 //                           plus a rule for how big a closing difference must be before it needs one.
-//   courier_unpaid          what the shop owes a courier (package fees / approved costs) and when it was paid.
-//   organization_overdue    organizations that collect payment on the shop's behalf, their collections and limits.
-// Each is one more query in moneyAtRisk and one more entry in KINDS once its table exists.
+// It is one more query in moneyAtRisk and one more entry in KINDS once that exists.
 
 module.exports = { moneyAtRisk, summarize, KINDS, DEFAULTS };
