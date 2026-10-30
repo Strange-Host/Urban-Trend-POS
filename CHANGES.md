@@ -1,3 +1,29 @@
+# Locked payroll runs, and commission only on secure money
+
+Ported from the `update` branch's `payroll/runs.ts` and `payroll/commission.ts` (`services/payrollRuns.service.js`,
+`services/commission.service.js`). Until now payroll was computed live and kept no snapshot, so a past month's pay moved
+whenever settings or records changed, and commission was paid on any `dispatched_paid` order. Amounts are integer cents;
+periods are shop dates. New tables (`schema.sql`): `payroll_runs`, `payroll_items`, `payroll_item_lines`, `commissioned_orders`.
+
+1. **Rule 8, secure money.** An order earns commission only when its whole total is secure: non-cash payments on receipt;
+   shop cash only once its custody record is **deposited**; courier-organization money only for the part a statement
+   settled (`org_statement_lines.secured`). Refunded or failed payments never count. It counts in the pay period in which
+   it became secure (the later of dispatch and its last secure money). Achievement is in basis points (no floats). This
+   also applies to the existing live `GET /api/payroll/summary`.
+2. **Rule 9, locked runs.** `POST /api/payroll/runs {from,to}` calculates the period and saves a **draft** snapshot
+   (itemised lines: retainer days, commissioned orders, late/absence/missing hours, advances, losses); regenerating the
+   same period replaces the draft. `POST /api/payroll/runs/:id/approve` (admin) recalculates and refuses with `RUN_STALE`
+   if anything changed since the draft, then **locks** the run: figures frozen, a sha256 `checksum` recorded, every
+   commissioned order written to `commissioned_orders` (primary key: an order can never earn twice). `POST
+   /api/payroll/runs/:id/pay` (admin; `mpesa`/`bank` need `payment_ref`) marks it paid. Also `GET /runs`, `/runs/:id`,
+   `/runs/:id/verify` (re-hashes the stored figures against the checksum).
+3. **The database enforces the lock** with triggers, since SQLite has no exclusion constraints: items, lines and
+   commissioned orders are frozen once the run is approved; a run only moves draft -> approved -> paid and each step
+   changes only its own columns; locked runs cannot be deleted; two locked runs cannot cover the same day.
+
+Not changed: no screens yet (the Payroll page still reads the live summary). A deduction dated inside an already-locked
+period is not carried forward, so lock a period only once it is over.
+
 # Rider payables: package fees, approved costs, payouts
 
 Ported from the `update` branch's `couriers/payables.ts` (`services/courierPayables.service.js`). It covers **riders**;
