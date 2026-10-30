@@ -3,13 +3,21 @@ const rateLimit = require('express-rate-limit');
 const { login, verifyOtp, resendOtp, pinLogin, refresh, logout, me, changePassword, confirmIdentity, activity, listSessions, endSession, endOtherSessions } = require('../controllers/auth.controller');
 const { RATE_LIMITS } = require('../config/limits');
 const { authenticate } = require('../middleware/auth');
+const SqliteRateLimitStore = require('../utils/sqliteRateLimitStore');
 
 // Brute-force protection belongs on the endpoints an attacker can actually
 // guess their way into (password, PIN) — refresh/logout require already
 // possessing an unguessable 80-byte token, so rate-limiting those as
 // tightly only hurts a shop with several registers sharing one IP each
 // refreshing their short-lived access token periodically.
-const loginLimiter = rateLimit({ ...RATE_LIMITS.LOGIN, standardHeaders: true });
+//
+// Counted in the database (utils/sqliteRateLimitStore.js), not in memory: a restart no longer hands an attacker
+// a fresh allowance, and every process sharing the database shares the count. If the database cannot be written
+// the request is let through rather than turning every sign-in into an error (the per-account lockout still applies).
+const loginLimiter = rateLimit({
+  ...RATE_LIMITS.LOGIN, standardHeaders: true,
+  store: new SqliteRateLimitStore({ scope: 'login' }), passOnStoreError: true,
+});
 
 router.post('/login', loginLimiter, login);
 router.post('/verify-otp', loginLimiter, verifyOtp);
