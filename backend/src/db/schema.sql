@@ -1242,3 +1242,138 @@ WHEN NEW.amount <> OLD.amount OR NEW.holder_staff_id <> OLD.holder_staff_id OR N
 BEGIN SELECT RAISE(ABORT, 'custody amount, holder and order never change'); END;
 CREATE TRIGGER IF NOT EXISTS custody_no_delete BEFORE DELETE ON custody_records
 BEGIN SELECT RAISE(ABORT, 'custody records cannot be deleted'); END;
+
+-- ---------------------------------------------------------------------
+-- LOCKED PAYROLL RUNS. Ported from the update branch's payroll/runs.ts (Rule 9: a locked run never changes).
+-- Until now payroll was computed live and kept no snapshot, so last month's pay moved whenever settings or
+-- records changed. A run covers one period for everyone on payroll:
+--   draft     calculated and saved; can be regenerated as often as you like
+--   approved  LOCKED: figures frozen, fingerprinted (checksum), and every order commissioned is recorded so
+--             none can ever earn commission twice
+--   paid      LOCKED and paid
+-- SQLite has no exclusion constraints or row-to-json diffing, so the guards below are triggers. All amounts
+-- are integer cents; staff are users.id.
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS payroll_runs (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  store_id       INTEGER NOT NULL REFERENCES stores(id),
+  period_start   TEXT NOT NULL,                -- shop date, YYYY-MM-DD
+  period_end     TEXT NOT NULL,
+  status         TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','approved','paid')),
+  created_by     INTEGER NOT NULL REFERENCES users(id),
+  created_at     TEXT NOT NULL DEFAULT (datetime('now')),
+  approved_by    INTEGER REFERENCES users(id),
+  approved_at    TEXT,
+  checksum       TEXT,                         -- sha256 of every figure in the run at approval; re-verifiable any time
+  paid_by        INTEGER REFERENCES users(id),
+  paid_at        TEXT,
+  payment_method TEXT CHECK (payment_method IS NULL OR payment_method IN ('mpesa','bank','cash')),
+  payment_ref    TEXT,
+  CHECK (period_end >= period_start),
+  CHECK (status = 'draft' OR (approved_by IS NOT NULL AND approved_at IS NOT NULL AND checksum IS NOT NULL)),
+  CHECK (status <> 'paid' OR (paid_by IS NOT NULL AND paid_at IS NOT NULL AND payment_method IS NOT NULL)),
+  CHECK (status <> 'draft' OR (approved_by IS NULL AND checksum IS NULL AND paid_by IS NULL))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_payroll_one_draft_per_period ON payroll_runs(store_id, period_start, period_end) WHERE status = 'draft';
+
+CREATE TABLE IF NOT EXISTS payroll_items (
+  id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+  run_id                INTEGER NOT NULL REFERENCES payroll_runs(id),
+  staff_id              INTEGER NOT NULL REFERENCES users(id),
+  staff_name            TEXT NOT NULL,
+  days_worked           INTEGER NOT NULL CHECK (days_worked >= 0),
+  retainer              INTEGER NOT NULL CHECK (retainer >= 0),
+  units_sold            INTEGER NOT NULL CHECK (units_sold >= 0),
+  achieved_sales        INTEGER NOT NULL CHECK (achieved_sales >= 0),   -- secured money only (Rule 8)
+  target                INTEGER NOT NULL CHECK (target >= 0),
+  achievement_bp        INTEGER NOT NULL CHECK (achievement_bp >= 0),   -- basis points, 10000 = 100%: no floating point
+  tier                  TEXT CHECK (tier IS NULL OR tier IN ('<70%','70-80%','>=80%')),
+  rate                  INTEGER NOT NULL CHECK (rate >= 0),             -- per unit, as it was when approved
+  commission            INTEGER NOT NULL CHECK (commission >= 0),
+  late                  INTEGER NOT NULL CHECK (late >= 0),
+  absence               INTEGER NOT NULL CHECK (absence >= 0),
+  missing_hours         INTEGER NOT NULL CHECK (missing_hours >= 0),
+  advances              INTEGER NOT NULL CHECK (advances >= 0),
+  loss_deductions       INTEGER NOT NULL CHECK (loss_deductions >= 0),
+  gross                 INTEGER NOT NULL,
+  deductions            INTEGER NOT NULL,
+  net                   INTEGER NOT NULL,
+  payable               INTEGER NOT NULL CHECK (payable >= 0),          -- what is actually paid out
+  shortfall             INTEGER NOT NULL CHECK (shortfall >= 0),        -- deductions beyond earnings: what the person owes back
+  UNIQUE (run_id, staff_id),
+  CHECK (commission = units_sold * rate),
+  CHECK (gross = retainer + commission),
+  CHECK (deductions = late + absence + missing_hours + advances + loss_deductions),
+  CHECK (net = gross - deductions),
+  CHECK (payable = MAX(net, 0) AND shortfall = MAX(-net, 0))
+);
+CREATE TABLE IF NOT EXISTS payroll_item_lines (
+  id        INTEGER PRIMARY KEY AUTOINCREMENT,
+  item_id   INTEGER NOT NULL REFERENCES payroll_items(id),
+  kind      TEXT NOT NULL CHECK (kind IN ('retainer_day','commission_order','late','absence','missing_hours','salary_advance','loss_deduction')),
+  ref_date  TEXT,
+  ref_text  TEXT,      -- the order reference, or the reason
+  quantity  INTEGER,   -- hours late, hours missing, units sold
+  amount    INTEGER NOT NULL CHECK (amount >= 0)
+);
+CREATE INDEX IF NOT EXISTS idx_payroll_item_lines_item ON payroll_item_lines(item_id);
+
+-- Every order commissioned in a locked run, once. The primary key means an order can never earn commission twice.
+CREATE TABLE IF NOT EXISTS commissioned_orders (
+  order_id    INTEGER PRIMARY KEY REFERENCES orders(id),
+  run_id      INTEGER NOT NULL REFERENCES payroll_runs(id),
+  staff_id    INTEGER NOT NULL REFERENCES users(id),
+  units       INTEGER NOT NULL CHECK (units > 0),
+  total       INTEGER NOT NULL CHECK (total > 0),
+  secured_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_commissioned_orders_run ON commissioned_orders(run_id);
+
+-- A locked run can never be deleted.
+CREATE TRIGGER IF NOT EXISTS payroll_runs_no_delete BEFORE DELETE ON payroll_runs WHEN OLD.status <> 'draft'
+BEGIN SELECT RAISE(ABORT, 'a locked payroll run can never be deleted'); END;
+-- A paid run never changes again.
+CREATE TRIGGER IF NOT EXISTS payroll_runs_paid_is_final BEFORE UPDATE ON payroll_runs WHEN OLD.status = 'paid'
+BEGIN SELECT RAISE(ABORT, 'a paid payroll run never changes'); END;
+-- Draft -> approved changes only the approval columns.
+CREATE TRIGGER IF NOT EXISTS payroll_runs_approve_only BEFORE UPDATE ON payroll_runs WHEN OLD.status = 'draft'
+  AND (NEW.status <> 'approved' OR NEW.store_id <> OLD.store_id OR NEW.period_start <> OLD.period_start OR NEW.period_end <> OLD.period_end
+       OR NEW.created_by <> OLD.created_by OR NEW.created_at <> OLD.created_at OR NEW.paid_by IS NOT NULL OR NEW.paid_at IS NOT NULL
+       OR NEW.payment_method IS NOT NULL OR NEW.payment_ref IS NOT NULL)
+BEGIN SELECT RAISE(ABORT, 'a draft payroll run can only be approved; approving cannot change anything else'); END;
+-- Approved -> paid changes only the payment columns.
+CREATE TRIGGER IF NOT EXISTS payroll_runs_pay_only BEFORE UPDATE ON payroll_runs WHEN OLD.status = 'approved'
+  AND (NEW.status <> 'paid' OR NEW.store_id <> OLD.store_id OR NEW.period_start <> OLD.period_start OR NEW.period_end <> OLD.period_end
+       OR NEW.created_by <> OLD.created_by OR NEW.created_at <> OLD.created_at OR NEW.approved_by IS NOT OLD.approved_by
+       OR NEW.approved_at IS NOT OLD.approved_at OR NEW.checksum IS NOT OLD.checksum)
+BEGIN SELECT RAISE(ABORT, 'an approved payroll run can only be marked paid; paying cannot change anything else'); END;
+-- Two locked runs can never cover the same day, so nobody is paid twice for it (the Postgres version used an exclusion constraint).
+CREATE TRIGGER IF NOT EXISTS payroll_runs_locked_periods_dont_overlap BEFORE UPDATE ON payroll_runs
+  WHEN OLD.status = 'draft' AND NEW.status = 'approved'
+   AND EXISTS (SELECT 1 FROM payroll_runs r WHERE r.id <> NEW.id AND r.store_id = NEW.store_id AND r.status <> 'draft'
+                  AND r.period_start <= NEW.period_end AND r.period_end >= NEW.period_start)
+BEGIN SELECT RAISE(ABORT, 'PERIOD_LOCKED: another locked payroll run already covers part of this period'); END;
+-- Items, lines and commissioned orders can only be written while their run is a draft; once approved they are frozen.
+CREATE TRIGGER IF NOT EXISTS payroll_items_ins_locked BEFORE INSERT ON payroll_items
+  WHEN (SELECT status FROM payroll_runs WHERE id = NEW.run_id) IS NOT 'draft'
+BEGIN SELECT RAISE(ABORT, 'this payroll run is locked: its figures never change'); END;
+CREATE TRIGGER IF NOT EXISTS payroll_items_upd_locked BEFORE UPDATE ON payroll_items
+  WHEN (SELECT status FROM payroll_runs WHERE id = OLD.run_id) IS NOT 'draft' OR NEW.run_id <> OLD.run_id
+BEGIN SELECT RAISE(ABORT, 'this payroll run is locked: its figures never change'); END;
+CREATE TRIGGER IF NOT EXISTS payroll_items_del_locked BEFORE DELETE ON payroll_items
+  WHEN (SELECT status FROM payroll_runs WHERE id = OLD.run_id) IS NOT 'draft'
+BEGIN SELECT RAISE(ABORT, 'this payroll run is locked: its figures never change'); END;
+CREATE TRIGGER IF NOT EXISTS payroll_item_lines_ins_locked BEFORE INSERT ON payroll_item_lines
+  WHEN (SELECT r.status FROM payroll_items i JOIN payroll_runs r ON r.id = i.run_id WHERE i.id = NEW.item_id) IS NOT 'draft'
+BEGIN SELECT RAISE(ABORT, 'this payroll run is locked: its figures never change'); END;
+CREATE TRIGGER IF NOT EXISTS payroll_item_lines_upd_locked BEFORE UPDATE ON payroll_item_lines
+  WHEN (SELECT r.status FROM payroll_items i JOIN payroll_runs r ON r.id = i.run_id WHERE i.id = OLD.item_id) IS NOT 'draft' OR NEW.item_id <> OLD.item_id
+BEGIN SELECT RAISE(ABORT, 'this payroll run is locked: its figures never change'); END;
+CREATE TRIGGER IF NOT EXISTS payroll_item_lines_del_locked BEFORE DELETE ON payroll_item_lines
+  WHEN (SELECT r.status FROM payroll_items i JOIN payroll_runs r ON r.id = i.run_id WHERE i.id = OLD.item_id) IS NOT 'draft'
+BEGIN SELECT RAISE(ABORT, 'this payroll run is locked: its figures never change'); END;
+CREATE TRIGGER IF NOT EXISTS commissioned_orders_ins_locked BEFORE INSERT ON commissioned_orders
+  WHEN (SELECT status FROM payroll_runs WHERE id = NEW.run_id) IS NOT 'draft'
+BEGIN SELECT RAISE(ABORT, 'this payroll run is locked: its figures never change'); END;
+CREATE TRIGGER IF NOT EXISTS commissioned_orders_no_update BEFORE UPDATE ON commissioned_orders BEGIN SELECT RAISE(ABORT, 'commissioned orders never change'); END;
+CREATE TRIGGER IF NOT EXISTS commissioned_orders_no_delete BEFORE DELETE ON commissioned_orders BEGIN SELECT RAISE(ABORT, 'commissioned orders never change'); END;
