@@ -1,3 +1,21 @@
+# Sign-in rate limit kept in the database
+
+Ported in spirit from the `update` branch's `auth/rateLimit.ts`. The per-address limit on the endpoints someone can guess
+their way through (password, PIN, one-time code, unlock: `POST /api/auth/login`, `/pin-login`, `/verify-otp`, `/resend-otp`,
+`/unlock`) used `express-rate-limit`'s in-memory store, so a restart (a deploy, a crash, pm2 bringing the process back) gave
+every address a fresh allowance. It now counts in the new `rate_limits` table through `utils/sqliteRateLimitStore.js`, so the
+count survives a restart and is shared by any process using the same database file. The allowance is unchanged (20 per 15
+minutes, shared by those five endpoints) and the per-account lockout still applies beside it. Old windows are swept hourly,
+from inside a request that is already writing. If the counter cannot be written the request is let through instead of
+turning every sign-in into an error.
+
+Deliberately **not** moved: the blanket API limiter, checkout, sync and webhook limiters stay in memory. They are hot paths
+where a database write per request is not worth it, and a restart resetting them is harmless.
+
+Note: this app is meant to run as ONE process (`ecosystem.config.js` pins `instances: 1`, because a SQLite file has a single
+writer), so the "shared across instances" half of this only matters if that ever changes. The part that matters today is
+that a restart no longer resets the sign-in count.
+
 # Nightly integrity job
 
 Ported from the `update` branch's `integrity/checks.ts`, `job.ts` and `cli.ts` (`backend/src/integrity/checks.js`,

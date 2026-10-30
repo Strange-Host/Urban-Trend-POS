@@ -1425,3 +1425,15 @@ CREATE TABLE IF NOT EXISTS integrity_runs (
   duration_ms      INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_integrity_runs_ran_at ON integrity_runs(ran_at);
+
+-- ---------------------------------------------------------------------
+-- RATE LIMITS. The per-address counters behind the sign-in limiter (utils/sqliteRateLimitStore.js), kept in the
+-- database so a restart does not reset them and every process sharing this file shares the count. A key is
+-- "<scope>:<address>"; the window runs from the first hit and a hit after it ends starts a new one.
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS rate_limits (
+  key             TEXT PRIMARY KEY,
+  window_start_ms INTEGER NOT NULL,   -- epoch milliseconds
+  count           INTEGER NOT NULL CHECK (count >= 0)
+);
+CREATE INDEX IF NOT EXISTS idx_rate_limits_window ON rate_limits(window_start_ms);
