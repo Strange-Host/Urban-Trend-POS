@@ -15,6 +15,7 @@
 // what guarantees you can never lock yourself out with a bad override.
 const PERMISSIONS = {
   'reports.view':          { group: 'Reports',   label: 'View reports and dashboard figures',        roles: ['admin', 'manager'] },
+  'reports.forecast':      { group: 'Reports',   label: 'Set monthly sales forecasts and expense budgets', roles: ['admin', 'manager'] },
   'payroll.view':          { group: 'Team',      label: 'View payroll and commission',                roles: ['admin', 'manager'] },
   'staff.view':            { group: 'Team',      label: 'View the staff list',                        roles: ['admin', 'manager'] },
   'attendance.view':       { group: 'Team',      label: 'View today\'s attendance and absences',      roles: ['admin', 'manager'] },
