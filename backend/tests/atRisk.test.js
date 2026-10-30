@@ -121,3 +121,89 @@ describe('GET /api/orders/at-risk', () => {
     expect(res.status).toBe(403);
   });
 });
+
+// ---- courier unpaid and organization overdue: built on rider payables and courier organizations ----------------------
+describe('courier money', () => {
+  const payables = require('../src/services/courierPayables.service');
+  const orgs = require('../src/services/courierOrganizations.service');
+  const { localDate } = require('../src/utils/storeTime');
+  let seq = 0;
+  let secondUserId;
+
+  beforeAll(() => {
+    secondUserId = db.prepare(`INSERT INTO users (store_id, name, email, password_hash, role, is_active) VALUES (?, 'Cost Approver', 'approver@urbantrends.com', 'x', 'manager', 1)`)
+      .run(storeId).lastInsertRowid;
+  });
+
+  const newCourier = async (body) => (await request(app).post('/api/couriers').set(auth()).send({ name: `Risk Courier ${Date.now()}-${++seq}`, ...body })).body.data;
+  async function dispatchVia(courierId, fee) {
+    const created = await request(app).post('/api/orders').set(auth())
+      .send({ name: 'Courier Risk', phone: `07880${String(++seq).padStart(5, '0')}`, city: 'Nairobi', items: [{ product_id: product.id, quantity: 1 }] });
+    const id = created.body.data.id;
+    await request(app).post(`/api/orders/${id}/courier`).set(auth()).send({ courier_id: courierId });
+    await request(app).post(`/api/orders/${id}/confirm-cod`).set(auth());
+    const res = await request(app).post(`/api/orders/${id}/dispatch`).set(auth()).send({ package_fee: fee });
+    expect(res.status).toBe(200);
+    return { id, total: created.body.data.total };
+  }
+
+  it('courier unpaid: one line per rider, aged by the oldest unpaid item, until paid', async () => {
+    const rider = await newCourier({ kind: 'rider', courier_type: 'boda' });
+    await dispatchVia(rider.id, 15_000);
+    const cost = payables.recordCost({ storeId, staffId: adminId, courierId: rider.id, kind: 'fuel', amount: 5_000, description: 'Fuel' });
+    const mine = (now) => byKind(moneyAtRisk({ storeId, now }), 'courier_unpaid').filter((i) => i.detail.includes(rider.name));
+
+    // The fee is owed whether or not the customer collected; the pending cost is not owed until a second person approves it.
+    expect(mine(days(30))).toEqual([expect.objectContaining({ amount: 15_000, detail: `We owe ${rider.name} for 1 unpaid item` })]);
+    payables.approveCost({ costId: cost.id, storeId, staffId: secondUserId });
+    expect(mine(days(3))).toEqual([]);                                   // under the 7-day threshold: not flagged yet
+    const flagged = mine(days(8));
+    expect(flagged).toEqual([expect.objectContaining({ amount: 20_000, owner: null, order_id: null, detail: `We owe ${rider.name} for 2 unpaid items` })]);
+    expect(flagged[0].age_days).toBeGreaterThanOrEqual(7);
+
+    payables.createPayout({ storeId, staffId: adminId, courierId: rider.id, method: 'cash' });
+    expect(mine(days(30))).toEqual([]);                                  // paid: gone
+  });
+
+  it('courier unpaid: a zero fee, a pending cost and an organization owe nothing here', async () => {
+    const rider = await newCourier({ kind: 'rider', courier_type: 'boda' });
+    await dispatchVia(rider.id, 0);
+    payables.recordCost({ storeId, staffId: adminId, courierId: rider.id, kind: 'airtime', amount: 900, description: 'Airtime' }); // never approved
+    const org = await newCourier({ kind: 'organization', collects_payment: true });
+    await dispatchVia(org.id, 12_000);
+    const items = byKind(moneyAtRisk({ storeId, now: days(30) }), 'courier_unpaid');
+    expect(items.filter((i) => i.detail.includes(rider.name))).toEqual([]);
+    expect(items.filter((i) => i.detail.includes(org.name))).toEqual([]);  // an organization's fee is netted off its statement, not paid out
+  });
+
+  it('organization overdue: money held past the limit is flagged, with a pause note, until it is remitted', async () => {
+    const org = await newCourier({ kind: 'organization', collects_payment: true, overdue_after_days: 5, overdue_limit: 1_000 });
+    const o = await dispatchVia(org.id, 20_000);
+    const col = orgs.recordCollection({ storeId, staffId: adminId, courierId: org.id, orderId: o.id, amount: o.total, collectedOn: localDate(20) });
+    const mine = () => byKind(moneyAtRisk({ storeId }), 'organization_overdue').filter((i) => i.detail.includes(org.name));
+
+    expect(mine()).toEqual([expect.objectContaining({
+      amount: o.total, owner: null, detail: `${org.name} holds overdue money and is paused for new collect-on-delivery parcels`,
+    })]);
+    expect(mine()[0].age_days).toBeGreaterThanOrEqual(19);
+
+    orgs.createStatement({ storeId, staffId: adminId, courierId: org.id, periodStart: localDate(30), periodEnd: localDate(0), collectionIds: [col.id],
+      chargeEntered: 20_000, remitted: o.total - 20_000, remittanceRef: 'RMT-RISK' });
+    expect(mine()).toEqual([]);                                          // remitted: gone
+  });
+
+  it('organization overdue: recent money, or an organization with no limit and nothing overdue, is not flagged', async () => {
+    const org = await newCourier({ kind: 'organization', collects_payment: true, overdue_after_days: 14 });
+    const o = await dispatchVia(org.id, 20_000);
+    orgs.recordCollection({ storeId, staffId: adminId, courierId: org.id, orderId: o.id, amount: o.total, collectedOn: localDate(3) });
+    expect(byKind(moneyAtRisk({ storeId }), 'organization_overdue').filter((i) => i.detail.includes(org.name))).toEqual([]);
+  });
+
+  it('the summary and the endpoint know both kinds', async () => {
+    const s = summarize([]);
+    expect(Object.keys(s.by_kind)).toEqual(expect.arrayContaining(['courier_unpaid', 'organization_overdue']));
+    const res = await request(app).get('/api/orders/at-risk?courier_unpaid_days=0').set(auth());
+    expect(res.status).toBe(200);
+    expect(res.body.summary.by_kind.courier_unpaid).toBeDefined();
+  });
+});

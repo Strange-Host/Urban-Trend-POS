@@ -18,6 +18,8 @@ const KINDS = {
   returning: { label: 'Parcel returning', hint: 'On its way back from a failed delivery' },
   till_session_left_open: { label: 'Till left open', hint: 'A till session nobody closed out' },
   cash_not_deposited: { label: 'Cash held', hint: 'Shop cash still in a staff member\'s hands, not deposited' },
+  courier_unpaid: { label: 'Courier unpaid', hint: 'Package fees and approved costs we owe a rider and have not paid' },
+  organization_overdue: { label: 'Organization overdue', hint: 'A courier organization holding customer money past its overdue limit' },
 };
 const kindLabel = (k) => KINDS[k]?.label || k;
 

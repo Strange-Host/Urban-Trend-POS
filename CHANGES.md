@@ -121,10 +121,21 @@ Five kinds are built, all from tables that already exist:
 
 Thresholds can be overridden with `dispatched_no_outcome_days`, `delivered_unpaid_days`, `returning_days` and
 `session_open_hours`. This app has no "delivered" event, so a payment is the only outcome it can see: kinds 1 and 2 are
-read from the order's payment status, not from a delivery record. Not built yet because the data does not exist here:
-till variance unsigned (needs a manager sign-off on cash sessions), courier unpaid, organization overdue and cash not
-deposited (need courier payables, organizations and custody records). See the note at the bottom of
-`services/atRisk.service.js`.
+read from the order's payment status, not from a delivery record.
+
+**Update:** three more kinds, so 8 of the 9 on the update branch are built (cash held arrived with custody; the last two once
+rider payables and courier organizations existed):
+
+6. **Cash held** (custody, see its own entry): shop cash still in a staff member's hands for 2+ days.
+7. **Courier unpaid**: one line per rider for what we owe and have not paid (package fees, owed whether or not the customer
+   collected, plus approved costs; pending and rejected costs are not owed), aged by their oldest unpaid item once it is
+   7+ days old. Organizations are not listed here: their fee is netted off their statement.
+8. **Organization overdue**: a courier organization holding customer money past its overdue-after-days setting, for the
+   overdue amount, aged from its oldest collection. The detail says when it is also paused for new collect-on-delivery
+   parcels. It drops off once a remittance settles the oldest money.
+
+New threshold override: `courier_unpaid_days` (also `cash_held_days`). The page shows the new kinds as tiles and filters.
+Still not built: **till variance unsigned**, which needs a manager sign-off on cash sessions, a feature that does not exist here.
 
 # Backups: remembered schedule, verified copies, mandatory passphrase, in-app alerts; Resend removed
 
