@@ -22,7 +22,7 @@ const checkIntegrity = asyncHandler(async (req, res) => {
 
 // GET /api/orders/at-risk — the manager's daily list of where money or goods may be going missing.
 // Optional thresholds (whole days, or hours for the till): dispatched_no_outcome_days, delivered_unpaid_days,
-// returning_days, session_open_hours. A bad or negative value falls back to the default.
+// returning_days, session_open_hours, cash_held_days, courier_unpaid_days. A bad or negative value falls back to the default.
 const atRisk = asyncHandler(async (req, res) => {
   const num = (v) => (v === undefined || v === '' ? undefined : Math.min(Number(v), 3650));
   const q = req.query;
@@ -33,6 +33,7 @@ const atRisk = asyncHandler(async (req, res) => {
     returningDays: num(q.returning_days),
     sessionOpenHours: num(q.session_open_hours),
     cashHeldDays: num(q.cash_held_days),
+    courierUnpaidDays: num(q.courier_unpaid_days),
   });
   res.json({ data, summary: atRiskService.summarize(data) });
 });
