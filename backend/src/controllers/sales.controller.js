@@ -4,6 +4,8 @@ const asyncHandler = require('../utils/asyncHandler');
 const salesService = require('../services/sales.service');
 const cashSessionsService = require('../services/cashSessions.service');
 const { PAGINATION } = require('../config/limits');
+const settingsService = require('../services/settings.service');
+const { maxPercentFor } = require('../utils/discounts');
 
 // POST /api/sales  — checkout
 
@@ -23,6 +25,7 @@ const checkout = asyncHandler(async (req, res) => {
     payments,
     discountTotal: discountTotal || 0,
     clientSaleId: clientSaleId || null,
+    discountMaxPercent: maxPercentFor(req.user.role, settingsService.getAll()),
   });
   res.status(201).json({ data: salesService.getSaleWithItems(sale.id, req.user.storeId) });
 });

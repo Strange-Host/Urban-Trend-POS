@@ -41,4 +41,23 @@ function assertSaleDiscount({ discountTotal, subtotal }) {
   }
 }
 
-module.exports = { assertLineDiscount, assertSaleDiscount };
+// Percentage ceiling (Priority 5). `max_discount_percent` in Settings caps the TOTAL discount
+// (line discounts plus the sale-wide one) as a share of the goods' list value. 0 means no
+// limit, and managers/admins are not held to it, so a cashier who needs to go further asks
+// one of them to ring the sale. Integer cents throughout, so the comparison is exact.
+function maxPercentFor(role, settings) {
+  if (role === 'admin' || role === 'manager') return 0;
+  const pct = parseFloat(settings.max_discount_percent);
+  return Number.isFinite(pct) && pct > 0 ? pct : 0;
+}
+
+function assertDiscountPercent({ lineDiscountTotal, saleDiscount, grossTotal, maxPercent }) {
+  if (!maxPercent) return;
+  const discount = lineDiscountTotal + saleDiscount;
+  if (grossTotal > 0 && discount * 100 > grossTotal * maxPercent) {
+    const given = ((discount / grossTotal) * 100).toFixed(1);
+    throw new ApiError(400, `Discount of ${given}% is above the ${maxPercent}% limit. Ask a manager to approve it.`);
+  }
+}
+
+module.exports = { assertLineDiscount, assertSaleDiscount, maxPercentFor, assertDiscountPercent };

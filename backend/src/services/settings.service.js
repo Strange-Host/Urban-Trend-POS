@@ -10,6 +10,11 @@ const DEFAULTS = {
   business_name: 'Urban Trends',
   business_currency: 'KES',
   business_phone: '',
+  business_pin: '',                              // KRA PIN, printed on invoices
+  vat_rate_percent: '16',                        // used by the VAT report: prices are treated as VAT-inclusive at this rate
+  // Largest discount a cashier may give, as a percent of the goods' list value (0 = no limit).
+  // Managers and admins are not held to it.
+  max_discount_percent: '0',
   business_address: '',
   receipt_footer: 'Thank you for shopping with us!',
   low_stock_default_reorder_level: '5',
@@ -19,6 +24,9 @@ const DEFAULTS = {
   delivery_fee_threshold_kes: '5000',
   delivery_fee_flat_kes: '300',
   delivery_fee_percent: '5',
+  // Delivery fee from the delivery-area table (Joyfull Cargo rates) when the customer's town matches one;
+  // '1' = use it, '0' = always use the flat/percent rule above.
+  delivery_use_area_rates: '1',
   // Office contacts included in delivery-timeline messaging (§1/§9) —
   // separate numbers for Nairobi vs. everywhere else.
   office_contact_nairobi: '',
