@@ -239,6 +239,13 @@ export const attendanceApi = {
 export const payrollApi = {
   summary: (staffId, from, to) => client.get('/payroll/summary', { params: { staff_id: staffId, from, to } }),
   lossDeduction: (data) => client.post('/payroll/loss-deduction', data),
+  // Locked payroll runs: draft -> approved (locked) -> paid. Approve and pay are admin-only on the server.
+  runs: () => client.get('/payroll/runs'),
+  run: (id) => client.get(`/payroll/runs/${id}`),
+  verifyRun: (id) => client.get(`/payroll/runs/${id}/verify`),
+  generateRun: (from, to) => client.post('/payroll/runs', { from, to }),
+  approveRun: (id) => client.post(`/payroll/runs/${id}/approve`),
+  payRun: (id, method, paymentRef) => client.post(`/payroll/runs/${id}/pay`, { method, payment_ref: paymentRef || undefined }),
 };
 
 export const employeesApi = {
