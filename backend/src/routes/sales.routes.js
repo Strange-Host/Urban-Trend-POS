@@ -1,5 +1,6 @@
 const router = require('express').Router();
 const rateLimit = require('express-rate-limit');
+const { userOrIpKey } = require('../utils/rateLimitKey');
 const { RATE_LIMITS } = require('../config/limits');
 const ctrl = require('../controllers/sales.controller');
 const { authenticate, requireRole, requirePermission, requireRecentAuth } = require('../middleware/auth');
@@ -12,7 +13,8 @@ router.use(authenticate, requireRole('admin', 'manager', 'cashier'));
 // Generous limit — a busy register can legitimately ring up many sales in
 // a window — but checkout is the one high-frequency endpoint that writes
 // money and stock, so it shouldn't be entirely unbounded like a read.
-const checkoutLimiter = rateLimit({ ...RATE_LIMITS.CHECKOUT, standardHeaders: true });
+// Counted per cashier, not per IP: every till in the shop shares one public address.
+const checkoutLimiter = rateLimit({ ...RATE_LIMITS.CHECKOUT, standardHeaders: true, keyGenerator: userOrIpKey });
 
 router.post('/', checkoutLimiter, validate(checkoutSchema), ctrl.checkout);
 router.get('/', ctrl.list);
