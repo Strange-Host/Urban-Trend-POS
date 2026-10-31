@@ -46,6 +46,13 @@ export default function Expenses() {
     queryFn: () => expensesApi.listCategories().then((r) => r.data.data),
   });
 
+  // Add a category without leaving the form; the picker selects the new one.
+  async function addCategory(name) {
+    const { data: res } = await expensesApi.createCategory(name);
+    await queryClient.invalidateQueries({ queryKey: ['expense-categories'] });
+    return res.data.id;
+  }
+
   const pager = usePager(25);
   const { data, isLoading } = useQuery({
     queryKey: ['expenses', 'list', { page: pager.page, size: pager.pageSize, statusFilter }],
@@ -304,6 +311,7 @@ export default function Expenses() {
               value={form.category_id} title="Expense category" aria-label="Expense category" className="mb-3"
               onChange={(v) => setForm({ ...form, category_id: v })}
               options={(categories || []).map((c) => ({ value: c.id, label: c.name }))}
+              onCreate={canManage ? addCategory : undefined} createLabel="New category…"
             />
 
             <label className="block text-xs font-medium text-text-muted mb-1">Amount (KES)</label>

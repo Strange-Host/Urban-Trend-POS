@@ -20,6 +20,7 @@ vi.mock('../components/PrintReceipt', () => ({ default: () => null }));
 vi.mock('../components/InvoiceButton', () => ({ default: () => null }));
 vi.mock('../components/PrintWaybill', () => ({ default: () => null }));
 vi.mock('../components/AddItemsSheet', () => ({ default: () => null }));
+vi.mock('../components/NewOrderSheet', () => ({ default: ({ onCreated, onClose }) => <div>new order sheet<button onClick={() => { onCreated({ id: 9 }); onClose(); }}>finish</button></div> }));
 vi.mock('../components/CustomerOrderHistory', () => ({ default: () => null }));
 
 const ok = (data, extra = {}) => Promise.resolve({ data: { data, ...extra } });
@@ -69,5 +70,16 @@ describe('Orders admin views', () => {
     fireEvent.click(await screen.findByText('Wanjiru'));
     await screen.findByText('Dispatch — deducts stock');
     expect(screen.queryByRole('button', { name: 'Record shop cash' })).not.toBeInTheDocument();
+  });
+
+  it('opens the New order sheet for any role and shows the created order', async () => {
+    role = 'cashier';
+    mount();
+    expect(await screen.findByText('Wanjiru')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '+ New order' }));
+    expect(screen.getByText('new order sheet')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'finish' }));
+    expect(screen.queryByText('new order sheet')).not.toBeInTheDocument();
+    expect(ordersApi.get).toHaveBeenCalledWith(9);   // the new order is opened
   });
 });
