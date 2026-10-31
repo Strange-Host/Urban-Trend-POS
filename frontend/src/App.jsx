@@ -47,10 +47,12 @@ function RouteFallback() {
   return <div className="p-8 text-text-muted text-sm">Loading…</div>;
 }
 
-// The storekeeper has no till, so the Terminal is not their home: they land on the catalog instead.
+// Each role has its own home: the storekeeper has no till, so they land on the catalog instead.
 function Home() {
-  const { user } = useAuth();
+  const { user, can } = useAuth();
   if (user?.role === 'store') return <Navigate to="/catalog" replace />;
+  // Admins and managers open on the dashboard (graphs, alerts, KPIs); cashiers open on the till.
+  if ((user?.role === 'admin' || user?.role === 'manager') && can('reports.view')) return <Navigate to="/dashboard" replace />;
   return <POSTerminal />;
 }
 
