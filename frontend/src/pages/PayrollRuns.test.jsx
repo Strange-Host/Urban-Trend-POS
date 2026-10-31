@@ -5,7 +5,7 @@ import PayrollRuns from './PayrollRuns';
 import { payrollApi } from '../api/endpoints';
 
 vi.mock('../api/endpoints', () => ({
-  payrollApi: { runs: vi.fn(), run: vi.fn(), verifyRun: vi.fn(), generateRun: vi.fn(), approveRun: vi.fn(), payRun: vi.fn() },
+  payrollApi: { runs: vi.fn(), run: vi.fn(), verifyRun: vi.fn(), generateRun: vi.fn(), approveRun: vi.fn(), payRun: vi.fn(), cycle: vi.fn() },
 }));
 let mockUser = { role: 'admin' };
 vi.mock('../context/AuthContext', () => ({ useAuth: () => ({ user: mockUser }) }));
@@ -44,20 +44,24 @@ async function open(r) {
 beforeEach(() => {
   Object.values(payrollApi).forEach((f) => f.mockReset());
   payrollApi.verifyRun.mockReturnValue(ok({ locked: true, intact: true }));
+  payrollApi.cycle.mockReturnValue(ok({
+    payDay: 3, today: '2026-10-31',
+    current: { month: '2026-10', from: '2026-10-01', to: '2026-10-31', payDate: '2026-11-03', run: null },
+    previous: { month: '2026-09', from: '2026-09-01', to: '2026-09-30', payDate: '2026-10-03', run: null, payDue: true, overdue: false },
+  }));
   mockUser = { role: 'admin' };
 });
 
 describe('PayrollRuns', () => {
-  it('calculates a draft for the chosen dates and opens it', async () => {
+  it('calculates a draft for the chosen month and opens it', async () => {
     payrollApi.runs.mockReturnValue(ok([]));
     payrollApi.generateRun.mockReturnValue(ok(run()));
     payrollApi.run.mockReturnValue(ok(run()));
     mount();
     expect(await screen.findByText(/No runs yet/)).toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText('From'), { target: { value: '2026-10-01' } });
-    fireEvent.change(screen.getByLabelText('To'), { target: { value: '2026-10-07' } });
+    fireEvent.change(screen.getByLabelText('Month'), { target: { value: '2026-10' } });
     fireEvent.click(screen.getByRole('button', { name: 'Calculate draft' }));
-    await waitFor(() => expect(payrollApi.generateRun).toHaveBeenCalledWith('2026-10-01', '2026-10-07'));
+    await waitFor(() => expect(payrollApi.generateRun).toHaveBeenCalledWith({ month: '2026-10' }));
     expect(await screen.findByText('Grace Wanjiru')).toBeInTheDocument();
   });
 
@@ -107,20 +111,46 @@ describe('PayrollRuns', () => {
     await waitFor(() => expect(screen.queryByText(/Something changed since this draft/)).not.toBeInTheDocument());
   });
 
-  it('paying by M-Pesa needs a reference; cash does not', async () => {
+  it('shows where the pay cycle stands, and flags a month whose pay date has passed unpaid', async () => {
+    payrollApi.cycle.mockReturnValue(ok({
+      payDay: 3, today: '2026-10-31',
+      current: { month: '2026-10', from: '2026-10-01', to: '2026-10-31', payDate: '2026-11-03', run: null },
+      previous: { month: '2026-09', from: '2026-09-01', to: '2026-09-30', payDate: '2026-10-03', run: null, payDue: true, overdue: true },
+    }));
+    payrollApi.runs.mockReturnValue(ok([]));
+    mount();
+    expect(await screen.findByRole('alert')).toHaveTextContent(/September 2026 pay is not calculated yet · due (3 Oct|Oct 3) · overdue/);
+  });
+
+  it('labels a commission reversal and shows a percentage pay type', async () => {
+    await open(run({ items: [item({
+      commissionType: 'percentage', percentBp: 250,
+      lines: [{ kind: 'loss_deduction', refDate: '2026-10-05', refText: 'Commission reversed on order UT000042: refunded', quantity: null, amountCents: 8000 }],
+    })] }));
+    expect(screen.getByText(/2.5% of sales/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Grace Wanjiru/ }));
+    expect(screen.getByText(/Commission reversed · Commission reversed on order UT000042/)).toBeInTheDocument();
+  });
+
+  it('paying by M-Pesa needs a reference and the payer\'s signature; cash needs only the signature', async () => {
     payrollApi.payRun.mockReturnValue(ok(run({ status: 'paid' })));
     await open(run({ status: 'approved', checksum: 'a'.repeat(64), approvedAt: '2026-10-08 07:00:00', approvedByName: 'Admin' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Mark as paid' }));
     const confirm = screen.getByRole('button', { name: 'Confirm payment' });
     expect(confirm).toBeDisabled();
     fireEvent.change(screen.getByLabelText('Payment reference'), { target: { value: 'QWE123' } });
+    expect(confirm).toBeDisabled(); // still unsigned
+    fireEvent.change(screen.getByLabelText(/Sign off/), { target: { value: 'Store Admin' } });
     expect(confirm).toBeEnabled();
     fireEvent.click(confirm);
-    await waitFor(() => expect(payrollApi.payRun).toHaveBeenCalledWith(1, 'mpesa', 'QWE123'));
+    await waitFor(() => expect(payrollApi.payRun).toHaveBeenCalledWith(1, 'mpesa', 'QWE123', 'Store Admin', 'a'.repeat(64)));
 
     fireEvent.click(await screen.findByRole('button', { name: 'Mark as paid' }));
     fireEvent.change(screen.getByLabelText('Paid by'), { target: { value: 'cash' } });
     expect(screen.queryByLabelText('Payment reference')).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText(/Sign off/), { target: { value: '' } });
+    expect(screen.getByRole('button', { name: 'Confirm payment' })).toBeDisabled(); // cash still needs the signature
+    fireEvent.change(screen.getByLabelText(/Sign off/), { target: { value: 'Store Admin' } });
     expect(screen.getByRole('button', { name: 'Confirm payment' })).toBeEnabled();
   });
 

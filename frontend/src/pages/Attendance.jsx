@@ -50,16 +50,14 @@ export default function Attendance() {
     }
   }
 
-  // Clocking out first shows what you're leaving open (never blocks — if the
+  // Clocking out always shows what you're leaving open and a box for a note to your manager (never blocks — if the
   // lookup fails, clock-out just proceeds).
   async function requestClockOut(label) {
     setError('');
     try {
       const { data } = await shiftApi.handover();
-      if (data.data.has_open_items) {
-        setHandover({ summary: data.data, label });
-        return;
-      }
+      setHandover({ summary: data.data, label });
+      return;
     } catch { /* proceed without the prompt */ }
     await doClock('out', label);
   }
@@ -187,7 +185,7 @@ export default function Attendance() {
       )}
       {handover && (
         <HandoverModal
-          summary={handover.summary} actionLabel="Clock out anyway" busy={busy}
+          summary={handover.summary} actionLabel={handover.summary.has_open_items ? 'Clock out anyway' : 'Clock out'} busy={busy}
           onCancel={() => setHandover(null)} onConfirm={(notes) => doClock('out', handover.label, notes)}
         />
       )}

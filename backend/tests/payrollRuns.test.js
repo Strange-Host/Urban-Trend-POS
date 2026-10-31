@@ -200,12 +200,19 @@ describe('locked payroll runs (Rule 9)', () => {
     const badMethod = await request(app).post(`/api/payroll/runs/${runId}/pay`).set(auth()).send({ method: 'barter' });
     expect(badMethod.status).toBe(422);
 
-    const paid = await request(app).post(`/api/payroll/runs/${runId}/pay`).set(auth()).send({ method: 'mpesa', payment_ref: 'QWE123' });
+    const checksum = db.prepare('SELECT checksum FROM payroll_runs WHERE id = ?').get(runId).checksum;
+    const unsigned = await request(app).post(`/api/payroll/runs/${runId}/pay`).set(auth()).send({ method: 'mpesa', payment_ref: 'QWE123', checksum });
+    expect(unsigned.status).toBe(422);
+    expect(unsigned.body.code || unsigned.body.error?.code).toBe('SIGNATURE_REQUIRED');
+
+    const paid = await request(app).post(`/api/payroll/runs/${runId}/pay`).set(auth())
+      .send({ method: 'mpesa', payment_ref: 'QWE123', signed_name: 'Store Admin', checksum });
     expect(paid.status).toBe(200);
     expect(paid.body.data).toMatchObject({ status: 'paid', paymentMethod: 'mpesa', paymentRef: 'QWE123' });
     expect(paid.body.data.checksum).toMatch(/^[0-9a-f]{64}$/);
 
-    const twice = await request(app).post(`/api/payroll/runs/${runId}/pay`).set(auth()).send({ method: 'cash' });
+    expect(paid.body.data).toMatchObject({ signedOffName: 'Store Admin', signedOffByName: 'Store Admin' });
+    const twice = await request(app).post(`/api/payroll/runs/${runId}/pay`).set(auth()).send({ method: 'cash', signed_name: 'Store Admin', checksum });
     expect(twice.status).toBe(409);
     expect(() => db.prepare(`UPDATE payroll_runs SET payment_ref = 'X' WHERE id = ?`).run(runId)).toThrow(/paid payroll run never changes/);
     expect(runs.verifyRun({ runId, storeId: 1 })).toMatchObject({ status: 'paid', intact: true });
