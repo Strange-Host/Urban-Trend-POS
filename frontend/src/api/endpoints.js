@@ -147,6 +147,8 @@ export const requisitionsApi = {
   create: (data) => client.post('/requisitions', data),
   approve: (id, items) => client.patch(`/requisitions/${id}/approve`, { items }),
   reject: (id, rejection_reason) => client.patch(`/requisitions/${id}/reject`, { rejection_reason }),
+  // The requester signs (typed name) that they received the money or goods. create() takes signed_name too.
+  acknowledge: (id, signed_name) => client.patch(`/requisitions/${id}/acknowledge`, { signed_name }),
 };
 
 export const expensesApi = {
@@ -287,9 +289,16 @@ export const payrollApi = {
   runs: () => client.get('/payroll/runs'),
   run: (id) => client.get(`/payroll/runs/${id}`),
   verifyRun: (id) => client.get(`/payroll/runs/${id}/verify`),
-  generateRun: (from, to) => client.post('/payroll/runs', { from, to }),
+  // generateRun({ month: '2026-10' }) for a whole calendar month, or generateRun(from, to) for part of one.
+  generateRun: (fromOrOpts, to) => client.post('/payroll/runs', typeof fromOrOpts === 'object' ? fromOrOpts : { from: fromOrOpts, to }),
   approveRun: (id) => client.post(`/payroll/runs/${id}/approve`),
-  payRun: (id, method, paymentRef) => client.post(`/payroll/runs/${id}/pay`, { method, payment_ref: paymentRef || undefined }),
+  // Paying is signed off: the payer's own typed name plus the run's checksum (what they are signing for).
+  payRun: (id, method, paymentRef, signedName, checksum) => client.post(`/payroll/runs/${id}/pay`, {
+    method, payment_ref: paymentRef || undefined, signed_name: signedName, checksum,
+  }),
+  cycle: () => client.get('/payroll/cycle'),
+  payTerms: () => client.get('/payroll/pay-terms'),
+  setPayTerms: (staffId, data) => client.put(`/payroll/pay-terms/${staffId}`, data),
 };
 
 export const employeesApi = {

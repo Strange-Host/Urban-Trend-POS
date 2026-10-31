@@ -55,20 +55,18 @@ export default function ShiftWidget() {
   async function handleClose(e) {
     e.preventDefault();
     setError('');
-    // Look at what they're leaving open first. If that lookup fails, never block
-    // closing the till over it — just carry on without the prompt.
+    // Show what they're leaving open, with a note box for their manager, every time. If that lookup fails, never
+    // block closing the till over it — just carry on without the prompt.
     try {
       const { data } = await shiftApi.handover();
-      if (data.data.has_open_items) {
-        setHandover(data.data);
-        return;
-      }
+      setHandover(data.data);
+      return;
     } catch { /* proceed without the prompt */ }
     await finishClose();
   }
 
   const handoverModal = handover && (
-    <HandoverModal summary={handover} actionLabel="Close shift anyway" busy={closing} onCancel={() => setHandover(null)} onConfirm={finishClose} />
+    <HandoverModal summary={handover} actionLabel={handover.has_open_items ? 'Close shift anyway' : 'Close shift'} busy={closing} onCancel={() => setHandover(null)} onConfirm={finishClose} />
   );
 
   if (mode === 'opening') {

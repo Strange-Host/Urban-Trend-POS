@@ -151,6 +151,29 @@ const ADDITIVE_COLUMNS = {
   requisitions: [
     `type TEXT NOT NULL DEFAULT 'shop_operational' CHECK (type IN ('shop_operational','salary_advance'))`,
     `amount INTEGER`,
+    // Employee acknowledgement: the requester's typed-name signature when asking, and again on receiving.
+    `request_signature_name TEXT`,
+    `request_signature_at TEXT`,
+    `receipt_signature_name TEXT`,
+    `receipt_signature_at TEXT`,
+  ],
+  // Pay cycle (fixed pay date, payout sign-off), per-employee pay types and commission reversals.
+  payroll_runs: [
+    `pay_date TEXT`,
+    `signed_off_by INTEGER REFERENCES users(id)`,
+    `signed_off_at TEXT`,
+    `signed_off_name TEXT`,
+  ],
+  payroll_adjustments: [
+    `reverses_order_id INTEGER REFERENCES orders(id)`,
+  ],
+  commissioned_orders: [
+    `commission INTEGER CHECK (commission IS NULL OR commission >= 0)`,
+  ],
+  users: [
+    `commission_type TEXT NOT NULL DEFAULT 'fixed' CHECK (commission_type IN ('fixed','percentage','combined'))`,
+    `commission_fixed_cents INTEGER CHECK (commission_fixed_cents IS NULL OR commission_fixed_cents >= 0)`,
+    `commission_percent_bp INTEGER NOT NULL DEFAULT 0 CHECK (commission_percent_bp BETWEEN 0 AND 10000)`,
   ],
   // Payment gateway credentials (M-Pesa/KCB in Settings) + outgoing-money mirroring:
   payment_notifications: [
@@ -629,6 +652,48 @@ function ensureMainStore() {
   if (first) db.prepare('UPDATE stores SET is_main = 1 WHERE id = ?').run(first.id);
 }
 
+// payroll_items had CHECK (commission = units_sold * rate), which only a per-unit pay type can satisfy. A percentage
+// or combined pay type earns a share of the order value, so that check has to become "only for fixed pay" - and
+// SQLite can only change a CHECK by rebuilding the table (same careful procedure as the rebuilds above: build the
+// replacement under a temp name from the definition in schema.sql, copy every row, drop, rename). Locked runs are
+// copied untouched: every figure, and the checksum on payroll_runs, stay exactly as approved. The triggers on the
+// run tables are dropped first (a trigger that mentions a table that is momentarily gone makes the rename fail) and
+// schema.sql puts them back.
+function needsPayrollItemsRebuild() {
+  if (!tableExists('payroll_items')) return false; // fresh install - schema.sql creates it correctly already
+  const row = db.prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='payroll_items'`).get();
+  return Boolean(row && row.sql && !/commission_type/.test(row.sql));
+}
+
+function rebuildPayrollItemsTable(schema) {
+  console.log('  Rebuilding payroll_items to allow percentage and combined commission...');
+  const match = schema.match(/CREATE TABLE IF NOT EXISTS payroll_items \(([\s\S]*?)\n\);/);
+  if (!match) throw new Error('Could not find the payroll_items definition in schema.sql; leaving the table unchanged.');
+  const tmp = 'payroll_items_pay_types_new';
+  const wasForeignKeysOn = db.pragma('foreign_keys', { simple: true }) === 1;
+  db.pragma('foreign_keys = OFF');
+
+  let copied = 0;
+  const txn = db.transaction(() => {
+    const triggers = db.prepare(`SELECT name FROM sqlite_master WHERE type='trigger' AND tbl_name IN ('payroll_items','payroll_item_lines')`).all();
+    for (const t of triggers) db.exec(`DROP TRIGGER IF EXISTS "${t.name}"`);
+    db.exec(`DROP TABLE IF EXISTS ${tmp}`);
+    db.exec(`CREATE TABLE ${tmp} (${match[1]}\n)`);
+    const cols = db.prepare(`PRAGMA table_info(payroll_items)`).all().map((c) => c.name).join(', ');
+    copied = db.prepare(`INSERT INTO ${tmp} (${cols}) SELECT ${cols} FROM payroll_items`).run().changes;
+    db.exec('DROP TABLE payroll_items');
+    db.exec(`ALTER TABLE ${tmp} RENAME TO payroll_items`);
+  });
+  txn();
+
+  const violations = db.pragma('foreign_key_check');
+  if (violations.length > 0) {
+    throw new Error(`payroll_items rebuild left foreign key violations: ${JSON.stringify(violations)}`);
+  }
+  if (wasForeignKeysOn) db.pragma('foreign_keys = ON');
+  console.log(`  + payroll_items rebuilt; ${copied} payroll line(s) carried over unchanged`);
+}
+
 function migrate() {
   const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8');
 
@@ -650,6 +715,10 @@ function migrate() {
 
   if (needsInventoryMovementsStockControlRebuild()) {
     rebuildInventoryMovementsForStockControl();
+  }
+
+  if (needsPayrollItemsRebuild()) {
+    rebuildPayrollItemsTable(schema);
   }
 
   for (const [table, columns] of Object.entries(CURRENCY_COLUMNS)) {

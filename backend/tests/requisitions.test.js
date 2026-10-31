@@ -19,7 +19,7 @@ describe('requisitions', () => {
     const createRes = await request(app)
       .post('/api/requisitions')
       .set('Authorization', `Bearer ${token}`)
-      .send({ items: [{ product_id: product.id, quantity_requested: 10 }] });
+      .send({ signed_name: 'Store Admin', items: [{ product_id: product.id, quantity_requested: 10 }] });
     expect(createRes.status).toBe(201);
     const requisitionId = createRes.body.data.id;
 
@@ -41,7 +41,7 @@ describe('requisitions', () => {
     const createRes = await request(app)
       .post('/api/requisitions')
       .set('Authorization', `Bearer ${token}`)
-      .send({ items: [{ product_id: product.id, quantity_requested: 20 }] });
+      .send({ signed_name: 'Store Admin', items: [{ product_id: product.id, quantity_requested: 20 }] });
     const requisitionId = createRes.body.data.id;
 
     await request(app)
@@ -57,7 +57,7 @@ describe('requisitions', () => {
     const createRes = await request(app)
       .post('/api/requisitions')
       .set('Authorization', `Bearer ${token}`)
-      .send({ items: [{ product_id: product.id, quantity_requested: 1 }] });
+      .send({ signed_name: 'Store Admin', items: [{ product_id: product.id, quantity_requested: 1 }] });
     const requisitionId = createRes.body.data.id;
 
     const first = await request(app)

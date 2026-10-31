@@ -8,6 +8,7 @@ router.use(authenticate);
 router.get('/', requireRole('admin', 'manager', 'cashier'), ctrl.list);
 router.post('/', requireRole('admin', 'manager', 'cashier'), ctrl.create);
 router.get('/:id', requireRole('admin', 'manager', 'cashier'), ctrl.getById);
+router.patch('/:id/acknowledge', requireRole('admin', 'manager', 'cashier'), ctrl.acknowledgeReceipt);
 router.patch('/:id/approve', requirePermission('requisitions.approve'), ctrl.approve);
 router.patch('/:id/reject', requirePermission('requisitions.approve'), ctrl.reject);
 

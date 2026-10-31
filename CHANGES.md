@@ -1,3 +1,34 @@
+# Priority 3: payroll gaps (pay cycle, commission rules, clock-out check)
+
+**Pay cycle.** A pay period is one calendar month at most (commission targets and tiers start again each month); runs can be
+generated with `{ month: 'YYYY-MM' }`. Each run carries a `pay_date`, the `payroll_pay_day` setting (default 3) of the following
+month, recomputed at approval. `GET /api/payroll/cycle` reports the month being worked and whether the month just finished is
+calculated, locked, paid or overdue. Paying a run is now **signed off**: the paying admin types their own full name (checked
+against their account) and sends the run's checksum; the run is re-verified before money is released, and
+`signed_off_by/at/name` are recorded. The profit report costs labour month by month, so a range spanning months still works.
+
+**Commission rules.**
+- *Reversal*: when an order that already earned commission leaves "dispatched, paid" (payment refunded, returned) a
+  `loss_deduction` payroll adjustment linked by `reverses_order_id` takes that commission back, once (unique index), dated so it
+  lands in a pay period no locked run covers. A sweep at draft generation catches any route the hooks do not see. Locked runs
+  are never edited. An order whose commission was reversed does not earn it again.
+- *Pay types per employee* (admin only, `GET/PUT /api/payroll/pay-terms`): `fixed` (own amount per unit, or the store tiers),
+  `percentage` (basis points of each secured order) or `combined`. Everyone defaults to fixed on the tiers, so nothing changes
+  until set. `payroll_items` gained `commission_type`/`percent_bp`; its `commission = units_sold * rate` check now applies to
+  fixed pay only. Existing databases are rebuilt by `migrate.js` (data and locked-run checksums carried over unchanged).
+- *Signatures*: a requisition or advance is signed by the requester (typed name, checked against their account) when asked, and
+  again on receipt (`PATCH /api/requisitions/:id/acknowledge`, requester only, once approved). The requisitions page can now
+  raise a salary advance.
+
+**Clock-out check.** Confirmed: unpaid dispatched parcels, unconfirmed COD orders and leads. Added: Nairobi parcels called out
+separately, shop cash still held, and unmatched payments shown (shop-wide, informational). A note for the manager always reaches
+the managers, even when nothing is open, and the clock-out / close-till prompt is now always shown so a note can be typed.
+Late fee confirmed: nothing at or before 08:00:00 shop time, one hour's fee from 08:00:01, rounded up per hour (tests pin the boundaries).
+
+Tests: `backend/tests/payrollPriority3.test.js`, `payrollItemsMigration.test.js`; frontend `PayTerms.test.jsx`, `HandoverModal.test.jsx`.
+
+---
+
 # Priority 2: main-store inventory control
 
 Receiving, suppliers, issue logs, inter-branch transfers with approval, and outlet opening/closing counts with a
