@@ -66,7 +66,7 @@ describe('payroll (Phase 6)', () => {
     // the requester (this used to be filed by the admin, which only ever
     // reduced the admin's own pay and left the rep's summary unchanged).
     const reqRes = await request(app).post('/api/requisitions').set('Authorization', `Bearer ${repToken}`)
-      .send({ type: 'salary_advance', amount: 100000, notes: 'Emergency advance' });
+      .send({ type: 'salary_advance', amount: 100000, notes: 'Emergency advance', signed_name: 'Payroll Rep' });
     expect(reqRes.status).toBe(201);
     expect(reqRes.body.data.type).toBe('salary_advance');
 

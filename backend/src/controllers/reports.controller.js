@@ -1,6 +1,7 @@
 const db = require('../config/db');
 const asyncHandler = require('../utils/asyncHandler');
 const payrollService = require('../services/payroll.service');
+const { monthSegments } = require('../utils/payCycle');
 const { PAGINATION } = require('../config/limits');
 const { dateOf, localDate, dateParam } = require('../utils/storeTime');
 
@@ -300,8 +301,11 @@ const profitSummary = asyncHandler(async (req, res) => {
   const telesalesStaff = db.prepare(`SELECT id FROM users WHERE store_id = ? AND role = 'cashier' AND is_active = 1`).all(storeId);
   let laborCost = 0;
   for (const staff of telesalesStaff) {
-    const summary = payrollService.getSummary({ staffId: staff.id, storeId, periodStart: from, periodEnd: to });
-    laborCost += summary.dailyRetainer.total + summary.commission.commissionTotal;
+    // Commission targets reset each month, so a range that spans months is costed month by month and added up.
+    for (const seg of monthSegments(from, to)) {
+      const summary = payrollService.getSummary({ staffId: staff.id, storeId, periodStart: seg.from, periodEnd: seg.to });
+      laborCost += summary.dailyRetainer.total + summary.commission.commissionTotal;
+    }
   }
 
   const revenue = posRevenueCost.revenue + onlineRevenueCost.revenue;
