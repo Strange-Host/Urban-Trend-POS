@@ -40,6 +40,12 @@ export const inventoryApi = {
   list: () => client.get('/inventory'),
   lowStock: () => client.get('/inventory/low-stock'),
   adjust: (data) => client.post('/inventory/adjust', data),
+  // Ledger for one product, newest first. params: { page, limit, store_id }.
+  movements: (productId, params) => client.get(`/inventory/${productId}/movements`, { params }),
+  // Rows whose cached quantity no longer matches the movement ledger. Read-only.
+  reconcileCheck: () => client.get('/inventory/reconcile'),
+  // Admin only: resets every drifted row (all branches) to the ledger sum.
+  reconcile: () => client.post('/inventory/reconcile'),
 };
 
 export const salesApi = {

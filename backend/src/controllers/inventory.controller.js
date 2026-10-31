@@ -2,6 +2,8 @@ const db = require('../config/db');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const reconciliationService = require('../services/reconciliation.service');
+const { parsePagination, paginatedResponse } = require('../utils/paginate');
+const { scopeStore } = require('./stockReceiving.controller');
 
 // GET /api/inventory
 const list = asyncHandler(async (req, res) => {
@@ -71,16 +73,22 @@ const adjust = asyncHandler(async (req, res) => {
   res.json({ data: result });
 });
 
-// GET /api/inventory/:productId/movements — audit trail for one product
+// GET /api/inventory/:productId/movements?store_id=&page=&limit= — audit trail for one product, newest first.
+// Your own branch unless you can review stock and name another (same rule as the other stock lists).
 const movements = asyncHandler(async (req, res) => {
+  const productId = Number(req.params.productId);
+  if (!Number.isInteger(productId) || productId < 1) throw new ApiError(400, 'productId must be a whole number.');
+  const { page, limit, offset } = parsePagination(req.query);
+  const storeId = scopeStore(req);
   const rows = db.prepare(`
     SELECT m.*, u.name AS user_name
     FROM inventory_movements m LEFT JOIN users u ON u.id = m.created_by
     WHERE m.product_id = ? AND m.store_id = ?
-    ORDER BY m.created_at DESC
-    LIMIT 100
-  `).all(req.params.productId, req.user.storeId);
-  res.json({ data: rows });
+    ORDER BY m.created_at DESC, m.id DESC
+    LIMIT ? OFFSET ?
+  `).all(productId, storeId, limit, offset);
+  const total = db.prepare('SELECT COUNT(*) AS c FROM inventory_movements WHERE product_id = ? AND store_id = ?').get(productId, storeId).c;
+  res.json(paginatedResponse({ rows, total, page, limit }));
 });
 
 // GET /api/inventory/reconcile — check inventory.quantity against the
