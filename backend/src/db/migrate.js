@@ -24,6 +24,8 @@ const ADDITIVE_COLUMNS = {
     `reviewed_at TEXT`,
     `review_note TEXT`,
     `paid_from TEXT NOT NULL DEFAULT 'main' CHECK (paid_from IN ('main','petty_cash'))`,
+    // Approved shop requisitions are forwarded here (requisitions.service.js).
+    `requisition_id INTEGER REFERENCES requisitions(id)`,
   ],
   users: [
     `token_version INTEGER NOT NULL DEFAULT 1`,
