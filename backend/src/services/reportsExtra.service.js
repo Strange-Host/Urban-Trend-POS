@@ -144,7 +144,7 @@ function agentPerformance({ storeId, from, to }) {
   const online = db.prepare(`
     SELECT o.assigned_staff_id AS id, COUNT(DISTINCT o.id) AS orders,
            COALESCE(SUM(CAST(ROUND(oi.line_total * ${ONLINE_SHARE}) AS INTEGER)), 0) AS revenue,
-           COALESCE(SUM(CAST(ROUND(oi.quantity * p.cost_price * ${ONLINE_SHARE}) AS INTEGER)), 0) AS cost
+           COALESCE(SUM(CAST(ROUND(COALESCE(oi.cost_total, oi.quantity * p.cost_price) * ${ONLINE_SHARE}) AS INTEGER)), 0) AS cost
     FROM orders o JOIN order_items oi ON oi.order_id = o.id JOIN products p ON p.id = oi.product_id
     WHERE o.store_id = ? AND o.status IN ${PAID_ONLINE} AND o.total > 0 AND o.deleted_at IS NULL AND o.assigned_staff_id IS NOT NULL
       AND ${dateOf('o.dispatched_at')} BETWEEN ? AND ? GROUP BY o.assigned_staff_id

@@ -31,6 +31,15 @@ const update = asyncHandler(async (req, res) => {
   if (req.body?.clockout_gate_mode !== undefined && !['reason', 'block'].includes(String(req.body.clockout_gate_mode))) {
     throw new ApiError(400, 'clockout_gate_mode must be "reason" or "block".');
   }
+  if (req.body?.inventory_valuation_method !== undefined && !['fifo', 'average'].includes(String(req.body.inventory_valuation_method))) {
+    throw new ApiError(400, 'inventory_valuation_method must be fifo or average.');
+  }
+  if (req.body?.expiry_alert_days !== undefined) {
+    const n = Number(req.body.expiry_alert_days);
+    if (String(req.body.expiry_alert_days).trim() === '' || !Number.isInteger(n) || n < 0 || n > 365) {
+      throw new ApiError(400, 'Expiry alert days must be a whole number from 0 to 365.');
+    }
+  }
   if (req.body?.delivery_use_area_rates !== undefined && !['0', '1'].includes(String(req.body.delivery_use_area_rates))) {
     throw new ApiError(400, 'delivery_use_area_rates must be 0 or 1.');
   }

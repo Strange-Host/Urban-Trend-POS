@@ -1,6 +1,10 @@
 const db = require('../config/db');
 const asyncHandler = require('../utils/asyncHandler');
 const pnlService = require('../services/reportsPnl.service');
+const costing = require('../services/costing.service');
+const stockAlerts = require('../services/stockAlerts.service');
+const ApiError = require('../utils/ApiError');
+const permissionsService = require('../services/permissions.service');
 const { PAGINATION } = require('../config/limits');
 const { dateOf, localDate, dateParam } = require('../utils/storeTime');
 
@@ -41,16 +45,34 @@ const topProducts = asyncHandler(async (req, res) => {
 });
 
 // GET /api/reports/inventory-value
+// Cost value follows the valuation method in Settings (FIFO or average) - see services/costing.service.js.
 const inventoryValue = asyncHandler(async (req, res) => {
-  const row = db.prepare(`
-    SELECT
-      COALESCE(SUM(i.quantity * p.cost_price), 0) AS total_cost_value,
-      COALESCE(SUM(i.quantity * p.sell_price), 0) AS total_retail_value,
-      COALESCE(SUM(i.quantity), 0) AS total_units
-    FROM inventory i JOIN products p ON p.id = i.product_id
-    WHERE i.store_id = ? AND p.is_active = 1
-  `).get(req.user.storeId);
-  res.json({ data: row });
+  const t = costing.valuationTotals({ storeId: req.user.storeId });
+  res.json({ data: { ...t, method: costing.getMethod() } });
+});
+
+// GET /api/reports/inventory-valuation?store_id=
+// Stock on hand valued per product, under the chosen method, with the other method alongside so the difference is visible.
+// Shows buying prices, so it needs the same permission as seeing them.
+const inventoryValuation = asyncHandler(async (req, res) => {
+  if (!permissionsService.can(req.user, 'products.view_cost')) throw new ApiError(403, 'You do not have permission to see buying prices.', null, 'FORBIDDEN');
+  let storeId = req.user.storeId;
+  if (req.query.store_id && Number(req.query.store_id) !== storeId) {
+    if (req.user.role !== 'admin') throw new ApiError(403, 'You can only look at your own branch.');
+    if (!db.prepare('SELECT 1 FROM stores WHERE id = ?').get(Number(req.query.store_id))) throw new ApiError(404, 'Branch not found.');
+    storeId = Number(req.query.store_id);
+  }
+  const method = costing.getMethod();
+  const other = method === 'fifo' ? 'average' : 'fifo';
+  const rows = costing.valuationRows({ storeId, method });
+  const totals = costing.valuationTotals({ storeId, method, activeOnly: false });
+  const otherTotals = costing.valuationTotals({ storeId, method: other, activeOnly: false });
+  res.json({
+    data: {
+      method, rows, totals,
+      comparison: { [method]: totals.total_cost_value, [other]: otherTotals.total_cost_value },
+    },
+  });
 });
 
 // GET /api/reports/sales-by-channel?from=&to=  — revenue split across the
@@ -196,12 +218,8 @@ const dashboardOverview = asyncHandler(async (req, res) => {
     GROUP BY courier_type
   `).all(storeId);
 
-  const stockValue = db.prepare(`
-    SELECT COALESCE(SUM(i.quantity * p.cost_price), 0) AS total_cost_value,
-           COALESCE(SUM(i.quantity), 0) AS total_units
-    FROM inventory i JOIN products p ON p.id = i.product_id
-    WHERE i.store_id = ? AND p.is_active = 1
-  `).get(storeId);
+  const stockTotals = costing.valuationTotals({ storeId });
+  const stockValue = { total_cost_value: stockTotals.total_cost_value, total_units: stockTotals.total_units };
 
   const lowStockCount = db.prepare(`
     SELECT COUNT(*) AS c FROM inventory i JOIN products p ON p.id = i.product_id
@@ -222,7 +240,11 @@ const dashboardOverview = asyncHandler(async (req, res) => {
       orderStatusBreakdown,
       unpaidParcelsByCourier,
       stockOnHand: stockValue,
+      valuationMethod: costing.getMethod(),
+      uncostedUnits: stockTotals.uncosted_units,
       lowStockCount, // full detail: GET /api/inventory/low-stock
+      // expired / expiring / recalled batches and damaged stock; detail: GET /api/stock/alerts
+      stockAlerts: stockAlerts.counts(storeId),
     },
   });
 });
@@ -277,11 +299,11 @@ const topProductsByProfit = asyncHandler(async (req, res) => {
       COALESCE(SUM(cost), 0) AS cost,
       COALESCE(SUM(revenue), 0) - COALESCE(SUM(cost), 0) AS profit
     FROM (
-      SELECT si.product_id, si.quantity AS units_sold, si.line_total AS revenue, si.quantity * p2.cost_price AS cost
+      SELECT si.product_id, si.quantity AS units_sold, si.line_total AS revenue, COALESCE(si.cost_total, si.quantity * p2.cost_price) AS cost
       FROM sale_items si JOIN sales s ON s.id = si.sale_id JOIN products p2 ON p2.id = si.product_id
       WHERE s.store_id = ? AND s.status = 'completed' AND ${dateOf('s.created_at')} BETWEEN ? AND ?
       UNION ALL
-      SELECT oi.product_id, oi.quantity, oi.line_total, oi.quantity * p2.cost_price
+      SELECT oi.product_id, oi.quantity, oi.line_total, COALESCE(oi.cost_total, oi.quantity * p2.cost_price)
       FROM order_items oi JOIN orders o ON o.id = oi.order_id JOIN products p2 ON p2.id = oi.product_id
       WHERE o.store_id = ? AND o.status IN ('dispatched_paid','dispatched_partial') AND ${dateOf('o.dispatched_at')} BETWEEN ? AND ? AND o.deleted_at IS NULL AND o.sale_id IS NULL
     ) combined
@@ -309,8 +331,8 @@ const topStaffByProfit = asyncHandler(async (req, res) => {
     SELECT u.id AS staff_id, u.name,
       COUNT(DISTINCT o.id) AS orders_count,
       COALESCE(SUM(oi.line_total), 0) AS revenue,
-      COALESCE(SUM(oi.quantity * p.cost_price), 0) AS cost,
-      COALESCE(SUM(oi.line_total), 0) - COALESCE(SUM(oi.quantity * p.cost_price), 0) AS margin
+      COALESCE(SUM(COALESCE(oi.cost_total, oi.quantity * p.cost_price)), 0) AS cost,
+      COALESCE(SUM(oi.line_total), 0) - COALESCE(SUM(COALESCE(oi.cost_total, oi.quantity * p.cost_price)), 0) AS margin
     FROM orders o
     JOIN users u ON u.id = o.assigned_staff_id
     JOIN order_items oi ON oi.order_id = o.id
@@ -324,6 +346,6 @@ const topStaffByProfit = asyncHandler(async (req, res) => {
 });
 
 module.exports = {
-  salesSummary, topProducts, inventoryValue, salesByChannel, salesTrend, paymentMethods, topProductsByChannel,
+  salesSummary, topProducts, inventoryValue, inventoryValuation, salesByChannel, salesTrend, paymentMethods, topProductsByChannel,
   dashboardOverview, unpaidParcels, profitSummary, topProductsByProfit, topStaffByProfit,
 };

@@ -17,7 +17,8 @@ function quantityOf(productId, storeId) {
 }
 
 // Must run inside a transaction when more than one movement belongs together.
-function applyMovement({ productId, storeId, change, reason, referenceType, referenceId, userId }) {
+// batchId is only for stock that leaves FROM one named received batch (a recall, or writing off a named batch).
+function applyMovement({ productId, storeId, change, reason, referenceType, referenceId, userId, batchId = null }) {
   if (!Number.isInteger(change) || change === 0) throw new ApiError(400, 'A stock movement needs a non-zero whole number.');
   const existing = db.prepare('SELECT id, quantity FROM inventory WHERE product_id = ? AND store_id = ?').get(productId, storeId);
   if (existing) {
@@ -34,9 +35,9 @@ function applyMovement({ productId, storeId, change, reason, referenceType, refe
     db.prepare('INSERT INTO inventory (product_id, store_id, quantity) VALUES (?, ?, ?)').run(productId, storeId, change);
   }
   db.prepare(`
-    INSERT INTO inventory_movements (product_id, store_id, change_qty, reason, reference_type, reference_id, created_by)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).run(productId, storeId, change, reason, referenceType, referenceId, userId);
+    INSERT INTO inventory_movements (product_id, store_id, change_qty, reason, reference_type, reference_id, created_by, batch_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(productId, storeId, change, reason, referenceType, referenceId, userId, batchId);
 }
 
 function parseQty(value, label = 'quantity') {
