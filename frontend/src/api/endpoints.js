@@ -355,6 +355,22 @@ export const couriersApi = {
   create: (data) => client.post('/couriers', data),
   update: (id, data) => client.patch(`/couriers/${id}`, data),
   remove: (id) => client.delete(`/couriers/${id}`),
+  // Riders: what is owed, costs awaiting approval, payouts (couriers.pay / couriers.costs.*)
+  payables: () => client.get('/couriers/payables'),
+  balance: (id) => client.get(`/couriers/${id}/payables`),
+  costs: (params) => client.get('/couriers/costs', { params }),
+  recordCost: (id, data) => client.post(`/couriers/${id}/costs`, data),
+  approveCost: (costId) => client.post(`/couriers/costs/${costId}/approve`),
+  rejectCost: (costId, data) => client.post(`/couriers/costs/${costId}/reject`, data),
+  payouts: (params) => client.get('/couriers/payouts', { params }),
+  payout: (payoutId) => client.get(`/couriers/payouts/${payoutId}`),
+  createPayout: (id, data) => client.post(`/couriers/${id}/payouts`, data),
+  // Courier organizations: standing, collections, statements (couriers.settle)
+  standing: (id) => client.get(`/couriers/${id}/standing`),
+  collections: (id) => client.get(`/couriers/${id}/collections`),
+  recordCollection: (id, data) => client.post(`/couriers/${id}/collections`, data),
+  statements: (id) => client.get(`/couriers/${id}/statements`),
+  createStatement: (id, data) => client.post(`/couriers/${id}/statements`, data),
 };
 
 export const shiftApi = {
