@@ -5,6 +5,7 @@ import { getErrorMessage } from '../api/client';
 import { SectionCard, Field, inputCls } from '../components/SettingsUI';
 import { useDialog } from '../context/UIContext';
 import { CustomerPaymentDetails, SmsSection, WebFormLeadsSection } from './SettingsMessaging';
+import { BranchesSection, SuppliersSection } from './SettingsBranches';
 import { ServerAddressSection, EmailSection, KcbAdvancedSection, LiveSyncControls, LiveSyncSettings } from './SettingsSystem';
 import { useSearchParams } from 'react-router-dom';
 import { modulesApi } from '../api/endpoints';
@@ -796,6 +797,7 @@ const SETTINGS_TABS = [
   { key: 'payments', label: 'Payments' },
   { key: 'messaging', label: 'Messaging' },
   { key: 'stores', label: 'Stores' },
+  { key: 'branches', label: 'Branches & suppliers' },
   { key: 'server', label: 'Server' },
 ];
 
@@ -915,6 +917,13 @@ export default function Settings() {
         <>
           <SmsSection />
           <WebFormLeadsSection />
+        </>
+      )}
+
+      {tab === 'branches' && (
+        <>
+          <BranchesSection />
+          <SuppliersSection />
         </>
       )}
 
