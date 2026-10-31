@@ -5,6 +5,9 @@ import { getErrorMessage } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { useToast, useDialog } from '../context/UIContext';
 import { StatusPill } from '../components/DataUI';
+import TabBar from '../components/TabBar';
+import CourierSheet, { availableTabs } from '../components/couriers/CourierSheet';
+import PayablesOverview from '../components/couriers/PayablesOverview';
 
 import Sheet from '../components/Sheet';
 const empty = { name: '', phone: '', vehicle: '', courier_type: 'boda', notes: '' };
@@ -24,6 +27,9 @@ export default function Couriers() {
   const [form, setForm] = useState(empty);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [view, setView] = useState('couriers');
+  const [opened, setOpened] = useState(null);   // { id, tab } for the payables sheet
+  const showPayables = can('couriers.pay') || can('couriers.costs.approve');
 
   const { data: couriers = [], isLoading } = useQuery({
     queryKey: ['couriers', 'all'],
@@ -66,6 +72,8 @@ export default function Couriers() {
     }
   }
 
+  const openedCourier = opened && couriers.find((c) => c.id === opened.id);
+  const openedTabs = openedCourier ? availableTabs(openedCourier, can) : [];
   const owed = couriers.filter((c) => c.is_active).reduce((n, c) => n + c.unpaid_amount, 0);
 
   return (
@@ -80,7 +88,11 @@ export default function Couriers() {
         {manage && <button onClick={openNew} className="px-4 py-2.5 rounded-lg bg-ink text-white text-sm font-medium hover:bg-ink-soft whitespace-nowrap">+ Add courier</button>}
       </div>
 
-      <div className="bg-surface border border-line rounded-xl overflow-hidden scroll-x">
+      {showPayables && <TabBar tabs={[{ key: 'couriers', label: 'Couriers' }, { key: 'payables', label: 'Payables & costs' }]} active={view} onChange={setView} className="mb-4" />}
+
+      {view === 'payables' && showPayables && <PayablesOverview onOpenCourier={(id, tab) => setOpened({ id, tab })} />}
+
+      {(view === 'couriers' || !showPayables) && <div className="bg-surface border border-line rounded-xl overflow-hidden scroll-x">
         <table className="stack-sm w-full text-sm min-w-[640px]">
           <thead>
             <tr className="border-b border-line text-left text-text-muted">
@@ -97,13 +109,16 @@ export default function Couriers() {
             {couriers.map((c) => (
               <tr key={c.id} className={`border-b border-line last:border-0 ${c.is_active ? '' : 'opacity-60'}`}>
                 <td className="px-4 py-3">
-                  <div className="font-medium">{c.name} {!c.is_active && <StatusPill tone="neutral">inactive</StatusPill>}</div>
+                  <div className="font-medium">{c.name} {c.kind === 'organization' && <StatusPill tone="accent">organization</StatusPill>} {!c.is_active && <StatusPill tone="neutral">inactive</StatusPill>}</div>
                   <div className="text-xs text-text-muted">{[c.phone, c.vehicle].filter(Boolean).join(' · ')}</div>
                 </td>
                 <td className="px-4 py-3">{c.courier_type === 'g4s' ? 'G4S' : 'Boda'}</td>
                 <td className="px-4 py-3 text-right font-mono">{c.unpaid_parcels}</td>
                 <td className="px-4 py-3 text-right font-mono">{money(c.unpaid_amount)}</td>
                 <td className="px-4 py-3 text-right whitespace-nowrap">
+                  {availableTabs(c, can).length > 0 && (
+                    <button onClick={() => setOpened({ id: c.id })} className="text-xs font-medium text-text hover:opacity-70 mr-3">{c.kind === 'organization' ? 'Open' : 'Payables'}</button>
+                  )}
                   {manage && (
                     <>
                       <button onClick={() => openEdit(c)} className="text-xs text-text-muted hover:text-text mr-3">Edit</button>
@@ -117,7 +132,11 @@ export default function Couriers() {
             ))}
           </tbody>
         </table>
-      </div>
+      </div>}
+
+      {openedCourier && openedTabs.length > 0 && (
+        <CourierSheet courier={openedCourier} tabs={openedTabs} initialTab={opened.tab} onClose={() => setOpened(null)} />
+      )}
 
       {editing !== null && (
         <Sheet onClose={() => setEditing(null)} size="sm" as="form" onSubmit={save}>
