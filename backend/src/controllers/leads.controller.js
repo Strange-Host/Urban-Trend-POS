@@ -29,10 +29,11 @@ const getById = asyncHandler(async (req, res) => {
 
 // POST /api/leads
 const create = asyncHandler(async (req, res) => {
-  const { name, phone, email, source, notes, assigned_staff_id } = req.body;
+  const { name, phone, email, source, notes, assigned_staff_id, allow_possible_duplicate } = req.body;
   const lead = leadsService.create({
     storeId: req.user.storeId, staffId: req.user.id,
     name, phone, email, source, notes, assignedStaffId: assigned_staff_id,
+    allowPossibleDuplicate: allow_possible_duplicate === true,
   });
   res.status(201).json({ data: lead });
 });
