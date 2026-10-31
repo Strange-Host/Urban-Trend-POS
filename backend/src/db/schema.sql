@@ -1117,6 +1117,36 @@ CREATE INDEX IF NOT EXISTS idx_payment_records_status ON payment_records(status)
 CREATE INDEX IF NOT EXISTS idx_payment_records_date ON payment_records(created_at);
 
 -- ---------------------------------------------------------------------
+-- APPROVAL REQUESTS — "Refund / void requires manager approval". Someone without the
+-- right to void a sale / refund a payment (a cashier) files a request with a reason;
+-- a manager approves or rejects it. Approving runs the existing void / refund in the
+-- same transaction, so there is only one definition of what a void or refund does.
+-- `amount` is a snapshot (cents) so the request still reads correctly later.
+-- 'failed' = approved but the action could not run (e.g. the sale was already voided).
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS approval_requests (
+  id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+  store_id           INTEGER NOT NULL REFERENCES stores(id),
+  kind               TEXT NOT NULL CHECK (kind IN ('void_sale','refund_payment')),
+  sale_id            INTEGER REFERENCES sales(id),
+  payment_record_id  INTEGER REFERENCES payment_records(id),
+  amount             INTEGER NOT NULL DEFAULT 0,
+  reason             TEXT NOT NULL,
+  status             TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected','cancelled','failed')),
+  requested_by       INTEGER NOT NULL REFERENCES users(id),
+  requested_at       TEXT NOT NULL DEFAULT (datetime('now')),
+  reviewed_by        INTEGER REFERENCES users(id),
+  reviewed_at        TEXT,
+  review_note        TEXT,
+  CHECK ((kind = 'void_sale' AND sale_id IS NOT NULL) OR (kind = 'refund_payment' AND payment_record_id IS NOT NULL))
+);
+CREATE INDEX IF NOT EXISTS idx_approval_requests_store ON approval_requests(store_id, status, id);
+CREATE INDEX IF NOT EXISTS idx_approval_requests_requester ON approval_requests(requested_by, id);
+-- One open request per sale / payment: a second click must not stack up duplicates for the manager.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_approval_pending_sale ON approval_requests(sale_id) WHERE status = 'pending' AND kind = 'void_sale';
+CREATE UNIQUE INDEX IF NOT EXISTS idx_approval_pending_payment ON approval_requests(payment_record_id) WHERE status = 'pending' AND kind = 'refund_payment';
+
+-- ---------------------------------------------------------------------
 -- CUSTOMER SMS  (Zettatel). Credentials are encrypted at rest with the same
 -- AES-256-GCM helper as the payment gateways. The outbox is the only way a
 -- message leaves the app: business code INSERTs a 'queued' row inside its own
