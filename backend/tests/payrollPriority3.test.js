@@ -327,7 +327,7 @@ describe('clock-out check coverage (item 9)', () => {
 
   it('a manager note reaches the managers even when nothing is open', async () => {
     const rep = await makeRep('Noter Rep');
-    const out = await request(app).post('/api/attendance/clock-out').set(auth(rep.token)).send({ handover_notes: 'Till is 200 short, will explain' });
+    const out = await request(app).post('/api/attendance/clock-out').set(auth(rep.token)).send({ handover_notes: 'Till is 200 short, will explain', confirm_all_dispatched: true, confirm_nairobi_reconciled: true });
     expect(out.status).toBe(200);
     expect(out.body.handover.has_open_items).toBe(false);
     const notes = notesOf('shift_note', '%Noter Rep%');
@@ -335,7 +335,8 @@ describe('clock-out check coverage (item 9)', () => {
     expect(notes[0].body).toContain('Till is 200 short');
     // and a clean clock-out with no note raises nothing
     const rep2 = await makeRep('Silent Rep');
-    await request(app).post('/api/attendance/clock-out').set(auth(rep2.token)).send({});
+    const out2 = await request(app).post('/api/attendance/clock-out').set(auth(rep2.token)).send({ confirm_all_dispatched: true, confirm_nairobi_reconciled: true });
+    expect(out2.status).toBe(200);
     expect(notesOf('shift_note', '%Silent Rep%')).toHaveLength(0);
     expect(notesOf('shift_handover', '%Silent Rep%')).toHaveLength(0);
   });

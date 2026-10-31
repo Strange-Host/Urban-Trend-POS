@@ -22,6 +22,7 @@ const Orders = lazy(() => import('./pages/Orders'));
 const PaymentReconciliation = lazy(() => import('./pages/PaymentReconciliation'));
 const MoneyAtRisk = lazy(() => import('./pages/MoneyAtRisk'));
 const Attendance = lazy(() => import('./pages/Attendance'));
+const EndOfDay = lazy(() => import('./pages/EndOfDay'));
 const Payroll = lazy(() => import('./pages/Payroll'));
 const Employees = lazy(() => import('./pages/Employees'));
 const Catalog = lazy(() => import('./pages/Catalog'));
@@ -113,6 +114,7 @@ export default function App() {
                   element={<ProtectedRoute roles={['admin', 'manager']} permission="payments.reconcile"><PaymentReconciliation /></ProtectedRoute>}
                 />
                 <Route path="/attendance" element={<ProtectedRoute module="hr"><Attendance /></ProtectedRoute>} />
+                <Route path="/attendance/end-of-day" element={<ProtectedRoute module="hr"><EndOfDay /></ProtectedRoute>} />
                 <Route
                   path="/payroll"
                   element={<ProtectedRoute module="hr" roles={['admin', 'manager']} permission="payroll.view"><Payroll /></ProtectedRoute>}

@@ -13,10 +13,15 @@ const { sameMonth } = require('../utils/payCycle');
 // start hour), and/or a missing-hours fee (clocked out short of the
 // expected day) — a day can incur late AND missing-hours together, but
 // never absence alongside either (absence means no clock-in existed).
+//
+// The daily retainer is paid only for days logged in, so a no-show already loses the retainer. The absence fee is
+// the TOTAL a missed day costs, so what is deducted here is the fee minus the retainer already not paid (never below
+// 0). At the defaults (300 / 300) a no-show earns no retainer and nothing more is deducted: counted once, not twice.
 function computeAttendanceDeductions({ staffId, periodStart, periodEnd, settings }) {
   const startHour = parseInt(settings.attendance_workday_start_hour, 10);
   const lateFeePerHour = parseInt(settings.attendance_late_fee_per_hour_kes, 10) * 100;
-  const absenceFee = parseInt(settings.attendance_absence_fee_kes, 10) * 100;
+  const retainerPerDay = parseInt(settings.daily_retainer_kes, 10) * 100;
+  const absenceFee = Math.max(0, parseInt(settings.attendance_absence_fee_kes, 10) * 100 - retainerPerDay);
   const expectedHours = parseFloat(settings.attendance_expected_hours);
   const missingHourFee = parseInt(settings.attendance_missing_hour_fee_kes, 10) * 100;
 
@@ -33,8 +38,9 @@ function computeAttendanceDeductions({ staffId, periodStart, periodEnd, settings
 
   for (const row of rows) {
     if (!row.clock_in_at) {
+      // Nothing extra to deduct when the retainer already covers the fee; the day still shows in the breakdown.
       absenceTotal += absenceFee;
-      breakdown.push({ date: row.work_date, type: 'absence', amount: absenceFee });
+      if (absenceFee > 0) breakdown.push({ date: row.work_date, type: 'absence', amount: absenceFee });
       continue;
     }
     daysLoggedIn += 1;

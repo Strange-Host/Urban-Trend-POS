@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { attendanceApi, telesalesApi, shiftApi } from '../api/endpoints';
 import { getErrorMessage } from '../api/client';
@@ -11,7 +12,7 @@ function time(ts) {
 }
 
 export default function Attendance() {
-  const { user, hasRole } = useAuth();
+  const { user, hasRole, can } = useAuth();
   const isManager = hasRole('admin', 'manager');
   const isAdmin = hasRole('admin');
   const queryClient = useQueryClient();
@@ -33,12 +34,12 @@ export default function Attendance() {
 
   const [handover, setHandover] = useState(null); // open-items summary awaiting the person's decision
 
-  async function doClock(action, label, handoverNotes) {
+  async function doClock(action, label, handover) {
     setBusy(true);
     setError('');
     setNotice('');
     try {
-      await (action === 'in' ? attendanceApi.clockIn() : attendanceApi.clockOut(handoverNotes));
+      await (action === 'in' ? attendanceApi.clockIn() : attendanceApi.clockOut(handover));
       setNotice(label);
       setHandover(null);
       queryClient.invalidateQueries({ queryKey: ['attendance'] });
@@ -50,15 +51,16 @@ export default function Attendance() {
     }
   }
 
-  // Clocking out always shows what you're leaving open and a box for a note to your manager (never blocks — if the
-  // lookup fails, clock-out just proceeds).
+  // Clocking out is a gate: confirm everything assigned to you was dispatched and your Nairobi payments are
+  // reconciled, or say why not. The server enforces the same rules, so if the open-items lookup fails the clock-out
+  // is still attempted and any refusal is shown here.
   async function requestClockOut(label) {
     setError('');
     try {
       const { data } = await shiftApi.handover();
       setHandover({ summary: data.data, label });
       return;
-    } catch { /* proceed without the prompt */ }
+    } catch { /* the server's own checks still apply */ }
     await doClock('out', label);
   }
 
@@ -88,6 +90,7 @@ export default function Attendance() {
         title="Attendance"
         description="Clocking in is what marks you present for the day — leads and orders are only distributed to staff who have clocked in."
         meta={isManager && rows.length > 0 ? `${rows.length - absent.length} of ${rows.length}\npresent` : null}
+        actions={can('attendance.review') ? <Link to="/attendance/end-of-day" className="px-3.5 py-2 rounded-lg border border-line text-sm font-medium hover:border-text-muted">End-of-day review</Link> : null}
       />
 
       {error && <div className="mb-4 px-3.5 py-2.5 rounded-lg bg-danger-soft text-danger text-sm">{error}</div>}
@@ -185,8 +188,10 @@ export default function Attendance() {
       )}
       {handover && (
         <HandoverModal
-          summary={handover.summary} actionLabel={handover.summary.has_open_items ? 'Clock out anyway' : 'Clock out'} busy={busy}
-          onCancel={() => setHandover(null)} onConfirm={(notes) => doClock('out', handover.label, notes)}
+          requireConfirmations
+          summary={handover.summary} actionLabel={handover.summary.gate?.reason_required ? 'Clock out with reason' : 'Clock out'} busy={busy}
+          onCancel={() => setHandover(null)}
+          onConfirm={(notes, confirmations) => doClock('out', handover.label, { notes, ...confirmations })}
         />
       )}
     </div>
