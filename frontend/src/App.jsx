@@ -80,6 +80,8 @@ export default function App() {
                 }
               >
                 <Route path="/" element={<Home />} />
+                {/* The till itself. "/" is only each role's landing page (admins/managers go on to the dashboard), so the sidebar's Terminal link must point here. */}
+                <Route path="/terminal" element={<ProtectedRoute roles={['admin', 'manager', 'cashier']}><POSTerminal /></ProtectedRoute>} />
                 <Route path="/security" element={<Security />} />
                 <Route
                   path="/catalog"
