@@ -4,6 +4,7 @@ import { salesApi } from '../api/endpoints';
 import { useAuth } from '../context/AuthContext';
 import PrintReceiptButton from '../components/PrintReceipt';
 import InvoiceButton from '../components/InvoiceButton';
+import AskApproval from '../components/AskApproval';
 import TabBar from '../components/TabBar';
 import { useDialog } from '../context/UIContext';
 import Pager, { usePager } from '../components/Pager';
@@ -33,7 +34,7 @@ function ChannelBadge({ sale }) {
 
 export default function SalesHistory() {
   const dialog = useDialog();
-  const { hasRole } = useAuth();
+  const { can } = useAuth();
   const queryClient = useQueryClient();
   const [channel, setChannel] = useState('all');
 
@@ -108,8 +109,13 @@ export default function SalesHistory() {
                       <InvoiceButton kind="sale" id={s.id} className="text-xs text-text-muted hover:text-text mr-3 disabled:opacity-50" />
                     </>
                   )}
-                  {hasRole('admin', 'manager') && s.status === 'completed' && s.source_type === 'local' && (
-                    <button onClick={() => handleVoid(s.id)} className="text-xs text-danger hover:opacity-70">Void</button>
+                  {/* Void straight away if you may; otherwise ask a manager (they approve on the Approvals page). */}
+                  {s.status === 'completed' && s.source_type === 'local' && (
+                    can('sales.void')
+                      ? <button onClick={() => handleVoid(s.id)} className="text-xs text-danger hover:opacity-70">Void</button>
+                      : can('sales.void_request') && (
+                        <AskApproval kind="void_sale" targetId={s.id} pendingId={s.pending_void_request_id} label="Request void" invalidateKeys={[['sales']]} />
+                      )
                   )}
                 </td>
               </tr>

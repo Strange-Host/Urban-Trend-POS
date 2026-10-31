@@ -11,6 +11,8 @@ router.use(authenticate, requirePermission('payments.manage'));
 router.get('/summary', ctrl.summary);
 router.get('/', ctrl.list);
 router.post('/', validate(createPaymentSchema), ctrl.create);
-router.post('/:id/refund', requireRecentAuth(), ctrl.refund);
+// Refunding has its own permission (admin/manager by default, same as before) so an admin can let someone record
+// payments without letting them hand money back. Anyone else asks via POST /api/approvals instead.
+router.post('/:id/refund', requirePermission('payments.refund'), requireRecentAuth(), ctrl.refund);
 
 module.exports = router;

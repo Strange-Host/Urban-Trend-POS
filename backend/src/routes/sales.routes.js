@@ -16,7 +16,9 @@ const checkoutLimiter = rateLimit({ ...RATE_LIMITS.CHECKOUT, standardHeaders: tr
 
 router.post('/', checkoutLimiter, validate(checkoutSchema), ctrl.checkout);
 router.get('/', ctrl.list);
+router.get('/drawer.escpos', require('../controllers/receipts.controller').drawerEscPos); // before '/:id'
 router.get('/:id', ctrl.getById);
+router.get('/:id/receipt.escpos', require('../controllers/receipts.controller').saleEscPos);
 router.get('/:id/receipt', require('../controllers/receipts.controller').saleReceipt);
 router.get('/:id/invoice.pdf', require('../controllers/receipts.controller').saleInvoice);
 router.post('/:id/void', requirePermission('sales.void'), requireRecentAuth(), ctrl.voidSale);
