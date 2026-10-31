@@ -29,6 +29,7 @@ const GROUPS = [
       { to: '/orders', label: 'Orders', icon: '⊞', roles: ['admin', 'manager', 'cashier'] },
       { to: '/leads', label: 'Leads', icon: '☍', roles: ['admin', 'manager', 'cashier'] },
       { to: '/sales', label: 'Sales history', icon: '𝍖', roles: ['admin', 'manager', 'cashier'] },
+      { to: '/approvals', label: 'Approvals', icon: '✓', roles: ['admin', 'manager', 'cashier'], perm: ['approvals.review', 'sales.void_request', 'payments.refund_request'] },
     ],
   },
   {

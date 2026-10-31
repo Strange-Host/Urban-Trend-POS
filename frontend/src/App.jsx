@@ -28,6 +28,7 @@ const Employees = lazy(() => import('./pages/Employees'));
 const Catalog = lazy(() => import('./pages/Catalog'));
 const StockControl = lazy(() => import('./pages/StockControl'));
 const SalesHistory = lazy(() => import('./pages/SalesHistory'));
+const Approvals = lazy(() => import('./pages/Approvals'));
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const Reports = lazy(() => import('./pages/Reports'));
 const ShopifySync = lazy(() => import('./pages/ShopifySync'));
@@ -101,6 +102,10 @@ export default function App() {
                 <Route path="/categories" element={<Navigate to="/catalog" replace />} />
                 <Route path="/inventory" element={<Navigate to="/catalog" replace />} />
                 <Route path="/sales" element={<SalesHistory />} />
+                <Route
+                  path="/approvals"
+                  element={<ProtectedRoute permission={['approvals.review', 'sales.void_request', 'payments.refund_request']}><Approvals /></ProtectedRoute>}
+                />
                 <Route
                   path="/orders"
                   element={<ProtectedRoute roles={['admin', 'manager', 'cashier']}><Orders /></ProtectedRoute>}

@@ -217,6 +217,15 @@ export const paymentsApi = {
   refund: (id) => client.post(`/payments/${id}/refund`),
 };
 
+// Void / refund requests: a cashier asks, a manager approves or rejects (approving runs the void / refund).
+export const approvalsApi = {
+  list: (params) => client.get('/approvals', { params }),
+  create: (data) => client.post('/approvals', data),          // { kind: 'void_sale', sale_id, reason } | { kind: 'refund_payment', payment_id, reason }
+  approve: (id) => client.post(`/approvals/${id}/approve`),
+  reject: (id, note) => client.post(`/approvals/${id}/reject`, { note }),
+  cancel: (id) => client.post(`/approvals/${id}/cancel`),
+};
+
 export const cashSessionsApi = {
   current: () => client.get('/cash-sessions/current'),
   open: (openingAmount) => client.post('/cash-sessions/open', { openingAmount }),

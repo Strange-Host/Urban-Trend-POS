@@ -5,6 +5,8 @@ import { paymentsApi } from '../api/endpoints';
 import { getErrorMessage } from '../api/client';
 import { useToast, useDialog } from '../context/UIContext';
 import Pager, { usePager } from '../components/Pager';
+import AskApproval from '../components/AskApproval';
+import { useAuth } from '../context/AuthContext';
 
 import Sheet from '../components/Sheet';
 const METHODS = ['cash', 'card', 'mobile_money', 'bank_transfer'];
@@ -19,6 +21,7 @@ const STATUS_COLORS = {
 export default function Payments() {
   const toast = useToast();
   const dialog = useDialog();
+  const { can } = useAuth();
   const [directionFilter, setDirectionFilter] = useState('');
   const [creating, setCreating] = useState(false);
   const [form, setForm] = useState(emptyForm);
@@ -135,8 +138,13 @@ export default function Payments() {
                 <td className="px-4 py-3 text-right font-mono">{(p.amount / 100).toFixed(2)}</td>
                 <td className="px-4 py-3"><span className={`text-xs px-2 py-1 rounded-full capitalize ${STATUS_COLORS[p.status]}`}>{p.status}</span></td>
                 <td className="px-4 py-3 text-right whitespace-nowrap">
+                  {/* Refund straight away if you may; otherwise ask (approved on the Approvals page). */}
                   {p.status === 'completed' && (
-                    <button onClick={() => handleRefund(p)} className="text-xs text-danger hover:opacity-70">Refund</button>
+                    can('payments.refund')
+                      ? <button onClick={() => handleRefund(p)} className="text-xs text-danger hover:opacity-70">Refund</button>
+                      : can('payments.refund_request') && (
+                        <AskApproval kind="refund_payment" targetId={p.id} pendingId={p.pending_refund_request_id} label="Request refund" invalidateKeys={[['payments']]} />
+                      )
                   )}
                 </td>
               </tr>

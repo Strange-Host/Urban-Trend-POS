@@ -203,4 +203,15 @@ function voidSale(saleId, storeId, userId) {
   return txn();
 }
 
-module.exports = { checkout, getSaleWithItems, voidSale };
+// Void plus the large-void security alert. Shared by POST /api/sales/:id/void (someone holding sales.void) and the
+// approval flow (a manager approving a request), so a void always does the same thing however it was authorised.
+// actor: { id, name } — whose action this is on the record.
+function voidSaleWithAlert(saleId, storeId, actor) {
+  const sale = voidSale(saleId, storeId, actor.id);
+  require('./securityAlerts.service').largeMoney({
+    storeId, actor: { id: actor.id, name: actor.name }, kind: 'void', amountCents: sale?.total || 0, reference: `#${sale?.id ?? saleId}`,
+  });
+  return sale;
+}
+
+module.exports = { checkout, getSaleWithItems, voidSale, voidSaleWithAlert };

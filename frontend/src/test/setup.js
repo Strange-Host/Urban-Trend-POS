@@ -7,3 +7,4 @@ afterEach(() => { cleanup(); localStorage.clear(); sessionStorage.clear(); });
 // jsdom lacks these
 window.matchMedia = window.matchMedia || ((q) => ({ matches: false, media: q, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} }));
 Element.prototype.scrollIntoView = Element.prototype.scrollIntoView || vi.fn();
+Element.prototype.scrollTo = Element.prototype.scrollTo || vi.fn(); // TabBar scrolls the selected tab into view
