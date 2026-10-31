@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
-import { stockApi, suppliersApi, storesApi, productsApi, categoriesApi, inventoryApi } from '../api/endpoints';
+import { stockApi, suppliersApi, storesApi, productsApi, categoriesApi, inventoryApi, reportsApi } from '../api/endpoints';
 import { getErrorMessage } from '../api/client';
 import { useToast, useDialog } from '../context/UIContext';
 import { useAuth } from '../context/AuthContext';
@@ -102,13 +102,14 @@ function Table({ head, children, empty, loading, min = 'min-w-[640px]' }) {
 // Receive
 // ---------------------------------------------------------------------------------------------------------------------
 let lineSeq = 0;
-const newLine = () => ({ key: ++lineSeq, mode: 'existing', product: null, qty: '', name: '', price: '', image: '', categoryId: '', subOn: false, parentId: '', subName: '' });
+const newLine = () => ({ key: ++lineSeq, mode: 'existing', product: null, qty: '', batchNo: '', expiry: '', cost: '', name: '', price: '', image: '', categoryId: '', subOn: false, parentId: '', subName: '' });
 
 function ReceiveTab({ storeParams, isMainStore }) {
   const toast = useToast();
   const queryClient = useQueryClient();
   const { can } = useAuth();
   const canManage = can('products.manage');
+  const canCost = canManage && can('products.view_cost'); // only people who may see buying prices are offered the field
   const [open, setOpen] = useState(false);
   const [supplierId, setSupplierId] = useState('');
   const [reference, setReference] = useState('');
@@ -140,9 +141,15 @@ function ReceiveTab({ storeParams, isMainStore }) {
       const where = `Line ${i + 1}`;
       const quantity = parseInt(l.qty, 10);
       if (!Number.isInteger(quantity) || quantity <= 0) return setError(`${where}: enter how many arrived.`);
+      const batch = { batch_no: l.batchNo.trim() || undefined, expiry_date: l.expiry || undefined };
+      if (canCost && l.cost !== '') {
+        const c = toCents(l.cost);
+        if (!Number.isFinite(c) || c < 0) return setError(`${where}: the buying price must be zero or more.`);
+        batch.unit_cost = c;
+      }
       if (l.mode === 'existing') {
         if (!l.product) return setError(`${where}: choose the product.`);
-        items.push({ product_id: l.product.id, quantity });
+        items.push({ product_id: l.product.id, quantity, ...batch });
       } else {
         if (!l.name.trim()) return setError(`${where}: the new product needs a name.`);
         const price = toCents(l.price);
@@ -153,7 +160,7 @@ function ReceiveTab({ storeParams, isMainStore }) {
           if (!canManage && !l.parentId) return setError(`${where}: choose which category the sub-category goes in.`);
           np.new_category = { name: l.subName.trim(), parent_id: l.parentId ? Number(l.parentId) : undefined };
         } else if (l.categoryId) np.category_id = Number(l.categoryId);
-        items.push({ quantity, new_product: np });
+        items.push({ quantity, new_product: np, ...batch });
       }
     }
     setBusy(true);
@@ -191,6 +198,9 @@ function ReceiveTab({ storeParams, isMainStore }) {
               {r.items.map((i) => (
                 <div key={i.id} className="flex items-center gap-2">
                   <span>{i.quantity} × {i.product_name}</span>
+                  {i.batch_no && <span className="text-xs">batch {i.batch_no}</span>}
+                  {i.expiry_date && <span className="px-1.5 py-0.5 rounded bg-paper border border-line text-xs">expires {i.expiry_date}</span>}
+                  {i.recalled_at && <span className="px-1.5 py-0.5 rounded bg-danger-soft text-danger text-xs">recalled</span>}
                   {i.is_new_product === 1 && <span className="px-1.5 py-0.5 rounded bg-paper border border-line text-xs">new · {kes(i.sell_price)}</span>}
                   {i.product_status === 'pending' && <Badge status="pending" />}
                   {i.product_status === 'rejected' && <Badge status="rejected" />}
@@ -264,6 +274,11 @@ function ReceiveTab({ storeParams, isMainStore }) {
                     )}
                   </div>
                 )}
+                <div className={`grid grid-cols-1 ${canCost ? 'sm:grid-cols-3' : 'sm:grid-cols-2'} gap-3 mt-3 pt-3 border-t border-line`}>
+                  <div><label className={labelCls}>Batch / lot no. (optional)</label><input value={l.batchNo} onChange={(e) => setLine(l.key, { batchNo: e.target.value })} className={inputCls} /></div>
+                  <div><label className={labelCls}>Expiry date (if it expires)</label><input type="date" value={l.expiry} onChange={(e) => setLine(l.key, { expiry: e.target.value })} className={inputCls} /></div>
+                  {canCost && <div><label className={labelCls}>Buying price per unit (KES)</label><input type="number" min="0" step="0.01" inputMode="decimal" value={l.cost} onChange={(e) => setLine(l.key, { cost: e.target.value })} className={inputCls} /></div>}
+                </div>
               </div>
             ))}
           </div>
@@ -698,6 +713,204 @@ function ActivityTab({ storeParams }) {
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
+// Batches & alerts: what is expiring, expired or recalled, and damaged stock. Recalling takes the batch off every shelf.
+// ---------------------------------------------------------------------------------------------------------------------
+const BATCH_STATE = {
+  ok: ['OK', 'bg-paper text-text-muted border border-line'],
+  expiring: ['Expiring soon', 'bg-accent text-accent-ink'],
+  expired: ['Expired', 'bg-danger-soft text-danger'],
+  recalled: ['Recalled', 'bg-danger-soft text-danger'],
+};
+
+function AlertTile({ label, value, sub, hot }) {
+  return (
+    <div className={`${cardCls} p-4 ${hot ? 'border-danger' : ''}`}>
+      <div className="text-xs text-text-muted mb-1">{label}</div>
+      <div className="font-display font-700 text-2xl tabular-nums">{value}</div>
+      {sub && <div className="text-xs text-text-muted mt-1">{sub}</div>}
+    </div>
+  );
+}
+
+function BatchesTab({ storeParams, isOwnStore }) {
+  const toast = useToast();
+  const dialog = useDialog();
+  const queryClient = useQueryClient();
+  const { can } = useAuth();
+  const [status, setStatus] = useState('all');
+
+  const { data: alerts } = useQuery({ queryKey: ['stock', 'alerts', storeParams], queryFn: () => stockApi.alerts(storeParams).then((r) => r.data.data) });
+  const { data: batches, isLoading } = useQuery({ queryKey: ['stock', 'batches', storeParams, status], queryFn: () => stockApi.batches({ ...storeParams, status }).then((r) => r.data.data) });
+  const { data: damaged } = useQuery({ queryKey: ['stock', 'damaged', storeParams], queryFn: () => stockApi.damaged({ ...storeParams, limit: 10 }).then((r) => r.data) });
+
+  const refresh = () => { queryClient.invalidateQueries({ queryKey: ['stock'] }); queryClient.invalidateQueries({ queryKey: ['inventory'] }); };
+
+  async function recall(b) {
+    const label = `${b.product_name}${b.batch_no ? ` (batch ${b.batch_no})` : ''}`;
+    const note = await dialog.prompt({
+      message: `Recall ${label}? Every unit of it still in stock, at the main store or any outlet, comes off sale at once. This cannot be undone. What is the recall about?`,
+      required: true, confirmLabel: 'Recall batch',
+    });
+    if (!note) return;
+    try {
+      const res = await stockApi.recallBatch(b.batch_id, note);
+      const r = res.data.data;
+      toast.success(`${r.pulled_from_shelves} unit(s) taken off sale. ${r.already_left_stock} had already left stock.`);
+      refresh();
+    } catch (err) { toast.error(getErrorMessage(err, 'Could not recall the batch.')); }
+  }
+
+  async function writeOff(b) {
+    if (!(await dialog.confirm({ message: `Write off ${b.remaining} expired unit(s) of ${b.product_name}? They leave stock now.`, danger: true, confirmLabel: 'Write off' }))) return;
+    try {
+      await stockApi.issue({ product_id: b.product_id, quantity: b.remaining, reason: 'expired', batch_id: b.batch_id, note: b.batch_no ? `Batch ${b.batch_no}` : undefined });
+      toast.success('Expired stock written off.');
+      refresh();
+    } catch (err) { toast.error(getErrorMessage(err, 'Could not write it off.')); }
+  }
+
+  const rows = batches || [];
+  const c = alerts?.counts;
+  return (
+    <>
+      {c && (
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
+          <AlertTile label="Low stock" value={c.low_stock} sub="at or below reorder level" />
+          <AlertTile label="Expiring soon" value={c.expiring} sub={`within ${alerts.expiry_alert_days} days`} hot={c.expiring > 0} />
+          <AlertTile label="Expired in stock" value={c.expired} sub="still on a shelf" hot={c.expired > 0} />
+          <AlertTile label="Recalled" value={c.recalled} sub="batches" hot={c.recalled > 0} />
+          <AlertTile label="Damaged, 30 days" value={alerts.damaged.units} sub={alerts.damaged.value !== undefined ? kes(alerts.damaged.value) : `${alerts.damaged.issues} write-off(s)`} />
+        </div>
+      )}
+
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+        <h2 className="font-display font-700 text-sm">Batches</h2>
+        <Segmented value={status} onChange={setStatus} aria-label="Batch status" className="max-w-md"
+          options={[{ value: 'all', label: 'All' }, { value: 'expiring', label: 'Expiring' }, { value: 'expired', label: 'Expired' }, { value: 'recalled', label: 'Recalled' }]} />
+      </div>
+      <Table head={['Product', 'Batch', 'Expiry', 'Where', 'On shelf', 'Status', '']} loading={isLoading} empty={rows.length === 0 && 'No batches match. Batches with an expiry date, or that were recalled, appear here.'} min="min-w-[760px]">
+        {rows.map((b) => {
+          const [label, cls] = BATCH_STATE[b.state] || BATCH_STATE.ok;
+          return (
+            <tr key={`${b.batch_id}-${b.store_id}`} className="border-b border-line last:border-0 align-top">
+              <td className="px-4 py-3">{b.product_name}<div className="text-xs text-text-muted font-mono">{b.sku}</div></td>
+              <td className="px-4 py-3">{b.batch_no || <span className="text-text-muted">—</span>}<div className="text-xs text-text-muted">received {b.received_on}</div></td>
+              <td className="px-4 py-3 whitespace-nowrap">
+                {b.expiry_date ? <><span className="font-mono text-xs">{b.expiry_date}</span>{b.days_left !== null && <div className="text-xs text-text-muted">{b.days_left < 0 ? `${-b.days_left} day(s) ago` : `in ${b.days_left} day(s)`}</div>}</> : <span className="text-text-muted">No expiry</span>}
+              </td>
+              <td className="px-4 py-3">{b.store_name}</td>
+              <td className="px-4 py-3 font-mono">{b.remaining}{b.state === 'recalled' && <div className="text-xs text-text-muted font-sans">{b.quarantined_qty} pulled, {b.units_gone} already left</div>}</td>
+              <td className="px-4 py-3"><span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${cls}`}>{label}</span>{b.recall_note && <div className="text-xs text-text-muted mt-1">{b.recall_note}</div>}</td>
+              <td className="px-4 py-3 whitespace-nowrap text-right">
+                {isOwnStore && b.state === 'expired' && b.remaining > 0 && can('stock.receive') && <button onClick={() => writeOff(b)} className="text-xs text-danger hover:opacity-70 mr-3">Write off</button>}
+                {b.state !== 'recalled' && can('stock.review') && <button onClick={() => recall(b)} className="text-xs text-danger hover:opacity-70">Recall</button>}
+              </td>
+            </tr>
+          );
+        })}
+      </Table>
+
+      <h2 className="font-display font-700 text-sm mt-8 mb-3">Damaged stock</h2>
+      {damaged?.totals?.returns_awaiting_decision > 0 && (
+        <p className="mb-3 px-3 py-2 rounded-lg bg-accent text-accent-ink text-sm">{damaged.totals.returns_awaiting_decision} damaged customer return(s) are waiting for an owner decision (write off or dispose) on the Orders page.</p>
+      )}
+      <Table head={['Date', 'Product', 'Qty', 'Note', 'Issued by']} empty={(damaged?.data || []).length === 0 && 'No damaged stock has been written off.'} min="min-w-[560px]">
+        {(damaged?.data || []).map((d) => (
+          <tr key={d.id} className="border-b border-line last:border-0">
+            <td className="px-4 py-3 whitespace-nowrap font-mono text-xs">{d.issued_on}</td>
+            <td className="px-4 py-3">{d.product_name}<div className="text-xs text-text-muted font-mono">{d.sku}</div></td>
+            <td className="px-4 py-3 font-mono">{d.quantity}{d.cost_value !== undefined && <div className="text-xs text-text-muted font-sans">{kes(d.cost_value)}</div>}</td>
+            <td className="px-4 py-3 text-text-muted">{d.note || '—'}</td>
+            <td className="px-4 py-3 whitespace-nowrap">{d.issued_by_name}</td>
+          </tr>
+        ))}
+      </Table>
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Costing: buying price per received batch, and what the stock is worth under FIFO / average.
+// ---------------------------------------------------------------------------------------------------------------------
+function CostingTab({ storeParams }) {
+  const toast = useToast();
+  const queryClient = useQueryClient();
+  const [costs, setCosts] = useState({});
+  const [busy, setBusy] = useState(false);
+
+  const { data: waiting = [], isLoading } = useQuery({ queryKey: ['stock', 'awaiting-cost', storeParams], queryFn: () => stockApi.awaitingCost(storeParams).then((r) => r.data.data) });
+  const { data: valuation } = useQuery({ queryKey: ['reports', 'valuation', storeParams], queryFn: () => reportsApi.inventoryValuation(storeParams).then((r) => r.data.data) });
+
+  async function save() {
+    const byReceipt = new Map();
+    for (const w of waiting) {
+      const raw = costs[w.item_id];
+      if (raw === undefined || raw === '') continue;
+      const c = toCents(raw);
+      if (!Number.isFinite(c) || c < 0) return toast.error(`${w.product_name}: the buying price must be zero or more.`);
+      if (!byReceipt.has(w.receipt_id)) byReceipt.set(w.receipt_id, []);
+      byReceipt.get(w.receipt_id).push({ item_id: w.item_id, unit_cost: c });
+    }
+    if (byReceipt.size === 0) return toast.info('Enter at least one buying price.');
+    setBusy(true);
+    try {
+      for (const [receiptId, items] of byReceipt) await stockApi.setCosts(receiptId, { items, update_product_cost: true });
+      toast.success('Buying prices saved.');
+      setCosts({});
+      queryClient.invalidateQueries({ queryKey: ['stock'] });
+      queryClient.invalidateQueries({ queryKey: ['reports'] });
+      queryClient.invalidateQueries({ queryKey: ['products'] });
+    } catch (err) { toast.error(getErrorMessage(err, 'Could not save the buying prices.')); } finally { setBusy(false); }
+  }
+
+  const rows = valuation?.rows || [];
+  const other = valuation && Object.keys(valuation.comparison).find((m) => m !== valuation.method);
+  return (
+    <>
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+        <div>
+          <h2 className="font-display font-700 text-sm">Batches waiting for a buying price</h2>
+          <p className="text-xs text-text-muted mt-1 max-w-xl">Until a batch has a price, its stock is valued at the product&apos;s current cost. Sales made meanwhile keep that cost. Saving also makes the newest batch&apos;s price the product&apos;s cost.</p>
+        </div>
+        <button onClick={save} disabled={busy || waiting.length === 0} className={btnPrimary}>{busy ? 'Saving…' : 'Save prices'}</button>
+      </div>
+      <Table head={['Received', 'Product', 'Batch', 'Qty', 'Current cost', 'Buying price (KES)']} loading={isLoading} empty={waiting.length === 0 && 'Every received batch has a buying price.'} min="min-w-[720px]">
+        {waiting.map((w) => (
+          <tr key={w.item_id} className="border-b border-line last:border-0">
+            <td className="px-4 py-3 whitespace-nowrap font-mono text-xs">{w.received_on}{w.supplier_name && <div className="font-sans text-text-muted">{w.supplier_name}</div>}</td>
+            <td className="px-4 py-3">{w.product_name}<div className="text-xs text-text-muted font-mono">{w.sku}</div></td>
+            <td className="px-4 py-3">{w.batch_no || <span className="text-text-muted">—</span>}</td>
+            <td className="px-4 py-3 font-mono">{w.quantity}</td>
+            <td className="px-4 py-3 font-mono">{kes(w.catalog_cost)}</td>
+            <td className="px-4 py-3"><input type="number" min="0" step="0.01" inputMode="decimal" aria-label={`Buying price for ${w.product_name}`} value={costs[w.item_id] ?? ''} onChange={(e) => setCosts({ ...costs, [w.item_id]: e.target.value })} className={`${inputCls} w-32`} /></td>
+          </tr>
+        ))}
+      </Table>
+
+      <div className="flex flex-wrap items-end justify-between gap-3 mt-8 mb-3">
+        <div>
+          <h2 className="font-display font-700 text-sm">Stock valuation</h2>
+          {valuation && <p className="text-xs text-text-muted mt-1">Method: {valuation.method === 'fifo' ? 'FIFO' : 'Average cost'} (change it in Settings). Under {other === 'fifo' ? 'FIFO' : 'average cost'} the same stock would be worth {kes(valuation.comparison[other])}.</p>}
+        </div>
+        {valuation && <div className="text-right"><div className="text-xs text-text-muted">Total at cost</div><div className="font-display font-700 text-xl tabular-nums">{kes(valuation.totals.total_cost_value)}</div>{valuation.totals.uncosted_units > 0 && <div className="text-xs text-text-muted">{valuation.totals.uncosted_units} unit(s) not yet costed</div>}</div>}
+      </div>
+      <Table head={['Product', 'Branch', 'Units', 'Avg cost / unit', 'Value at cost', 'At selling price']} empty={rows.length === 0 && 'No stock to value.'} min="min-w-[680px]">
+        {rows.map((r) => (
+          <tr key={`${r.product_id}-${r.store_id}`} className="border-b border-line last:border-0">
+            <td className="px-4 py-3">{r.name}<div className="text-xs text-text-muted font-mono">{r.sku}</div></td>
+            <td className="px-4 py-3">{r.store_name}</td>
+            <td className="px-4 py-3 font-mono">{r.quantity}{r.uncosted_units > 0 && <span className="ml-1 text-xs text-text-muted font-sans">({r.uncosted_units} uncosted)</span>}</td>
+            <td className="px-4 py-3 font-mono">{kes(r.unit_cost)}</td>
+            <td className="px-4 py-3 font-mono">{kes(r.cost_value)}</td>
+            <td className="px-4 py-3 font-mono text-text-muted">{kes(r.retail_value)}</td>
+          </tr>
+        ))}
+      </Table>
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
 export default function StockControl() {
   const { can } = useAuth();
   const [viewStore, setViewStore] = useState('');
@@ -706,6 +919,8 @@ export default function StockControl() {
   const tabs = [
     can('stock.receive') && { id: 'receive', label: 'Receive' },
     can('stock.receive') && { id: 'issue', label: 'Issue out' },
+    can('stock.receive') && { id: 'batches', label: 'Batches & alerts' },
+    can('products.view_cost') && can('stock.review') && { id: 'costing', label: 'Costing' },
     can('stock.transfer') && { id: 'transfers', label: 'Transfers' },
     can('stock.count') && { id: 'counts', label: 'Counts' },
     can('stock.review') && { id: 'activity', label: 'Who did what' },
@@ -742,6 +957,8 @@ export default function StockControl() {
 
       {tab === 'receive' && <ReceiveTab storeParams={storeParams} isMainStore={Boolean(viewing?.is_main) && isOwnStore} />}
       {tab === 'issue' && <IssueTab storeParams={storeParams} isOwnStore={isOwnStore} />}
+      {tab === 'batches' && <BatchesTab storeParams={storeParams} isOwnStore={isOwnStore} />}
+      {tab === 'costing' && <CostingTab storeParams={storeParams} />}
       {tab === 'transfers' && <TransfersTab stores={stores} />}
       {tab === 'counts' && <CountsTab storeParams={storeParams} isOwnStore={isOwnStore} />}
       {tab === 'activity' && <ActivityTab storeParams={storeParams} />}
