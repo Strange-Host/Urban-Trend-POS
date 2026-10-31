@@ -6,7 +6,7 @@ import useSlidingPill from '../hooks/useSlidingPill';
 import { useAuth } from '../context/AuthContext';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { reportsApi } from '../api/endpoints';
+import { reportsApi, stockApi } from '../api/endpoints';
 
 const CHANNEL_LABEL = { local: 'Local store', shopify: 'Shopify', woocommerce: 'WooCommerce' };
 const CHANNEL_COLOR = { local: 'bg-ink', shopify: 'bg-success', woocommerce: 'bg-accent' };
@@ -186,6 +186,8 @@ export default function Dashboard() {
 
   const { data: summary } = useQuery({ queryKey: ['reports', 'summary', range], queryFn: () => reportsApi.salesSummary(params).then((r) => r.data.data) });
   const { data: inventoryValue } = useQuery({ queryKey: ['reports', 'inventory-value'], queryFn: () => reportsApi.inventoryValue().then((r) => r.data.data) });
+  // Stock alerts: low stock, expiring / expired / recalled batches, damaged stock. Quiet if the caller may not see stock.
+  const { data: stockAlerts } = useQuery({ queryKey: ['stock', 'alerts'], queryFn: () => stockApi.alerts().then((r) => r.data.data), retry: false, staleTime: 60000 });
   const { data: byChannel } = useQuery({ queryKey: ['reports', 'by-channel', range], queryFn: () => reportsApi.salesByChannel(params).then((r) => r.data.data) });
   const { data: trend } = useQuery({ queryKey: ['reports', 'trend', range], queryFn: () => reportsApi.salesTrend({ from: range === 'all' ? undefined : from.slice(0, 10) }).then((r) => r.data.data) });
   const { data: paymentMethods } = useQuery({ queryKey: ['reports', 'payments', range], queryFn: () => reportsApi.paymentMethods(params).then((r) => r.data.data) });
@@ -213,10 +215,14 @@ export default function Dashboard() {
         <RangeToggle value={range} onChange={setRange} />
       </div>
 
-      {overview && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6" aria-label="Alerts">
-          <AlertTile to="/stock" label="Low stock" count={overview.lowStockCount} detail="Products at or below their reorder level" clearText="Every product is above its reorder level" />
-          <AlertTile to="/money-at-risk" label="Unpaid parcels" count={unpaidParcels} detail={`${money(capitalTiedUp)} still owed on dispatched parcels`} clearText="No dispatched parcel is waiting on payment" />
+      {(overview || stockAlerts) && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6" aria-label="Alerts">
+          {overview && <AlertTile to="/stock" label="Low stock" count={overview.lowStockCount} detail="Products at or below their reorder level" clearText="Every product is above its reorder level" />}
+          {overview && <AlertTile to="/money-at-risk" label="Unpaid parcels" count={unpaidParcels} detail={`${money(capitalTiedUp)} still owed on dispatched parcels`} clearText="No dispatched parcel is waiting on payment" />}
+          {stockAlerts && <AlertTile to="/stock" label="Expiring soon" count={stockAlerts.counts.expiring} detail={`Batches expiring within ${stockAlerts.expiry_alert_days} days`} clearText="No batch is close to its expiry date" />}
+          {stockAlerts && <AlertTile to="/stock" label="Expired in stock" count={stockAlerts.counts.expired} detail="Expired batches still on a shelf" clearText="No expired stock on the shelves" />}
+          {stockAlerts && <AlertTile to="/stock" label="Recalled batches" count={stockAlerts.counts.recalled} detail="Batches recalled and taken off sale" clearText="No batch has been recalled" />}
+          {stockAlerts && <AlertTile to="/stock" label="Damaged stock (30 days)" count={stockAlerts.counts.damaged_units_30d + stockAlerts.counts.damaged_returns_awaiting_decision} detail={`${stockAlerts.counts.damaged_units_30d} unit(s) written off, ${stockAlerts.counts.damaged_returns_awaiting_decision} damaged return(s) awaiting a decision`} clearText="No damaged stock in the last 30 days" />}
         </div>
       )}
 

@@ -123,6 +123,7 @@ export const reportsApi = {
   salesSummary: (params) => client.get('/reports/sales-summary', { params }),
   topProducts: (params) => client.get('/reports/top-products', { params }),
   inventoryValue: () => client.get('/reports/inventory-value'),
+  inventoryValuation: (params) => client.get('/reports/inventory-valuation', { params }),
   salesByChannel: (params) => client.get('/reports/sales-by-channel', { params }),
   salesTrend: (params) => client.get('/reports/sales-trend', { params }),
   paymentMethods: (params) => client.get('/reports/payment-methods', { params }),
@@ -208,6 +209,13 @@ export const stockApi = {
   rejectCount: (id, note) => client.post(`/stock/counts/${id}/reject`, { note }),
   daySummary: (params) => client.get('/stock/counts/day-summary', { params }),
   activity: (params) => client.get('/stock/activity', { params }),
+  // Batches: expiry, recall, buying price per batch, and the stock alerts
+  batches: (params) => client.get('/stock/batches', { params }),
+  recallBatch: (id, note) => client.post(`/stock/batches/${id}/recall`, { note }),
+  alerts: (params) => client.get('/stock/alerts', { params }),
+  damaged: (params) => client.get('/stock/damaged', { params }),
+  awaitingCost: (params) => client.get('/stock/receipts/awaiting-cost', { params }),
+  setCosts: (receiptId, data) => client.put(`/stock/receipts/${receiptId}/costs`, data),
 };
 
 export const paymentsApi = {

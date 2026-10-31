@@ -64,7 +64,8 @@ const inventoryValuation = asyncHandler(async (req, res) => {
   }
   const method = costing.getMethod();
   const other = method === 'fifo' ? 'average' : 'fifo';
-  const rows = costing.valuationRows({ storeId, method });
+  const names = new Map(db.prepare('SELECT id, name FROM stores').all().map((x) => [x.id, x.name]));
+  const rows = costing.valuationRows({ storeId, method }).map((r) => ({ ...r, store_name: names.get(r.store_id) }));
   const totals = costing.valuationTotals({ storeId, method, activeOnly: false });
   const otherTotals = costing.valuationTotals({ storeId, method: other, activeOnly: false });
   res.json({
