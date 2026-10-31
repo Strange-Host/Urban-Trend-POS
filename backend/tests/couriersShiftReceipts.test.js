@@ -177,7 +177,10 @@ describe('shift handover', () => {
 
   it('clock-out records the snapshot + note in the audit log and tells managers (once per day)', async () => {
     await request(app).post('/api/attendance/clock-in').set(auth(cashier.token));
-    const out = await request(app).post('/api/attendance/clock-out').set(auth(cashier.token)).send({ handover_notes: 'Customer will pay tomorrow' });
+    const out = await request(app).post('/api/attendance/clock-out').set(auth(cashier.token)).send({
+      // The cashier still has an undispatched COD order, so "all dispatched" can't be ticked; the reason stands in for it.
+      handover_notes: 'Customer will pay tomorrow', confirm_nairobi_reconciled: true,
+    });
     expect(out.status).toBe(200);
     expect(out.body.handover.has_open_items).toBe(true);
 

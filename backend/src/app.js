@@ -53,6 +53,7 @@ const webhooksRoutes = require('./routes/webhooks.routes');
 const couriersRoutes = require('./routes/couriers.routes');
 const deliveryAreasRoutes = require('./routes/deliveryAreas.routes');
 const shiftRoutes = require('./routes/shift.routes');
+const endOfDayRoutes = require('./routes/endOfDay.routes');
 const leadIntakeRoutes = require('./routes/leadIntake.routes');
 const notificationsRoutes = require('./routes/notifications.routes');
 
@@ -149,6 +150,7 @@ app.use('/api/integrations/payments', paymentWebhooksRoutes);
 // normalized /webhook routes above, which stay in place for manual/internal testing.
 app.use('/api/integrations/payments/callbacks', paymentCallbacksRoutes);
 app.use('/api/attendance', requireModule('hr'), attendanceRoutes);
+app.use('/api/end-of-day', requireModule('hr'), endOfDayRoutes);
 app.use('/api/telesales', telesalesRoutes);
 app.use('/api/payroll', requireModule('hr'), payrollRoutes);
 app.use('/api/employees', requireModule('hr'), employeesRoutes);
