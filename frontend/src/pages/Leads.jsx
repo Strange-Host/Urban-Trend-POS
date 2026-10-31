@@ -11,7 +11,7 @@ import { fetchAll } from '../api/fetchAll';
 import Sheet from '../components/Sheet';
 import ConvertLeadSheet from '../components/ConvertLeadSheet';
 const SOURCES = ['whatsapp', 'walk_in', 'referral', 'shopify', 'other'];
-const STATUS_LABELS = { new: 'New', contacted: 'Contacted', rescheduled: 'Rescheduled', converted: 'Converted', cancelled: 'Cancelled' };
+const STATUS_LABELS = { new: 'New', contacted: 'Contacted', rescheduled: 'Rescheduled', converted: 'Converted', cancelled: 'Lost' }; // the stored status stays 'cancelled'; it is shown as Lost
 const STATUS_COLORS = {
   new: 'bg-line text-text-muted',
   contacted: 'bg-accent/20 text-accent-ink',
@@ -123,7 +123,7 @@ export default function Leads() {
         <StatCard label="New" value={stats?.new ?? '—'} />
         <StatCard label="Contacted" value={stats?.contacted ?? '—'} />
         <StatCard label="Converted" value={stats?.converted ?? '—'} />
-        <StatCard label="Cancelled" value={stats?.cancelled ?? '—'} />
+        <StatCard label="Lost" value={stats?.cancelled ?? '—'} />
       </div>
 
       <div className="flex flex-wrap gap-2 mb-4">

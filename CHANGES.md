@@ -1,3 +1,46 @@
+# Priority 5: reports and polish
+
+**Profit and loss (item 12).** `GET /api/reports/pnl` returns the P&L summary, a category breakdown, a branch comparison and
+forecast vs actual. `services/reportsPnl.service.js` `profitLoss()` is now the one definition of revenue, cost and profit
+(`/reports/profit-summary` calls it, numbers unchanged); the category and branch rows are tested to add back up to it. The
+sale-level discount cannot be split by category, so it shows as its own row. Branch comparison: an admin sees every active
+store, anyone else only their own. Forecasts live in the new `sales_forecasts` table (a monthly revenue target and expense
+budget, `PUT /api/reports/forecasts/:month`, permission `reports.forecast`, admin and manager by default). "Operating
+expenses" in the comparison means delivery + telesales pay + business expenses, i.e. everything except cost of goods. The
+current month is month-to-date and also shows whether revenue is on pace. Totals cover only months that have a forecast.
+
+**Missing reports (item 13).** Discounts (`/reports/discounts`: totals, share of list value, by staff, by day, largest),
+VAT (`/reports/vat`), branch comparison (`/reports/branch-comparison`) and sales-agent performance
+(`/reports/agent-performance`: leads assigned/converted/lost, orders, collected online revenue, till revenue, average
+order, discounts given, commission). All five reports, and the P&L, download as Excel or PDF from
+`GET /api/reports/export/:report?format=xlsx|pdf` (`pnl`, `discounts`, `vat`, `branches`, `agents`), built from the same
+service calls as the screens. New Reports page in the sidebar.
+
+**VAT is an estimate.** Local checkout adds no tax (see "Tax removed from local checkout"), so the system holds no VAT
+figure. The report treats prices as VAT-inclusive at `vat_rate_percent` (Settings, default 16) and computes
+`gross x rate / (100 + rate)`. Its base is exactly the P&L revenue. It is labelled as an estimate on screen and in the exports.
+
+**Smaller items (item 14).**
+- PDF invoices: `GET /api/orders/:id/invoice.pdf` and `/api/sales/:id/invoice.pdf`, built from the receipt data (same store
+  scoping). New `business_pin` (KRA PIN) setting is printed on them. Buttons on Orders and Sales history.
+- Percentage discount limit: `max_discount_percent` caps a cashier's total discount (line + sale-wide) as a share of list
+  value, for till sales and orders. Managers and admins are not held to it. 0 = no limit (the default).
+- "Lost": leads with status `cancelled` are now labelled Lost. Display only, the stored status is unchanged. Rescheduled is
+  left as it is.
+
+**Delivery rates (item 15).** New `delivery_areas` table (area, fee in cents, optional courier). A customer's town sets the
+order's delivery fee and suggested courier on order creation, item merge and online-order import; a town that matches no
+area uses the old flat/percent rule, and `delivery_use_area_rates` = 0 switches the table off. Matching tries the whole
+text, then each comma/dash-separated part, then the longest area name contained in it. Manage under Finance > Delivery
+rates, or load the rate card with `npm run import-delivery-areas -- rates.csv` (area, fee in KES, courier, notes). An import
+is all-or-nothing and updates existing areas instead of duplicating them. The rows themselves still need to be loaded from
+the Joyfull Cargo PDF.
+
+New backend dependencies: `exceljs`, `pdfkit`.
+
+Known: the online-order revenue in the P&L sums line totals, so an order-level discount (`orders.discount_total`) is not
+taken off, while a till sale's sale-level discount is. Left as it was; changing it would shift reported figures.
+
 # Priority 3: payroll gaps (pay cycle, commission rules, clock-out check)
 
 **Pay cycle.** A pay period is one calendar month at most (commission targets and tiers start again each month); runs can be
