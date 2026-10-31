@@ -182,6 +182,29 @@ const ADDITIVE_COLUMNS = {
     `direction TEXT NOT NULL DEFAULT 'incoming' CHECK (direction IN ('incoming','outgoing'))`,
     `expense_id INTEGER REFERENCES expenses(id)`,
   ],
+  // Batch costing, expiry and recall (services/costing.service.js).
+  stock_receipt_items: [
+    `batch_no TEXT`,
+    `expiry_date TEXT`,
+    `unit_cost INTEGER CHECK (unit_cost IS NULL OR unit_cost >= 0)`,
+    `costed_by_staff_id INTEGER REFERENCES users(id)`,
+    `costed_at TEXT`,
+    `recalled_at TEXT`,
+    `recalled_by_staff_id INTEGER REFERENCES users(id)`,
+    `recall_note TEXT`,
+  ],
+  inventory_movements: [
+    `batch_id INTEGER REFERENCES stock_receipt_items(id)`,
+  ],
+  stock_issues: [
+    `batch_id INTEGER REFERENCES stock_receipt_items(id)`,
+  ],
+  sale_items: [
+    `cost_total INTEGER`,
+  ],
+  order_items: [
+    `cost_total INTEGER`,
+  ],
 };
 
 function ensureColumn(table, columnDef) {
@@ -644,6 +667,52 @@ function rebuildInventoryMovementsForStockControl() {
   console.log(`  + inventory_movements rebuilt; ${copied} movement(s) carried over`);
 }
 
+// A recall takes stock out of the main store under a new issue reason, 'recalled'. stock_issues.reason carries an inline CHECK,
+// so widening it means the same rebuild procedure as above: build the replacement under a temp name from the ORIGINAL
+// definition edited, copy every row, drop, rename, restore indexes. Existing rows and ids are untouched.
+function needsStockIssuesRecalledRebuild() {
+  if (!tableExists('stock_issues')) return false; // fresh install - schema.sql already allows it
+  const row = db.prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='stock_issues'`).get();
+  return Boolean(row && row.sql && !/'recalled'/.test(row.sql));
+}
+
+function rebuildStockIssuesForRecall() {
+  console.log('  Rebuilding stock_issues to allow the recalled reason...');
+  const wasForeignKeysOn = db.pragma('foreign_keys', { simple: true }) === 1;
+  db.pragma('foreign_keys = OFF');
+
+  const tmp = 'stock_issues_recall_new';
+  const originalSql = db.prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='stock_issues'`).get().sql;
+  const fixedSql = originalSql
+    .replace(/^\s*CREATE\s+TABLE\s+(IF\s+NOT\s+EXISTS\s+)?[\"`]?stock_issues[\"`]?/i, `CREATE TABLE ${tmp}`)
+    .replace(/'returned_to_supplier'\s*,\s*'other'/, "'returned_to_supplier','other','recalled'");
+  if (!/'recalled'/.test(fixedSql) || !fixedSql.includes(tmp)) {
+    db.pragma(`foreign_keys = ${wasForeignKeysOn ? 'ON' : 'OFF'}`);
+    throw new Error('Could not rewrite the stock_issues definition safely; leaving it unchanged.');
+  }
+
+  const indexSql = db.prepare(`SELECT sql FROM sqlite_master WHERE type='index' AND tbl_name='stock_issues' AND sql IS NOT NULL`).all().map((r) => r.sql);
+
+  let copied = 0;
+  const txn = db.transaction(() => {
+    db.exec(`DROP TABLE IF EXISTS ${tmp}`);
+    db.exec(fixedSql);
+    const cols = db.prepare(`PRAGMA table_info(stock_issues)`).all().map((c) => c.name).join(', ');
+    copied = db.prepare(`INSERT INTO ${tmp} (${cols}) SELECT ${cols} FROM stock_issues`).run().changes;
+    db.exec('DROP TABLE stock_issues');
+    db.exec(`ALTER TABLE ${tmp} RENAME TO stock_issues`);
+    for (const sql of indexSql) db.exec(sql);
+  });
+  txn();
+
+  const violations = db.pragma('foreign_key_check');
+  if (violations.length > 0) {
+    throw new Error(`stock_issues rebuild left foreign key violations: ${JSON.stringify(violations)}`);
+  }
+  if (wasForeignKeysOn) db.pragma('foreign_keys = ON');
+  console.log(`  + stock_issues rebuilt; ${copied} issue(s) carried over`);
+}
+
 // The main store is the one shipments are received into. Existing installs have exactly one store, which is the main one;
 // with several, the oldest active store is taken until an admin says otherwise.
 function ensureMainStore() {
@@ -717,6 +786,10 @@ function migrate() {
 
   if (needsInventoryMovementsStockControlRebuild()) {
     rebuildInventoryMovementsForStockControl();
+  }
+
+  if (needsStockIssuesRecalledRebuild()) {
+    rebuildStockIssuesForRecall();
   }
 
   if (needsPayrollItemsRebuild()) {

@@ -2,16 +2,26 @@ const router = require('express').Router();
 const receiving = require('../controllers/stockReceiving.controller');
 const transfers = require('../controllers/stockTransfers.controller');
 const counts = require('../controllers/stockCounts.controller');
+const batches = require('../controllers/stockBatches.controller');
 const { authenticate, requirePermission } = require('../middleware/auth');
 
 router.use(authenticate);
 
 // Receiving and issuing (main store)
+// Buying price per received batch. 'awaiting-cost' is declared before '/receipts/:id' so it is not read as an id.
+router.get('/receipts/awaiting-cost', requirePermission('products.view_cost'), batches.listAwaitingCost);
+router.put('/receipts/:id/costs', requirePermission('products.view_cost'), batches.setCosts);
 router.get('/receipts', requirePermission('stock.receive'), receiving.listReceipts);
 router.get('/receipts/:id', requirePermission('stock.receive'), receiving.getReceipt);
 router.post('/receipts', requirePermission('stock.receive'), receiving.createReceipt);
 router.get('/issues', requirePermission('stock.receive'), receiving.listIssues);
 router.post('/issues', requirePermission('stock.receive'), receiving.createIssue);
+
+// Batches: expiry, recall, and the stock alerts (low, expiring, expired, recalled, damaged)
+router.get('/batches', requirePermission('stock.receive'), batches.listBatches);
+router.post('/batches/:id/recall', requirePermission('stock.review'), batches.recallBatch);
+router.get('/alerts', requirePermission('stock.receive'), batches.getAlerts);
+router.get('/damaged', requirePermission('stock.receive'), batches.listDamaged);
 
 // Inter-branch transfers
 router.get('/transfers', requirePermission('stock.transfer'), transfers.list);

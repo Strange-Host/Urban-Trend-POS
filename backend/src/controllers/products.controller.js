@@ -164,6 +164,14 @@ const approve = asyncHandler(async (req, res) => {
     WHERE id = @id
   `).run({ id: existing.id, by: req.user.id, cost: cost !== undefined && canSeeCost(req.user) ? cost : existing.cost_price, sell: sell !== undefined ? sell : existing.sell_price });
 
+  // The buying price the approver just set is also the cost of the batch(es) this product was received in, which had none.
+  if (cost !== undefined && canSeeCost(req.user)) {
+    db.prepare(`
+      UPDATE stock_receipt_items SET unit_cost = ?, costed_by_staff_id = ?, costed_at = datetime('now')
+      WHERE product_id = ? AND unit_cost IS NULL
+    `).run(cost, req.user.id, existing.id);
+  }
+
   const product = db.prepare('SELECT * FROM products WHERE id = ?').get(existing.id);
   logStaffAction({ staffId: req.user.id, action: 'update', entityType: 'product', entityId: product.id, before: withoutCost(existing), after: withoutCost(product) });
   if (existing.submitted_by_staff_id) {
