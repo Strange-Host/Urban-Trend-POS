@@ -2,6 +2,7 @@ const db = require('../config/db');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const salesService = require('../services/sales.service');
+const approvalsService = require('../services/approvals.service');
 const cashSessionsService = require('../services/cashSessions.service');
 const { PAGINATION } = require('../config/limits');
 const settingsService = require('../services/settings.service');
@@ -56,7 +57,8 @@ const list = asyncHandler(async (req, res) => {
   const whereSql = `WHERE ${where.join(' AND ')}`;
 
   const rows = db.prepare(`
-    SELECT s.*, u.name AS cashier_name, st.name AS store_name, iso.name AS income_source_name, iso.platform AS income_source_platform
+    SELECT s.*, u.name AS cashier_name, st.name AS store_name, iso.name AS income_source_name, iso.platform AS income_source_platform,
+           (SELECT ar.id FROM approval_requests ar WHERE ar.sale_id = s.id AND ar.kind = 'void_sale' AND ar.status = 'pending') AS pending_void_request_id
     FROM sales s
     JOIN users u ON u.id = s.cashier_id
     LEFT JOIN stores st ON st.id = s.store_id
@@ -78,12 +80,13 @@ const getById = asyncHandler(async (req, res) => {
   res.json({ data: sale });
 });
 
-// POST /api/sales/:id/void  — manager/admin only, restocks items
+// POST /api/sales/:id/void  — for someone holding sales.void, restocks items. Anyone else files a request
+// (POST /api/approvals) and a manager approves it; both end up in salesService.voidSaleWithAlert.
 const voidSale = asyncHandler(async (req, res) => {
-  const sale = salesService.voidSale(req.params.id, req.user.storeId, req.user.id);
-  require('../services/securityAlerts.service').largeMoney({
-    storeId: req.user.storeId, actor: { id: req.user.id, name: req.user.name }, kind: 'void', amountCents: sale?.total || 0, reference: `#${sale?.id ?? req.params.id}`,
-  });
+  const actor = { id: req.user.id, name: req.user.name };
+  const sale = salesService.voidSaleWithAlert(req.params.id, req.user.storeId, actor);
+  // A request someone had open for this sale has just been answered.
+  approvalsService.resolveDirect({ kind: 'void_sale', entityId: sale.id, storeId: req.user.storeId, actor });
   res.json({ data: sale });
 });
 

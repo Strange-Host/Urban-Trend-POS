@@ -7,6 +7,11 @@ import useOfflineQueue, { newClientSaleId } from '../hooks/useOfflineQueue';
 import useConnectivity from '../hooks/useConnectivity';
 import ShiftWidget from '../components/ShiftWidget';
 import PrintReceiptButton from '../components/PrintReceipt';
+import PaymentPanel from '../components/PaymentPanel';
+import PrinterSettings from '../components/PrinterSettings';
+import { loadPrinter, printReceiptDirectIfEnabled } from '../utils/printer';
+import { useToast } from '../context/UIContext';
+import { emptyPayment, clearedPayment, buildPayments, describePayments } from '../utils/splitPayment';
 
 // A failed request is only safe to queue offline if it failed because the
 // server never processed it. A 4xx means the server DID process it and
@@ -22,10 +27,13 @@ function isConnectivityFailure(err) {
 
 export default function POSTerminal() {
   const [search, setSearch] = useState('');
-  const [paymentMethod, setPaymentMethod] = useState('cash');
+  // One method for the whole sale, or a split (e.g. Cash + M-Pesa): see utils/splitPayment.js.
+  const [payment, setPayment] = useState(() => emptyPayment());
   const [checkingOut, setCheckingOut] = useState(false);
   const [checkoutError, setCheckoutError] = useState('');
   const [lastReceipt, setLastReceipt] = useState(null);
+  const [printerOpen, setPrinterOpen] = useState(false);
+  const toast = useToast();
   const [cartOpen, setCartOpen] = useState(false); // mobile-only: cart as a slide-up sheet
   const barcodeRef = useRef(null);
   const queryClient = useQueryClient();
@@ -77,9 +85,11 @@ export default function POSTerminal() {
   }
 
   const { subtotal, total } = totals();
+  const built = buildPayments(payment, total);
 
   async function handleCheckout() {
     if (items.length === 0) return;
+    if (built.error) { setCheckoutError(built.error); return; }
     setCheckingOut(true);
     setCheckoutError('');
 
@@ -90,7 +100,7 @@ export default function POSTerminal() {
     const clientSaleId = newClientSaleId();
     const payload = {
       items: items.map((i) => ({ product_id: i.product_id, quantity: i.quantity })),
-      payments: [{ method: paymentMethod, amount: total }],
+      payments: built.payments,
       clientSaleId,
     };
 
@@ -98,7 +108,10 @@ export default function POSTerminal() {
       const { data } = await salesApi.checkout(payload);
       reportApiReachable();
       setLastReceipt({ ...data.data, queued: false });
+      // A till set up for direct printing prints (and opens the drawer) the moment the sale is charged.
+      if (loadPrinter().autoPrint) printReceiptDirectIfEnabled('sale', data.data.id, toast);
       clear();
+      setPayment(clearedPayment);
       setCartOpen(false);
       queryClient.invalidateQueries({ queryKey: ['products'] });
     } catch (err) {
@@ -110,6 +123,7 @@ export default function POSTerminal() {
         enqueue(payload);
         setLastReceipt({ id: null, total, queued: true, clientSaleId });
         clear();
+        setPayment(clearedPayment);
         setCartOpen(false);
       } else {
         // Server processed it and rejected it (out of stock, etc.) —
@@ -175,7 +189,7 @@ export default function POSTerminal() {
               {failedEntries.map((e) => (
                 <li key={e.clientSaleId} className="flex items-start justify-between gap-3 font-mono text-xs">
                   <span>
-                    {new Date(e.ringedUpAt).toLocaleString()} — {(e.payload.payments[0].amount / 100).toFixed(2)}: {e.lastError}
+                    {new Date(e.ringedUpAt).toLocaleString()} — {(e.payload.payments.reduce((n, p) => n + p.amount, 0) / 100).toFixed(2)}: {e.lastError}
                   </span>
                   <button onClick={() => discardQueued(e.clientSaleId)} className="underline shrink-0">Dismiss</button>
                 </li>
@@ -337,21 +351,7 @@ export default function POSTerminal() {
             </div>
           </div>
 
-          <div className="grid grid-cols-3 gap-2 mt-4">
-            {['cash', 'card', 'mobile_money'].map((m) => (
-              <button
-                key={m}
-                onClick={() => setPaymentMethod(m)}
-                className={`py-2.5 xl:py-2 rounded-lg text-xs font-medium capitalize border transition-colors ${
-                  paymentMethod === m
-                    ? 'bg-accent border-accent text-accent-ink'
-                    : 'border-line text-text-muted hover:border-text-muted'
-                }`}
-              >
-                {m.replace('_', ' ')}
-              </button>
-            ))}
-          </div>
+          <PaymentPanel total={total} value={payment} onChange={(next) => { setPayment(next); setCheckoutError(''); }} />
 
           {/* The accent action bar: item count + total on the left, the
               charge action on the right. Promoted from mobile-only to the
@@ -370,12 +370,15 @@ export default function POSTerminal() {
             </div>
             <button
               onClick={handleCheckout}
-              disabled={items.length === 0 || checkingOut}
+              disabled={items.length === 0 || checkingOut || Boolean(built.error)}
               className="shrink-0 px-5 py-3 rounded-lg bg-ink text-white font-display font-600 text-sm hover:bg-ink-soft transition-colors disabled:opacity-40"
             >
               {checkingOut ? 'Processing…' : 'Charge'}
             </button>
           </div>
+
+          <button type="button" onClick={() => setPrinterOpen(true)} className="mt-2 self-start text-[11px] text-text-muted underline decoration-dotted hover:text-text">Printer settings</button>
+          {printerOpen && <PrinterSettings onClose={() => setPrinterOpen(false)} />}
 
           {lastReceipt && (
             lastReceipt.queued ? (
@@ -385,7 +388,10 @@ export default function POSTerminal() {
               </div>
             ) : (
               <div className="mt-3 px-3 py-2 rounded-lg bg-success-soft text-success text-xs font-mono flex items-center justify-between gap-2">
-                <span>Sale #{lastReceipt.id} completed — {(lastReceipt.total / 100).toFixed(2)} paid.</span>
+                <span>
+                  Sale #{lastReceipt.id} completed — {(lastReceipt.total / 100).toFixed(2)} paid.
+                  {lastReceipt.payments?.length > 1 && <span className="block opacity-80">{describePayments(lastReceipt.payments)}</span>}
+                </span>
                 <PrintReceiptButton kind="sale" id={lastReceipt.id} label="Print receipt" className="shrink-0 px-2.5 py-1 rounded-md bg-ink text-white text-[11px] font-medium disabled:opacity-50" />
               </div>
             )

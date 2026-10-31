@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { receiptsApi } from '../api/endpoints';
 import { useToast } from '../context/UIContext';
 import { getErrorMessage } from '../api/client';
+import { printReceiptDirectIfEnabled } from '../utils/printer';
 
 // Every value below is rendered as a React text node — never as HTML. The older
 // system built its receipt by pasting customer names into an HTML string and
@@ -116,6 +117,7 @@ export default function PrintReceiptButton({ kind, id, label = 'Print receipt', 
   async function handleClick() {
     setBusy(true);
     try {
+      if (await printReceiptDirectIfEnabled(kind, id, toast)) return;
       const res = await (kind === 'sale' ? receiptsApi.sale(id) : receiptsApi.order(id));
       setData(res.data.data);
     } catch (err) {

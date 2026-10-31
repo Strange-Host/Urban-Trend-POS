@@ -16,6 +16,7 @@ const DESTINATIONS = {
   payment_notification: '/reconciliation',
   security_event: '/security',
   product: '/catalog',
+  approval: '/approvals', // void / refund requests and their outcome
   backup: '/settings', // backup and off-site copy failure notices (admins)
 };
 

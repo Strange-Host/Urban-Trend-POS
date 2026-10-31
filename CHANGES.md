@@ -1,3 +1,36 @@
+# POS (item 1.2): void/refund approval, split payments, thermal printing
+
+**Refund / void approval.** A cashier cannot void a sale or refund a payment on their own, but can now ask: `POST /api/approvals`
+(`{ kind: 'void_sale', sale_id, reason }` or `{ kind: 'refund_payment', payment_id, reason }`). Managers and admins are
+notified (bell), and approve or reject on the new **Approvals** page (`/approvals`, under Sell). Approving runs the existing void /
+refund in the same transaction (`sales.service.voidSaleWithAlert`, `paymentRefunds.service.refundPaymentRecord` - the refund code
+moved out of the controller unchanged so both paths share it), so stock restock, the order's `amount_paid`, the audit log and the
+large-void/refund alert behave exactly as before. The requester is notified of the outcome, with the manager's reason if rejected.
+Rules, all tested: one open request per sale/payment (partial unique index); nobody approves or rejects their own request (they
+can withdraw it); approving also needs `sales.void` / `payments.refund`, so `approvals.review` cannot be used to get round a
+revoked right; a request whose action can no longer run (already voided/refunded) closes as `failed` with the reason instead of
+waiting forever; a manager who voids/refunds directly closes any open request for it. Cashiers see only their own requests.
+New table `approval_requests` (in `schema.sql`, created on startup like the rest).
+New permissions: `payments.refund` (gates `POST /payments/:id/refund`, admin/manager by default so nothing changes for them),
+`payments.refund_request`, `sales.void_request` (cashier by default), `approvals.review`. Sales history and Payments show
+"Request void" / "Request refund" to people who may not act directly, and "requested" once one is open.
+
+**Cash + M-Pesa split.** The API already took several payments; the terminal could only send one. The cart now has
+"One method / Split payment": an amount per method (Cash, M-Pesa, Card), a "Rest" button, an optional M-Pesa code or card
+reference per method, a live "x to go / too much / matches the total" line, and Charge stays off until the amounts add up exactly.
+Amounts are parsed as integer cents from text (no float drift). The receipt and the "completed" bar list each payment.
+Offline-queued split sales work too (and the "rejected offline sale" list now shows the sum, not just the first payment).
+
+**Thermal printing.** Decision: the browser print dialog stays the default and the fallback (it works with any printer), and a
+direct path is added for tills that want one-tap print, paper cut and cash-drawer pop. The server renders any sale or order
+receipt as ESC/POS (`GET /api/sales/:id/receipt.escpos`, `/orders/:id/receipt.escpos`; `?cols=32|48`, `?cut=0`,
+`?drawer=1|cash`; `/sales/drawer.escpos` for "no sale"). A dependency-free bridge (`print-bridge/`, Node 18+) on the till computer
+forwards the bytes to a network (port 9100), USB/serial or shared printer; it listens on localhost only and refuses any website not
+in `ALLOW_ORIGIN`. Per-till settings (Terminal > Printer settings): direct printing on/off, bridge address, 58/80 mm, cut,
+drawer on cash sales, print on charge; with a test print, drawer button and bridge check. If the bridge is unreachable the print dialog opens.
+**Not tested against real printer hardware** (the encoder, endpoints and bridge are tested against a fake printer socket);
+use "Print test" on first install. Bluetooth and non-ESC/POS printers are not covered.
+
 # Priority 5: reports and polish
 
 **Profit and loss (item 12).** `GET /api/reports/pnl` returns the P&L summary, a category breakdown, a branch comparison and

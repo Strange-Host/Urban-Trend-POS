@@ -132,6 +132,7 @@ app.use('/api/stock', stockRoutes);
 app.use('/api/suppliers', suppliersRoutes);
 app.use('/api/stores', storesRoutes);
 app.use('/api/payments', paymentsRoutes);
+app.use('/api/approvals', require('./routes/approvals.routes'));
 app.use('/api/staff-logs', staffLogsRoutes);
 app.use('/api/modules', modulesRoutes);
 app.use('/api/settings', settingsRoutes);

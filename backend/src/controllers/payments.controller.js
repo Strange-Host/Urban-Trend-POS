@@ -3,7 +3,8 @@ const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const { parsePagination, paginatedResponse } = require('../utils/paginate');
 const { logStaffAction } = require('../utils/auditLog');
-const ordersService = require('../services/orders.service');
+const paymentRefunds = require('../services/paymentRefunds.service');
+const approvalsService = require('../services/approvals.service');
 
 // Payments here is interpretation B (decided): a distinct recording action —
 // customer layaway/partial payments against a sale, or outgoing supplier
@@ -22,7 +23,8 @@ const list = asyncHandler(async (req, res) => {
   const whereSql = `WHERE ${where.join(' AND ')}`;
 
   const rows = db.prepare(`
-    SELECT p.*, u.name AS recorded_by_name
+    SELECT p.*, u.name AS recorded_by_name,
+      (SELECT ar.id FROM approval_requests ar WHERE ar.payment_record_id = p.id AND ar.kind = 'refund_payment' AND ar.status = 'pending') AS pending_refund_request_id
     FROM payment_records p JOIN users u ON u.id = p.recorded_by_staff_id
     ${whereSql}
     ORDER BY p.created_at DESC
@@ -73,34 +75,14 @@ const create = asyncHandler(async (req, res) => {
   res.status(201).json({ data: payment });
 });
 
-// POST /api/payments/:id/refund
+// POST /api/payments/:id/refund — for someone holding payments.refund. Anyone else files a request
+// (POST /api/approvals) and a manager approves it; both end up in paymentRefunds.service.
 const refund = asyncHandler(async (req, res) => {
-  const existing = db.prepare('SELECT * FROM payment_records WHERE id = ? AND store_id = ? AND deleted_at IS NULL')
-    .get(req.params.id, req.user.storeId);
-  if (!existing) throw new ApiError(404, 'Payment not found.');
-  if (existing.status !== 'completed') throw new ApiError(409, `Payment is already ${existing.status}.`);
-
-  // Refunds reference the original record rather than deleting it — both rows
-  // are needed for audit purposes even though net revenue nets to zero (§4.3).
-  // If the payment was against an online order, the order's amount_paid and status must follow it
-  // (same transaction), or the order would keep showing money the shop has handed back.
-  db.transaction(() => {
-    db.prepare(`UPDATE payment_records SET status = 'refunded', updated_at = datetime('now') WHERE id = ?`).run(req.params.id);
-    if (existing.order_id && existing.direction === 'incoming') {
-      ordersService.refundPayment({
-        orderId: existing.order_id, storeId: req.user.storeId, amount: existing.amount,
-        staffId: req.user.id, method: existing.method,
-      });
-    }
-  })();
-  const payment = db.prepare('SELECT * FROM payment_records WHERE id = ?').get(req.params.id);
-  logStaffAction({
-    staffId: req.user.id, action: 'update', entityType: 'payment', entityId: payment.id,
-    before: { status: 'completed' }, after: { status: 'refunded' },
+  const payment = paymentRefunds.refundPaymentRecord({
+    paymentId: req.params.id, storeId: req.user.storeId, actor: { id: req.user.id, name: req.user.name },
   });
-  require('../services/securityAlerts.service').largeMoney({
-    storeId: req.user.storeId, actor: { id: req.user.id, name: req.user.name }, kind: 'refund', amountCents: existing.amount, reference: `#${payment.id}`,
-  });
+  // A request someone had open for this payment has just been answered.
+  approvalsService.resolveDirect({ kind: 'refund_payment', entityId: payment.id, storeId: req.user.storeId, actor: { id: req.user.id, name: req.user.name } });
   res.json({ data: payment });
 });
 
