@@ -6,6 +6,7 @@ import { getErrorMessage } from '../api/client';
 import HandoverModal from '../components/HandoverModal';
 import { useAuth } from '../context/AuthContext';
 import { PageHeader, StatusPill } from '../components/DataUI';
+import StatCard from '../components/StatCard';
 
 function time(ts) {
   return ts ? new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—';
@@ -26,6 +27,14 @@ export default function Attendance() {
     enabled: isManager,
   });
   const rows = todayData || [];
+
+  // Who has not clocked in yet today: its own endpoint, so the card stays right even if the roster list fails.
+  const canSeeAbsences = isManager && can('attendance.view');
+  const { data: absentToday } = useQuery({
+    queryKey: ['attendance', 'absences-today'],
+    queryFn: () => attendanceApi.absencesToday().then((r) => r.data.data),
+    enabled: canSeeAbsences,
+  });
 
   // A cashier can't call /attendance/today (manager-only), so their own
   // status comes from whether their clock-in/out attempts succeed. The
@@ -128,6 +137,11 @@ export default function Attendance() {
 
       {isManager && (
         <>
+          {canSeeAbsences && absentToday && (
+            <div className="mb-5">
+              <StatCard label="Absent today" value={absentToday.length} sub={absentToday.length ? absentToday.map((a) => a.name).join(', ') : 'Everyone has clocked in'} />
+            </div>
+          )}
           {absent.length > 0 && (
             <div className="mb-5 px-3.5 py-3 rounded-lg bg-danger-soft text-danger text-sm">
               <strong>{absent.length} not clocked in today:</strong>{' '}
