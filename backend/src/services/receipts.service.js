@@ -16,6 +16,7 @@ function business(settings) {
   return {
     name: settings.business_name || 'Urban Trends',
     phone: settings.business_phone || '',
+    pin: settings.business_pin || '',
     address: settings.business_address || '',
     footer: settings.receipt_footer || 'Thank you for shopping with us.',
     currency: settings.business_currency || 'KES',
