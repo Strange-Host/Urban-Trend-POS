@@ -260,6 +260,7 @@ export default function Expenses() {
                 <td className="px-4 py-3 text-text-muted">
                   {e.description || '—'}
                   {e.paid_from === 'petty_cash' && <span className="ml-2 px-1.5 py-0.5 rounded bg-paper border border-line text-xs">petty cash</span>}
+                  {e.requisition_id && <span className="ml-2 px-1.5 py-0.5 rounded bg-paper border border-line text-xs">requisition #{e.requisition_id}</span>}
                   <div className="text-xs mt-0.5">by {e.recorded_by_name}</div>
                   {e.status === 'rejected' && e.review_note && <div className="text-xs text-danger mt-0.5">Rejected: {e.review_note}</div>}
                   {e.status === 'approved' && e.reviewed_by_name && e.reviewed_by_staff_id !== e.recorded_by_staff_id && (

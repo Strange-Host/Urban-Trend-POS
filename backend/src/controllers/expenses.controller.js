@@ -16,8 +16,11 @@ const { floatFigures } = require('../services/pettyCash.service');
 const isAdmin = (user) => user.role === 'admin';
 
 const LIST_SQL = `
-  SELECT e.*, c.name AS category_name, u.name AS recorded_by_name, r.name AS reviewed_by_name
+  SELECT e.*, c.name AS category_name, u.name AS recorded_by_name, r.name AS reviewed_by_name,
+    rq.requested_by_staff_id AS requisition_requester_id, rqu.name AS requisition_requester_name
   FROM expenses e
+  LEFT JOIN requisitions rq ON rq.id = e.requisition_id
+  LEFT JOIN users rqu ON rqu.id = rq.requested_by_staff_id
   JOIN expense_categories c ON c.id = e.category_id
   JOIN users u ON u.id = e.recorded_by_staff_id
   LEFT JOIN users r ON r.id = e.reviewed_by_staff_id

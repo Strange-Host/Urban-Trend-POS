@@ -995,6 +995,8 @@ CREATE TABLE IF NOT EXISTS expenses (
   reviewed_at           TEXT,
   review_note           TEXT,
   paid_from             TEXT NOT NULL DEFAULT 'main' CHECK (paid_from IN ('main','petty_cash')),
+  -- Set when this expense was created by approving a shop requisition (see requisitions.service.js).
+  requisition_id        INTEGER REFERENCES requisitions(id),
   created_at            TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at            TEXT NOT NULL DEFAULT (datetime('now')),
   deleted_at            TEXT
@@ -1018,6 +1020,8 @@ CREATE TABLE IF NOT EXISTS petty_cash_topups (
 CREATE INDEX IF NOT EXISTS idx_petty_cash_topups_store ON petty_cash_topups(store_id);
 CREATE INDEX IF NOT EXISTS idx_expenses_date ON expenses(expense_date);
 CREATE INDEX IF NOT EXISTS idx_expenses_category ON expenses(category_id);
+-- One requisition forwards to at most one expense, so a retry can never double-count it.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_expenses_requisition ON expenses(requisition_id) WHERE requisition_id IS NOT NULL;
 
 -- ---------------------------------------------------------------------
 -- PAYMENT RECORDS  (interpretation B: distinct recording action — layaway /
