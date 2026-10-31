@@ -28,6 +28,7 @@ const Catalog = lazy(() => import('./pages/Catalog'));
 const StockControl = lazy(() => import('./pages/StockControl'));
 const SalesHistory = lazy(() => import('./pages/SalesHistory'));
 const Dashboard = lazy(() => import('./pages/Dashboard'));
+const Reports = lazy(() => import('./pages/Reports'));
 const ShopifySync = lazy(() => import('./pages/ShopifySync'));
 const Leads = lazy(() => import('./pages/Leads'));
 const Requisitions = lazy(() => import('./pages/Requisitions'));
@@ -131,6 +132,14 @@ export default function App() {
                   element={
                     <ProtectedRoute roles={['admin', 'manager']} permission="reports.view">
                       <Dashboard />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/reports"
+                  element={
+                    <ProtectedRoute roles={['admin', 'manager']} permission="reports.view">
+                      <Reports />
                     </ProtectedRoute>
                   }
                 />

@@ -136,6 +136,30 @@ export function getErrorMessage(err, fallback = 'Something went wrong.') {
   return err?.response?.data?.error?.message || fallback;
 }
 
+// Downloads a file the API generates (Excel, PDF) through the normal authenticated client, so the sign-in token is
+// sent. An error reply arrives as a Blob when responseType is 'blob'; it is turned back into the usual JSON error
+// first, so getErrorMessage() keeps working for the caller.
+export async function downloadFile(url, params, fallbackName = 'download') {
+  let res;
+  try {
+    res = await client.get(url, { params, responseType: 'blob' });
+  } catch (err) {
+    if (err?.response?.data instanceof Blob) {
+      try { err.response.data = JSON.parse(await err.response.data.text()); } catch { /* not JSON: keep as is */ }
+    }
+    throw err;
+  }
+  const match = /filename="?([^";]+)"?/.exec(res.headers['content-disposition'] || '');
+  const href = URL.createObjectURL(res.data);
+  const a = document.createElement('a');
+  a.href = href;
+  a.download = match ? match[1] : fallbackName;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(href), 1000);
+}
+
 // 2.1 — lets a caller check specifically for "you must change your
 // password first" (see middleware/auth.js) without string-matching a
 // human-readable message.

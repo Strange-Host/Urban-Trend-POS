@@ -18,6 +18,7 @@ router.post('/', checkoutLimiter, validate(checkoutSchema), ctrl.checkout);
 router.get('/', ctrl.list);
 router.get('/:id', ctrl.getById);
 router.get('/:id/receipt', require('../controllers/receipts.controller').saleReceipt);
+router.get('/:id/invoice.pdf', require('../controllers/receipts.controller').saleInvoice);
 router.post('/:id/void', requirePermission('sales.void'), requireRecentAuth(), ctrl.voidSale);
 
 module.exports = router;

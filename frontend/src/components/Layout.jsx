@@ -18,6 +18,7 @@ import useSlidingPill from '../hooks/useSlidingPill';
 const PINNED_TOP = [
   { to: '/', label: 'Terminal', icon: '⌸', roles: ['admin', 'manager', 'cashier'] },
   { to: '/dashboard', label: 'Dashboard', icon: '▲', roles: ['admin', 'manager'], perm: 'reports.view' },
+  { to: '/reports', label: 'Reports', icon: '☰', roles: ['admin', 'manager'], perm: 'reports.view' },
 ];
 
 const GROUPS = [

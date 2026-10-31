@@ -36,6 +36,8 @@ function GeneralSettings() {
         business_name: form.business_name, business_currency: form.business_currency,
         business_phone: form.business_phone, business_address: form.business_address,
         low_stock_default_reorder_level: form.low_stock_default_reorder_level, receipt_footer: form.receipt_footer,
+        business_pin: form.business_pin, vat_rate_percent: form.vat_rate_percent,
+        max_discount_percent: form.max_discount_percent, delivery_use_area_rates: form.delivery_use_area_rates,
       });
       queryClient.invalidateQueries({ queryKey: ['settings'] });
       setSaved(true);
@@ -62,6 +64,21 @@ function GeneralSettings() {
         </Field>
         <Field label="Default low-stock reorder level">
           <input className={inputCls} value={form.low_stock_default_reorder_level} onChange={(e) => setForm({ ...form, low_stock_default_reorder_level: e.target.value })} />
+        </Field>
+        <Field label="KRA PIN" hint="Printed on invoices.">
+          <input className={inputCls} value={form.business_pin ?? ''} onChange={(e) => setForm({ ...form, business_pin: e.target.value })} />
+        </Field>
+        <Field label="VAT rate (%)" hint="Used by the VAT report, which treats prices as VAT-inclusive.">
+          <input className={inputCls} inputMode="decimal" value={form.vat_rate_percent ?? ''} onChange={(e) => setForm({ ...form, vat_rate_percent: e.target.value })} />
+        </Field>
+        <Field label="Largest cashier discount (%)" hint="Of the goods' list value, line and sale discounts together. 0 = no limit. Managers and admins are not held to it.">
+          <input className={inputCls} inputMode="decimal" value={form.max_discount_percent ?? ''} onChange={(e) => setForm({ ...form, max_discount_percent: e.target.value })} />
+        </Field>
+        <Field label="Delivery fee source" hint="Delivery rates uses the area table (Finance → Delivery rates) when the town matches.">
+          <select className={inputCls} value={form.delivery_use_area_rates ?? '1'} onChange={(e) => setForm({ ...form, delivery_use_area_rates: e.target.value })}>
+            <option value="1">Delivery rates, then flat/percent rule</option>
+            <option value="0">Flat/percent rule only</option>
+          </select>
         </Field>
       </div>
       <Field label="Receipt footer">

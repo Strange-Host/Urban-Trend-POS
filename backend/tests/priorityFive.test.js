@@ -123,3 +123,33 @@ describe('delivery-area rate table', () => {
     expect(dup.status).toBe(409);
   });
 });
+
+describe('PDF invoices', () => {
+  const binary = (r, cb) => { const c = []; r.on('data', (d) => c.push(d)); r.on('end', () => cb(null, Buffer.concat(c))); };
+
+  it('downloads an order invoice and a sale invoice as real PDFs, store-scoped', async () => {
+    const order = await request(app).post('/api/orders').set(auth(adminToken)).send({ name: 'Inv Test', phone: nextPhone(), city: 'Juja', items: [{ product_id: product.id, quantity: 2 }] });
+    const o = await request(app).get(`/api/orders/${order.body.data.id}/invoice.pdf`).set(auth(adminToken)).buffer(true).parse(binary);
+    expect(o.status).toBe(200);
+    expect(o.headers['content-type']).toBe('application/pdf');
+    expect(o.headers['content-disposition']).toMatch(/invoice_UT\d+\.pdf/);
+    expect(o.body.slice(0, 5).toString()).toBe('%PDF-');
+
+    const sale = await request(app).post('/api/sales').set(auth(adminToken)).send({ items: [{ product_id: product.id, quantity: 1 }], payments: [{ method: 'cash', amount: product.sell_price }] });
+    const s = await request(app).get(`/api/sales/${sale.body.data.id}/invoice.pdf`).set(auth(adminToken)).buffer(true).parse(binary);
+    expect(s.status).toBe(200);
+    expect(s.body.slice(0, 5).toString()).toBe('%PDF-');
+    expect((await request(app).get('/api/sales/999999/invoice.pdf').set(auth(adminToken))).status).toBe(404);
+  });
+});
+
+describe('settings validation for the new keys', () => {
+  it('rejects a percent outside 0-100 and accepts a valid one', async () => {
+    const put = (body) => request(app).put('/api/settings').set(auth(adminToken)).send(body);
+    expect((await put({ max_discount_percent: '150' })).status).toBe(400);
+    expect((await put({ vat_rate_percent: 'abc' })).status).toBe(400);
+    expect((await put({ max_discount_percent: '' })).status).toBe(400);
+    expect((await put({ max_discount_percent: '12.5', vat_rate_percent: '16', business_pin: 'P051234567X' })).status).toBe(200);
+    setSetting('max_discount_percent', '0');
+  });
+});

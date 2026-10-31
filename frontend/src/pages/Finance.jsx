@@ -4,6 +4,7 @@ import Payments from './Payments';
 import Expenses from './Expenses';
 import CashSessions from './CashSessions';
 import Couriers from './Couriers';
+import DeliveryAreas from './DeliveryAreas';
 
 // Merges Payments, Expenses, and Cash sessions under one sidebar entry,
 // same "mini page" pattern Sales History already uses to separate Local
@@ -14,6 +15,7 @@ const TABS = [
   { key: 'expenses', label: 'Expenses' },
   { key: 'cash-sessions', label: 'Cash sessions' },
   { key: 'couriers', label: 'Couriers' },
+  { key: 'delivery-rates', label: 'Delivery rates' },
 ];
 
 export default function Finance() {
@@ -26,6 +28,7 @@ export default function Finance() {
       {tab === 'expenses' && <Expenses />}
       {tab === 'cash-sessions' && <CashSessions />}
       {tab === 'couriers' && <Couriers />}
+      {tab === 'delivery-rates' && <DeliveryAreas />}
     </div>
   );
 }

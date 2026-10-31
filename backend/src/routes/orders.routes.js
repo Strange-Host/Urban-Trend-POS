@@ -32,6 +32,7 @@ router.get('/:id', ctrl.getById);
 router.post('/:id/merge-items', validate(mergeItemsSchema), ctrl.mergeItems);
 router.post('/:id/confirm-cod', ctrl.confirmCod);
 router.get('/:id/receipt', require('../controllers/receipts.controller').orderReceipt);
+router.get('/:id/invoice.pdf', require('../controllers/receipts.controller').orderInvoice);
 router.post('/:id/courier', validate(setCourierSchema), ctrl.setCourier);
 router.post('/:id/dispatch', ctrl.dispatch);
 router.post('/:id/payments', validate(recordPaymentSchema), ctrl.recordPayment);
