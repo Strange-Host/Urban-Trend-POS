@@ -12,6 +12,10 @@ const db = new Database(dbPath);
 // WAL mode: readers don't block the single writer — matters once
 // multiple registers are hitting the same DB concurrently.
 db.pragma('journal_mode = WAL');
+// synchronous=NORMAL is the recommended pairing with WAL: commits no longer fsync every time (only at checkpoints),
+// so writes are far faster, especially on a network volume. A power loss can drop the last few commits but cannot
+// corrupt the database; an application crash loses nothing.
+db.pragma('synchronous = NORMAL');
 db.pragma('foreign_keys = ON');
 // Without this, a write that lands while another connection briefly holds
 // the write lock throws SQLITE_BUSY immediately instead of waiting — and

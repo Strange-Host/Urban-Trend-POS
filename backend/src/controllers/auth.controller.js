@@ -78,6 +78,8 @@ function issueSession(user, req, res, { remember = false } = {}) {
 // request — bcrypt hashing is deliberately slow, so doing it on every
 // request here (rather than once, ever) would turn this fix into its own
 // denial-of-service surface.
+// Per-request compares use the ASYNC bcrypt.compare/hash: the sync versions hold the single Node thread for the
+// whole ~80 ms of each check, freezing every other request (e.g. several cashiers signing in at shift start).
 const DUMMY_HASH = bcrypt.hashSync('this-is-not-a-real-password-just-for-constant-time-compares', 10);
 
 // POST /api/auth/login  { email, password }
@@ -87,7 +89,7 @@ const login = asyncHandler(async (req, res) => {
 
   const user = db.prepare('SELECT * FROM users WHERE lower(email) = lower(?) AND is_active = 1').get(email.trim());
   loginGuard.assertNotLocked(user, 'password');     // a locked account answers the same whether or not the password is right
-  const passwordMatches = bcrypt.compareSync(password, user ? user.password_hash : DUMMY_HASH);
+  const passwordMatches = await bcrypt.compare(password, user ? user.password_hash : DUMMY_HASH);
   if (!user || !passwordMatches) {
     loginGuard.recordFailure(user, 'password', { ip: req.ip });
     throw new ApiError(401, 'Invalid email or password.');
@@ -125,7 +127,7 @@ const pinLogin = asyncHandler(async (req, res) => {
 
   const user = db.prepare('SELECT * FROM users WHERE id = ? AND is_active = 1').get(userId);
   loginGuard.assertNotLocked(user, 'pin');
-  const pinMatches = bcrypt.compareSync(String(pin), user?.pin_code_hash || DUMMY_HASH);
+  const pinMatches = await bcrypt.compare(String(pin), user?.pin_code_hash || DUMMY_HASH);
   if (!user || !user.pin_code_hash || !pinMatches) {
     loginGuard.recordFailure(user, 'pin', { ip: req.ip });
     throw new ApiError(401, 'Invalid PIN.');
@@ -185,13 +187,13 @@ const changePassword = asyncHandler(async (req, res) => {
 
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
   loginGuard.assertNotLocked(user, 'password');
-  if (!user || !bcrypt.compareSync(currentPassword, user.password_hash)) {
+  if (!user || !(await bcrypt.compare(currentPassword, user.password_hash))) {
     loginGuard.recordFailure(user, 'password', { ip: req.ip });
     throw new ApiError(401, 'Current password is incorrect.');
   }
   assertStrongPassword(newPassword, { role: user.role, email: user.email, name: user.name, phone: user.phone });
 
-  const newHash = bcrypt.hashSync(newPassword, 10);
+  const newHash = await bcrypt.hash(newPassword, 10);
   db.prepare(`
     UPDATE users SET password_hash = ?, must_change_password = 0, token_version = token_version + 1,
       password_changed_at = datetime('now'), updated_at = datetime('now')
@@ -217,14 +219,14 @@ const confirmIdentity = asyncHandler(async (req, res) => {
       throw new ApiError(403, 'Use your password to continue.', null, 'PIN_NOT_ALLOWED');
     }
     loginGuard.assertNotLocked(user, 'pin');
-    if (!bcrypt.compareSync(String(pin), user.pin_code_hash)) {
+    if (!(await bcrypt.compare(String(pin), user.pin_code_hash))) {
       const r = loginGuard.recordFailure(user, 'pin', { ip: req.ip });
       throw new ApiError(401, r.locked ? 'Too many wrong PINs. It is locked for a while.' : 'Incorrect PIN.');
     }
     loginGuard.recordSuccess(user, 'pin');
   } else {
     loginGuard.assertNotLocked(user, 'password');
-    if (!bcrypt.compareSync(String(password), user.password_hash)) {
+    if (!(await bcrypt.compare(String(password), user.password_hash))) {
       const r = loginGuard.recordFailure(user, 'password', { ip: req.ip });
       throw new ApiError(401, r.locked ? 'Too many wrong passwords. It is locked for a while.' : 'Incorrect password.');
     }
