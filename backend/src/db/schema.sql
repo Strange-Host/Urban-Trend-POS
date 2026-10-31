@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS stores (
   address             TEXT,
   is_active           INTEGER NOT NULL DEFAULT 1,
   shopify_location_id TEXT,                     -- matches this store to a Shopify location
+  is_main             INTEGER NOT NULL DEFAULT 0, -- the main store: shipments are received here and outlets are supplied from it
   created_at          TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -267,15 +268,137 @@ CREATE TABLE IF NOT EXISTS inventory_movements (
   reason         TEXT NOT NULL CHECK (reason IN (
     'sale','restock','adjustment','return','void','requisition',
     'dispatch',           -- online order dispatched — stock deducted (reference_type='order')
-    'return_resellable'   -- online order return inspected good — stock reinstated (reference_type='order')
+    'return_resellable',  -- online order return inspected good — stock reinstated (reference_type='order')
+    'receipt',            -- shipment received into the main store (reference_type='receipt')
+    'issue',              -- stock issued out (damaged, expired, lost, ...) (reference_type='issue')
+    'transfer_out',       -- left this store on an approved transfer (reference_type='transfer')
+    'transfer_in',        -- arrived at this store on an approved transfer (reference_type='transfer')
+    'stocktake'           -- adjustment posted from an approved opening/closing count (reference_type='stocktake')
   )),
-  reference_type TEXT CHECK (reference_type IN ('sale','order','requisition','adjustment')),
+  reference_type TEXT CHECK (reference_type IN ('sale','order','requisition','adjustment','receipt','issue','transfer','stocktake')),
   reference_id   INTEGER,                      -- e.g. sale_id or order_id, disambiguated by reference_type
   created_by     INTEGER REFERENCES users(id),
   created_at     TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_movements_product ON inventory_movements(product_id);
 CREATE INDEX IF NOT EXISTS idx_movements_reference ON inventory_movements(reference_type, reference_id);
+
+-- ---------------------------------------------------------------------
+-- MAIN-STORE INVENTORY CONTROL (Priority 2)
+-- Buying prices are deliberately absent from every table below: the people who receive and move stock never see
+-- or enter them. A new product received here becomes an ordinary pending proposal (products.approval_status) and
+-- the approver fills in the buying price when approving it.
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS suppliers (
+  id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+  name                 TEXT NOT NULL,
+  phone                TEXT,
+  email                TEXT,
+  address              TEXT,
+  note                 TEXT,
+  is_active            INTEGER NOT NULL DEFAULT 1,
+  created_by_staff_id  INTEGER REFERENCES users(id),
+  created_at           TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at           TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_suppliers_name ON suppliers(name COLLATE NOCASE);
+
+-- One row per shipment received. Stock goes in the moment it is saved (one 'receipt' movement per line).
+CREATE TABLE IF NOT EXISTS stock_receipts (
+  id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+  store_id              INTEGER NOT NULL REFERENCES stores(id),
+  supplier_id           INTEGER REFERENCES suppliers(id),
+  reference             TEXT,                      -- the supplier's delivery note / invoice number
+  note                  TEXT,
+  received_on           TEXT NOT NULL,             -- shop calendar date (YYYY-MM-DD)
+  received_by_staff_id  INTEGER NOT NULL REFERENCES users(id),
+  created_at            TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_stock_receipts_store ON stock_receipts(store_id, received_on);
+
+CREATE TABLE IF NOT EXISTS stock_receipt_items (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  receipt_id      INTEGER NOT NULL REFERENCES stock_receipts(id),
+  product_id      INTEGER NOT NULL REFERENCES products(id),
+  quantity        INTEGER NOT NULL CHECK (quantity > 0),
+  sell_price      INTEGER NOT NULL CHECK (sell_price >= 0),  -- selling price at receipt (cents); entered by hand for a new product
+  is_new_product  INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_stock_receipt_items_receipt ON stock_receipt_items(receipt_id);
+CREATE INDEX IF NOT EXISTS idx_stock_receipt_items_product ON stock_receipt_items(product_id);
+
+-- Stock that leaves the main store for a reason other than a sale or a transfer.
+CREATE TABLE IF NOT EXISTS stock_issues (
+  id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+  store_id            INTEGER NOT NULL REFERENCES stores(id),
+  product_id          INTEGER NOT NULL REFERENCES products(id),
+  quantity            INTEGER NOT NULL CHECK (quantity > 0),
+  reason              TEXT NOT NULL CHECK (reason IN ('damaged','expired','lost','internal_use','returned_to_supplier','other')),
+  supplier_id         INTEGER REFERENCES suppliers(id),
+  note                TEXT,
+  issued_on           TEXT NOT NULL,
+  issued_by_staff_id  INTEGER NOT NULL REFERENCES users(id),
+  created_at          TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_stock_issues_store ON stock_issues(store_id, issued_on);
+
+-- Inter-branch transfer: a request, a manager's decision, and - only on approval - two stock movements
+-- ('transfer_out' at the sending store, 'transfer_in' at the receiving one) written in one transaction.
+CREATE TABLE IF NOT EXISTS stock_transfers (
+  id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+  from_store_id         INTEGER NOT NULL REFERENCES stores(id),
+  to_store_id           INTEGER NOT NULL REFERENCES stores(id),
+  status                TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected','cancelled')),
+  note                  TEXT,
+  requested_by_staff_id INTEGER NOT NULL REFERENCES users(id),
+  reviewed_by_staff_id  INTEGER REFERENCES users(id),
+  reviewed_at           TEXT,
+  review_note           TEXT,
+  created_at            TEXT NOT NULL DEFAULT (datetime('now')),
+  CHECK (from_store_id <> to_store_id)
+);
+CREATE INDEX IF NOT EXISTS idx_stock_transfers_status ON stock_transfers(status);
+CREATE INDEX IF NOT EXISTS idx_stock_transfers_from ON stock_transfers(from_store_id);
+CREATE INDEX IF NOT EXISTS idx_stock_transfers_to ON stock_transfers(to_store_id);
+
+CREATE TABLE IF NOT EXISTS stock_transfer_items (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  transfer_id  INTEGER NOT NULL REFERENCES stock_transfers(id),
+  product_id   INTEGER NOT NULL REFERENCES products(id),
+  quantity     INTEGER NOT NULL CHECK (quantity > 0),
+  UNIQUE (transfer_id, product_id)
+);
+
+-- Outlet opening / closing stock counts. One per store, shop date and kind. expected_qty is the system's quantity at
+-- the moment the count was submitted; variance = counted - expected. A manager reviews a submitted count and may
+-- post the variances as 'stocktake' adjustments.
+CREATE TABLE IF NOT EXISTS stock_counts (
+  id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+  store_id              INTEGER NOT NULL REFERENCES stores(id),
+  count_date            TEXT NOT NULL,
+  kind                  TEXT NOT NULL CHECK (kind IN ('opening','closing')),
+  status                TEXT NOT NULL DEFAULT 'submitted' CHECK (status IN ('submitted','approved','rejected')),
+  note                  TEXT,
+  submitted_by_staff_id INTEGER NOT NULL REFERENCES users(id),
+  submitted_at          TEXT NOT NULL DEFAULT (datetime('now')),
+  ledger_mark           INTEGER NOT NULL DEFAULT 0,  -- highest inventory_movements.id when submitted: the exact line between "before" and "after" this count
+  reviewed_by_staff_id  INTEGER REFERENCES users(id),
+  reviewed_at           TEXT,
+  review_note           TEXT,
+  adjustments_applied   INTEGER NOT NULL DEFAULT 0,
+  UNIQUE (store_id, count_date, kind)
+);
+CREATE INDEX IF NOT EXISTS idx_stock_counts_store ON stock_counts(store_id, count_date);
+
+CREATE TABLE IF NOT EXISTS stock_count_items (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  count_id      INTEGER NOT NULL REFERENCES stock_counts(id),
+  product_id    INTEGER NOT NULL REFERENCES products(id),
+  expected_qty  INTEGER NOT NULL,
+  counted_qty   INTEGER NOT NULL CHECK (counted_qty >= 0),
+  variance      INTEGER NOT NULL,
+  UNIQUE (count_id, product_id)
+);
 
 -- ---------------------------------------------------------------------
 -- CUSTOMERS  (optional attach to sale, loyalty-ready)
