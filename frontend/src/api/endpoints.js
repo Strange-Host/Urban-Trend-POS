@@ -79,6 +79,7 @@ export const paymentGatewaysApi = {
   test: (provider) => client.post(`/settings/payment-gateways/${provider}/test`),
   registerMpesaUrls: () => client.post('/settings/payment-gateways/mpesa/register-urls'),
   simulateMpesaPayment: (data) => client.post('/settings/payment-gateways/mpesa/simulate', data),
+  mpesaStkPush: (data) => client.post('/settings/payment-gateways/mpesa/stk-push', data),
 };
 
 export const smsApi = {
