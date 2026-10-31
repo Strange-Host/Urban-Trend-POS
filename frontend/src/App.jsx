@@ -25,6 +25,7 @@ const Attendance = lazy(() => import('./pages/Attendance'));
 const Payroll = lazy(() => import('./pages/Payroll'));
 const Employees = lazy(() => import('./pages/Employees'));
 const Catalog = lazy(() => import('./pages/Catalog'));
+const StockControl = lazy(() => import('./pages/StockControl'));
 const SalesHistory = lazy(() => import('./pages/SalesHistory'));
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const ShopifySync = lazy(() => import('./pages/ShopifySync'));
@@ -80,6 +81,14 @@ export default function App() {
                   element={
                     <ProtectedRoute roles={['admin', 'manager', 'store']} permission={['products.manage', 'products.propose']}>
                       <Catalog />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/stock"
+                  element={
+                    <ProtectedRoute permission={['stock.receive', 'stock.transfer', 'stock.count']}>
+                      <StockControl />
                     </ProtectedRoute>
                   }
                 />

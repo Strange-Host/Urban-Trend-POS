@@ -7,6 +7,9 @@ const db = require('../config/db');
 // existing database needs these backfilled by hand — this does it safely,
 // column by column, without ever touching existing data.
 const ADDITIVE_COLUMNS = {
+  stores: [
+    `is_main INTEGER NOT NULL DEFAULT 0`,
+  ],
   products: [
     `approval_status TEXT NOT NULL DEFAULT 'approved' CHECK (approval_status IN ('approved','pending','rejected'))`,
     `submitted_by_staff_id INTEGER REFERENCES users(id)`,
@@ -565,6 +568,67 @@ function rebuildUsersForStoreRole() {
   console.log(`  + users rebuilt; ${copied} account(s) carried over`);
 }
 
+// Main-store inventory control adds new stock movement kinds: receipts, issues, transfers (out and in) and stocktake
+// adjustments. The reason and reference_type columns carry inline CHECKs, which SQLite can only widen by rebuilding the
+// table (same procedure as the rebuilds above: build the replacement under a temp name from the ORIGINAL definition
+// edited, copy every row, drop, rename, restore indexes). Existing rows and ids are untouched.
+function needsInventoryMovementsStockControlRebuild() {
+  if (!tableExists('inventory_movements')) return false; // fresh install - schema.sql already allows them
+  const row = db.prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='inventory_movements'`).get();
+  return Boolean(row && row.sql && !/'transfer_out'/.test(row.sql));
+}
+
+function rebuildInventoryMovementsForStockControl() {
+  console.log('  Rebuilding inventory_movements to allow receipt, issue, transfer and stocktake movements...');
+  const wasForeignKeysOn = db.pragma('foreign_keys', { simple: true }) === 1;
+  db.pragma('foreign_keys = OFF');
+
+  const tmp = 'inventory_movements_stock_control_new';
+  const originalSql = db.prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='inventory_movements'`).get().sql;
+  const reasonCheck = /'return_resellable'/;
+  const refCheck = /('sale'\s*,\s*'order'\s*,\s*'requisition'\s*,\s*'adjustment')/;
+  const fixedSql = originalSql
+    .replace(/^\s*CREATE\s+TABLE\s+(IF\s+NOT\s+EXISTS\s+)?["`]?inventory_movements["`]?/i, `CREATE TABLE ${tmp}`)
+    .replace(reasonCheck, "'return_resellable','receipt','issue','transfer_out','transfer_in','stocktake'")
+    .replace(refCheck, "$1,'receipt','issue','transfer','stocktake'");
+  if (!/'transfer_out'/.test(fixedSql) || !/'stocktake'\s*\)/.test(fixedSql) || !fixedSql.includes(tmp)) {
+    db.pragma(`foreign_keys = ${wasForeignKeysOn ? 'ON' : 'OFF'}`);
+    throw new Error('Could not rewrite the inventory_movements definition safely; leaving it unchanged.');
+  }
+
+  const indexSql = db.prepare(`SELECT sql FROM sqlite_master WHERE type='index' AND tbl_name='inventory_movements' AND sql IS NOT NULL`).all().map((r) => r.sql);
+  const triggerSql = db.prepare(`SELECT sql FROM sqlite_master WHERE type='trigger' AND tbl_name='inventory_movements' AND sql IS NOT NULL`).all().map((r) => r.sql);
+
+  let copied = 0;
+  const txn = db.transaction(() => {
+    db.exec(`DROP TABLE IF EXISTS ${tmp}`);
+    db.exec(fixedSql);
+    const cols = db.prepare(`PRAGMA table_info(inventory_movements)`).all().map((c) => c.name).join(', ');
+    copied = db.prepare(`INSERT INTO ${tmp} (${cols}) SELECT ${cols} FROM inventory_movements`).run().changes;
+    db.exec('DROP TABLE inventory_movements');
+    db.exec(`ALTER TABLE ${tmp} RENAME TO inventory_movements`);
+    for (const sql of [...indexSql, ...triggerSql]) db.exec(sql);
+  });
+  txn();
+
+  const violations = db.pragma('foreign_key_check');
+  if (violations.length > 0) {
+    throw new Error(`inventory_movements rebuild left foreign key violations: ${JSON.stringify(violations)}`);
+  }
+  if (wasForeignKeysOn) db.pragma('foreign_keys = ON');
+  console.log(`  + inventory_movements rebuilt; ${copied} movement(s) carried over`);
+}
+
+// The main store is the one shipments are received into. Existing installs have exactly one store, which is the main one;
+// with several, the oldest active store is taken until an admin says otherwise.
+function ensureMainStore() {
+  if (!tableExists('stores')) return;
+  const hasMain = db.prepare('SELECT 1 FROM stores WHERE is_main = 1').get();
+  if (hasMain) return;
+  const first = db.prepare('SELECT id FROM stores ORDER BY is_active DESC, id ASC LIMIT 1').get();
+  if (first) db.prepare('UPDATE stores SET is_main = 1 WHERE id = ?').run(first.id);
+}
+
 function migrate() {
   const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8');
 
@@ -582,6 +646,10 @@ function migrate() {
 
   if (needsUsersStoreRoleRebuild()) {
     rebuildUsersForStoreRole();
+  }
+
+  if (needsInventoryMovementsStockControlRebuild()) {
+    rebuildInventoryMovementsForStockControl();
   }
 
   for (const [table, columns] of Object.entries(CURRENCY_COLUMNS)) {
@@ -640,6 +708,8 @@ function migrate() {
       WHERE product_code IS NULL
     `);
   }
+
+  ensureMainStore();
 
   migrateLegacyShopifyEnvToIncomeSource();
 
