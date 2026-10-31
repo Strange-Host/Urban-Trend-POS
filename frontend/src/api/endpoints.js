@@ -169,6 +169,38 @@ export const pettyCashApi = {
   rejectTopup: (id, note) => client.post(`/petty-cash/topups/${id}/reject`, { note }),
 };
 
+export const storesApi = {
+  list: () => client.get('/stores'),
+  create: (data) => client.post('/stores', data),
+  update: (id, data) => client.put(`/stores/${id}`, data),
+};
+
+export const suppliersApi = {
+  list: (params) => client.get('/suppliers', { params }),
+  create: (data) => client.post('/suppliers', data),
+  update: (id, data) => client.put(`/suppliers/${id}`, data),
+};
+
+// Main-store inventory control: receiving, issuing, transfers, outlet counts, and who-did-what.
+export const stockApi = {
+  receipts: (params) => client.get('/stock/receipts', { params }),
+  receive: (data) => client.post('/stock/receipts', data),
+  issues: (params) => client.get('/stock/issues', { params }),
+  issue: (data) => client.post('/stock/issues', data),
+  transfers: (params) => client.get('/stock/transfers', { params }),
+  requestTransfer: (data) => client.post('/stock/transfers', data),
+  approveTransfer: (id) => client.post(`/stock/transfers/${id}/approve`),
+  rejectTransfer: (id, note) => client.post(`/stock/transfers/${id}/reject`, { note }),
+  cancelTransfer: (id) => client.post(`/stock/transfers/${id}/cancel`),
+  counts: (params) => client.get('/stock/counts', { params }),
+  count: (id) => client.get(`/stock/counts/${id}`),
+  submitCount: (data) => client.post('/stock/counts', data),
+  approveCount: (id, data) => client.post(`/stock/counts/${id}/approve`, data || {}),
+  rejectCount: (id, note) => client.post(`/stock/counts/${id}/reject`, { note }),
+  daySummary: (params) => client.get('/stock/counts/day-summary', { params }),
+  activity: (params) => client.get('/stock/activity', { params }),
+};
+
 export const paymentsApi = {
   list: (params) => client.get('/payments', { params }),
   summary: (params) => client.get('/payments/summary', { params }),
