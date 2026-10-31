@@ -133,6 +133,7 @@ export const reportsApi = {
   branchComparison: (params) => client.get('/reports/branch-comparison', { params }),
   agentPerformance: (params) => client.get('/reports/agent-performance', { params }),
   setForecast: (month, data) => client.put(`/reports/forecasts/${month}`, data),
+  dashboardOverview: (params) => client.get('/reports/dashboard-overview', { params }),
 };
 
 export const leadsApi = {
