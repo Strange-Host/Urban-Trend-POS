@@ -262,6 +262,12 @@ export const staffLogsApi = {  list: (params) => client.get('/staff-logs', { par
 
 // --- Phase 5 modules: shipped backends that previously had no UI ---
 
+export const customersApi = {
+  // Every order one customer has placed at this shop, newest first, with totals. By id, or by phone in any format.
+  orders: (id, params) => client.get(`/customers/${id}/orders`, { params }),
+  ordersByPhone: (phone, params) => client.get('/customers/orders', { params: { phone, ...params } }),
+};
+
 export const ordersApi = {
   list: (params) => client.get('/orders', { params }),
   atRisk: (params) => client.get('/orders/at-risk', { params }),
