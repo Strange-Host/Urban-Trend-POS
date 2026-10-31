@@ -4,7 +4,8 @@ import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-quer
 import { leadsApi, staffApi } from '../api/endpoints';
 import { getErrorMessage } from '../api/client';
 import { useAuth } from '../context/AuthContext';
-import { useToast } from '../context/UIContext';
+import { useToast, useDialog } from '../context/UIContext';
+import { createLeadWithConfirm } from '../utils/createLeadConfirm';
 import Pager, { usePager } from '../components/Pager';
 import { fetchAll } from '../api/fetchAll';
 
@@ -31,6 +32,7 @@ const emptyForm = { name: '', phone: '', email: '', source: 'walk_in', notes: ''
 
 export default function Leads() {
   const toast = useToast();
+  const dialog = useDialog();
   const { hasRole } = useAuth();
   const canAssign = hasRole('admin', 'manager');
   const [statusFilter, setStatusFilter] = useState('');
@@ -73,7 +75,11 @@ export default function Leads() {
     e.preventDefault();
     setError('');
     try {
-      await leadsApi.create({ ...form, assigned_staff_id: form.assigned_staff_id || undefined });
+      const lead = await createLeadWithConfirm({
+        create: leadsApi.create, confirm: dialog.confirm,
+        payload: { ...form, assigned_staff_id: form.assigned_staff_id || undefined },
+      });
+      if (!lead) return; // they decided it was a duplicate - leave the form as it is
       invalidate();
       setCreating(false);
       setForm(emptyForm);

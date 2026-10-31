@@ -128,6 +128,7 @@ function intake({ storeId, body }) {
     lead = leadsService.create({
       storeId, staffId: system.id, name: parsed.name || 'Website lead', phone: parsed.phone, email: parsed.email,
       source: parsed.source, notes, assignedStaffId,
+      allowPossibleDuplicate: true, // a web enquiry is never dropped over a shared name; phone/email matches still log a repeat
     });
   } catch (err) {
     if (err.statusCode === 409 && err.details?.existingLeadId) return handleRepeat({ storeId, existingLeadId: err.details.existingLeadId, parsed, productName, notes, systemId: system.id });
