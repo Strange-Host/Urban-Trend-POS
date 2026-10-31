@@ -16,7 +16,7 @@ import useSlidingPill from '../hooks/useSlidingPill';
 // they're where a shift starts, and burying either one behind a disclosure
 // triangle to save two lines would be a bad trade.
 const PINNED_TOP = [
-  { to: '/', label: 'Terminal', icon: '⌸', roles: ['admin', 'manager', 'cashier'] },
+  { to: '/terminal', label: 'Terminal', icon: '⌸', roles: ['admin', 'manager', 'cashier'] },
   { to: '/dashboard', label: 'Dashboard', icon: '▲', roles: ['admin', 'manager'], perm: 'reports.view' },
   { to: '/reports', label: 'Reports', icon: '☰', roles: ['admin', 'manager'], perm: 'reports.view' },
 ];
