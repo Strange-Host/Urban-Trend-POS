@@ -42,6 +42,9 @@ export default function Leads() {
   const [error, setError] = useState('');
   const [selectedId, setSelectedId] = useState(null);
   const [converting, setConverting] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [editForm, setEditForm] = useState({ name: '', phone: '', email: '', notes: '' });
+  const [editError, setEditError] = useState('');
   const [followUpDate, setFollowUpDate] = useState('');
   const [activityForm, setActivityForm] = useState({ type: 'call', content: '' });
   const queryClient = useQueryClient();
@@ -85,6 +88,46 @@ export default function Leads() {
       setForm(emptyForm);
     } catch (err) {
       setError(getErrorMessage(err, 'Could not create lead.'));
+    }
+  }
+
+  function openEdit() {
+    setEditForm({
+      name: selectedLead.name || '', phone: selectedLead.phone || '', email: selectedLead.email || '', notes: selectedLead.notes || '',
+    });
+    setEditError('');
+    setEditing(true);
+  }
+
+  async function handleEdit(e) {
+    e.preventDefault();
+    setEditError('');
+    try {
+      await leadsApi.update(selectedId, {
+        name: editForm.name.trim(), phone: editForm.phone.trim(), email: editForm.email.trim() || undefined, notes: editForm.notes,
+      });
+      invalidate();
+      queryClient.invalidateQueries({ queryKey: ['leads', selectedId] });
+      setEditing(false);
+      toast.success('Lead updated.');
+    } catch (err) {
+      setEditError(getErrorMessage(err, 'Could not update the lead.'));
+    }
+  }
+
+  async function handleDelete() {
+    if (!(await dialog.confirm({
+      title: `Delete ${selectedLead.name}?`,
+      message: 'The lead disappears from the list. Orders already made from it are not affected.',
+      danger: true, confirmLabel: 'Delete',
+    }))) return;
+    try {
+      await leadsApi.remove(selectedId);
+      invalidate();
+      setSelectedId(null);
+      toast.success('Lead deleted.');
+    } catch (err) {
+      toast.error(getErrorMessage(err, 'Could not delete the lead.'));
     }
   }
 
@@ -320,8 +363,37 @@ export default function Leads() {
               ))}
             </div>
 
-            <button onClick={() => setSelectedId(null)} className="w-full mt-4 py-2.5 rounded-lg border border-line text-sm font-medium">Close</button>
+            <div className="flex gap-2 mt-4">
+              <button onClick={openEdit} className="flex-1 py-2.5 rounded-lg border border-line text-sm font-medium">Edit lead</button>
+              {canAssign && selectedLead.status !== 'converted' && (
+                <button onClick={handleDelete} className="flex-1 py-2.5 rounded-lg border border-line text-sm font-medium text-danger">Delete lead</button>
+              )}
+            </div>
+            <button onClick={() => setSelectedId(null)} className="w-full mt-2 py-2.5 rounded-lg border border-line text-sm font-medium">Close</button>
           </Sheet>
+      )}
+
+      {editing && selectedLead && (
+        <Sheet onClose={() => setEditing(false)} size="sm" as="form" onSubmit={handleEdit}>
+          <h2 className="font-display font-700 text-lg mb-4">Edit lead</h2>
+          {editError && <div className="mb-3 px-3 py-2 rounded-lg bg-danger-soft text-danger text-sm">{editError}</div>}
+          <label htmlFor="lead-edit-name" className="block text-xs font-medium text-text-muted mb-1">Name</label>
+          <input id="lead-edit-name" required value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+            className="w-full px-3 py-2 rounded-lg border border-line outline-none focus:border-accent mb-3" />
+          <label htmlFor="lead-edit-phone" className="block text-xs font-medium text-text-muted mb-1">Phone</label>
+          <input id="lead-edit-phone" required value={editForm.phone} onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })}
+            className="w-full px-3 py-2 rounded-lg border border-line outline-none focus:border-accent mb-3" />
+          <label htmlFor="lead-edit-email" className="block text-xs font-medium text-text-muted mb-1">Email (optional)</label>
+          <input id="lead-edit-email" type="email" value={editForm.email} onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
+            className="w-full px-3 py-2 rounded-lg border border-line outline-none focus:border-accent mb-3" />
+          <label htmlFor="lead-edit-notes" className="block text-xs font-medium text-text-muted mb-1">Notes (optional)</label>
+          <textarea id="lead-edit-notes" rows={3} value={editForm.notes} onChange={(e) => setEditForm({ ...editForm, notes: e.target.value })}
+            className="w-full px-3 py-2 rounded-lg border border-line outline-none focus:border-accent mb-5" />
+          <div className="flex gap-2">
+            <button type="button" onClick={() => setEditing(false)} className="flex-1 py-2.5 rounded-lg border border-line text-sm font-medium">Cancel</button>
+            <button type="submit" className="flex-1 py-2.5 rounded-lg bg-ink text-white text-sm font-medium hover:bg-ink-soft">Save</button>
+          </div>
+        </Sheet>
       )}
 
       {converting && selectedLead && (
