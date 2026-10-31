@@ -18,6 +18,11 @@ const DEFAULTS = {
   business_address: '',
   receipt_footer: 'Thank you for shopping with us!',
   low_stock_default_reorder_level: '5',
+  // How stock on hand is valued, and how the cost of each new sale is worked out: 'fifo' (oldest batch first) or 'average'
+  // (moving average per store). Changing it does not rewrite the cost already recorded on past sales.
+  inventory_valuation_method: 'fifo',
+  // Batches expiring within this many days raise an "expiring soon" alert (0 = only alert once expired).
+  expiry_alert_days: '30',
   // Online orders (§1/§7): tiered courier delivery fee — flat under the
   // threshold, percentage above it. Values in whole KES, not cents (this
   // table is a plain string key/value store; orders.service.js converts).

@@ -109,7 +109,7 @@ app.listen(PORT, () => {
   const runNotificationSweeps = () => {
     try {
       const r = notificationsService.runSweeps();
-      if (r.followUps || r.lowStock) logger.info('[notifications] sweep created notices', r);
+      if (r.followUps || r.lowStock || r.expiry) logger.info('[notifications] sweep created notices', r);
     } catch (err) {
       logger.error('[notifications] sweep failed', { error: err.message, stack: err.stack });
     }
