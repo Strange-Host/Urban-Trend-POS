@@ -18,7 +18,7 @@ const ONLINE_SHARE = '(MIN(o.amount_paid, o.total) * 1.0 / o.total)';
 
 function profitLoss({ storeId, from, to }) {
   const pos = db.prepare(`
-    SELECT COALESCE(SUM(si.line_total), 0) AS revenue, COALESCE(SUM(si.quantity * p.cost_price), 0) AS cost
+    SELECT COALESCE(SUM(si.line_total), 0) AS revenue, COALESCE(SUM(COALESCE(si.cost_total, si.quantity * p.cost_price)), 0) AS cost
     FROM sale_items si JOIN sales s ON s.id = si.sale_id JOIN products p ON p.id = si.product_id
     WHERE s.store_id = ? AND s.status = 'completed' AND ${dateOf('s.created_at')} BETWEEN ? AND ?
   `).get(storeId, from, to);
@@ -31,7 +31,7 @@ function profitLoss({ storeId, from, to }) {
   const online = db.prepare(`
     SELECT
       COALESCE(SUM(CAST(ROUND(oi.line_total * ${ONLINE_SHARE}) AS INTEGER)), 0) AS revenue,
-      COALESCE(SUM(CAST(ROUND(oi.quantity * p.cost_price * ${ONLINE_SHARE}) AS INTEGER)), 0) AS cost
+      COALESCE(SUM(CAST(ROUND(COALESCE(oi.cost_total, oi.quantity * p.cost_price) * ${ONLINE_SHARE}) AS INTEGER)), 0) AS cost
     FROM order_items oi JOIN orders o ON o.id = oi.order_id JOIN products p ON p.id = oi.product_id
     WHERE o.store_id = ? AND o.status IN ${PAID_ONLINE} AND o.total > 0
       AND ${dateOf('o.dispatched_at')} BETWEEN ? AND ? AND o.deleted_at IS NULL AND o.sale_id IS NULL
@@ -70,13 +70,13 @@ function byCategory({ storeId, from, to }) {
   const rows = db.prepare(`
     SELECT COALESCE(c.name, 'Uncategorised') AS category, SUM(units) AS units, SUM(revenue) AS revenue, SUM(cost) AS cost
     FROM (
-      SELECT p.category_id, si.quantity AS units, si.line_total AS revenue, si.quantity * p.cost_price AS cost
+      SELECT p.category_id, si.quantity AS units, si.line_total AS revenue, COALESCE(si.cost_total, si.quantity * p.cost_price) AS cost
       FROM sale_items si JOIN sales s ON s.id = si.sale_id JOIN products p ON p.id = si.product_id
       WHERE s.store_id = ? AND s.status = 'completed' AND ${dateOf('s.created_at')} BETWEEN ? AND ?
       UNION ALL
       SELECT p.category_id, oi.quantity,
              CAST(ROUND(oi.line_total * ${ONLINE_SHARE}) AS INTEGER),
-             CAST(ROUND(oi.quantity * p.cost_price * ${ONLINE_SHARE}) AS INTEGER)
+             CAST(ROUND(COALESCE(oi.cost_total, oi.quantity * p.cost_price) * ${ONLINE_SHARE}) AS INTEGER)
       FROM order_items oi JOIN orders o ON o.id = oi.order_id JOIN products p ON p.id = oi.product_id
       WHERE o.store_id = ? AND o.status IN ${PAID_ONLINE} AND o.total > 0
         AND ${dateOf('o.dispatched_at')} BETWEEN ? AND ? AND o.deleted_at IS NULL AND o.sale_id IS NULL

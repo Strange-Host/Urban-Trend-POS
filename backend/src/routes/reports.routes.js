@@ -10,6 +10,7 @@ router.use(authenticate, requirePermission('reports.view'));
 router.get('/sales-summary', ctrl.salesSummary);
 router.get('/top-products', ctrl.topProducts);
 router.get('/inventory-value', ctrl.inventoryValue);
+router.get('/inventory-valuation', ctrl.inventoryValuation);
 router.get('/sales-by-channel', ctrl.salesByChannel);
 router.get('/sales-trend', ctrl.salesTrend);
 router.get('/payment-methods', ctrl.paymentMethods);
