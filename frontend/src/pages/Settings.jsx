@@ -38,6 +38,7 @@ function GeneralSettings() {
         low_stock_default_reorder_level: form.low_stock_default_reorder_level, receipt_footer: form.receipt_footer,
         business_pin: form.business_pin, vat_rate_percent: form.vat_rate_percent,
         max_discount_percent: form.max_discount_percent, delivery_use_area_rates: form.delivery_use_area_rates,
+        inventory_valuation_method: form.inventory_valuation_method, expiry_alert_days: form.expiry_alert_days,
       });
       queryClient.invalidateQueries({ queryKey: ['settings'] });
       setSaved(true);
@@ -79,6 +80,15 @@ function GeneralSettings() {
             <option value="1">Delivery rates, then flat/percent rule</option>
             <option value="0">Flat/percent rule only</option>
           </select>
+        </Field>
+        <Field label="Stock valuation method" hint="FIFO values stock by the batch it came from; average uses a moving average. It sets the cost recorded on each new sale from now on. Sales already recorded keep the cost they were made with.">
+          <select className={inputCls} value={form.inventory_valuation_method ?? 'fifo'} onChange={(e) => setForm({ ...form, inventory_valuation_method: e.target.value })}>
+            <option value="fifo">FIFO (oldest batch first)</option>
+            <option value="average">Average cost</option>
+          </select>
+        </Field>
+        <Field label="Expiry alert (days before)" hint="Batches expiring within this many days raise an alert. 0 = only alert once expired.">
+          <input className={inputCls} inputMode="numeric" value={form.expiry_alert_days ?? '30'} onChange={(e) => setForm({ ...form, expiry_alert_days: e.target.value })} />
         </Field>
       </div>
       <Field label="Receipt footer">
