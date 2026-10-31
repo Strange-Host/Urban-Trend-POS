@@ -284,7 +284,10 @@ CREATE TABLE IF NOT EXISTS inventory_movements (
   reference_type TEXT CHECK (reference_type IN ('sale','order','requisition','adjustment','receipt','issue','transfer','stocktake')),
   reference_id   INTEGER,                      -- e.g. sale_id or order_id, disambiguated by reference_type
   created_by     INTEGER REFERENCES users(id),
-  created_at     TEXT NOT NULL DEFAULT (datetime('now'))
+  created_at     TEXT NOT NULL DEFAULT (datetime('now')),
+  -- Set only when stock leaves FROM ONE SPECIFIC received batch (a recall, or an expired/damaged write-off of a named
+  -- batch). Everything else leaves oldest-batch-first. See services/costing.service.js.
+  batch_id       INTEGER REFERENCES stock_receipt_items(id)
 );
 CREATE INDEX IF NOT EXISTS idx_movements_product ON inventory_movements(product_id);
 CREATE INDEX IF NOT EXISTS idx_movements_reference ON inventory_movements(reference_type, reference_id);
@@ -328,10 +331,21 @@ CREATE TABLE IF NOT EXISTS stock_receipt_items (
   product_id      INTEGER NOT NULL REFERENCES products(id),
   quantity        INTEGER NOT NULL CHECK (quantity > 0),
   sell_price      INTEGER NOT NULL CHECK (sell_price >= 0),  -- selling price at receipt (cents); entered by hand for a new product
-  is_new_product  INTEGER NOT NULL DEFAULT 0
+  is_new_product  INTEGER NOT NULL DEFAULT 0,
+  -- Every receipt line is one BATCH. The storekeeper records batch number and expiry; the buying price (unit_cost) is
+  -- filled in by whoever may see buying prices (NULL = not costed yet, valued at the product's current cost meanwhile).
+  batch_no             TEXT,
+  expiry_date          TEXT,                       -- YYYY-MM-DD, NULL = does not expire
+  unit_cost            INTEGER CHECK (unit_cost IS NULL OR unit_cost >= 0),  -- buying price per unit for this batch (cents)
+  costed_by_staff_id   INTEGER REFERENCES users(id),
+  costed_at            TEXT,
+  recalled_at          TEXT,                       -- set when the supplier/manufacturer recalls this batch
+  recalled_by_staff_id INTEGER REFERENCES users(id),
+  recall_note          TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_stock_receipt_items_receipt ON stock_receipt_items(receipt_id);
 CREATE INDEX IF NOT EXISTS idx_stock_receipt_items_product ON stock_receipt_items(product_id);
+CREATE INDEX IF NOT EXISTS idx_stock_receipt_items_expiry ON stock_receipt_items(expiry_date) WHERE expiry_date IS NOT NULL;
 
 -- Stock that leaves the main store for a reason other than a sale or a transfer.
 CREATE TABLE IF NOT EXISTS stock_issues (
@@ -339,12 +353,13 @@ CREATE TABLE IF NOT EXISTS stock_issues (
   store_id            INTEGER NOT NULL REFERENCES stores(id),
   product_id          INTEGER NOT NULL REFERENCES products(id),
   quantity            INTEGER NOT NULL CHECK (quantity > 0),
-  reason              TEXT NOT NULL CHECK (reason IN ('damaged','expired','lost','internal_use','returned_to_supplier','other')),
+  reason              TEXT NOT NULL CHECK (reason IN ('damaged','expired','lost','internal_use','returned_to_supplier','other','recalled')),
   supplier_id         INTEGER REFERENCES suppliers(id),
   note                TEXT,
   issued_on           TEXT NOT NULL,
   issued_by_staff_id  INTEGER NOT NULL REFERENCES users(id),
-  created_at          TEXT NOT NULL DEFAULT (datetime('now'))
+  created_at          TEXT NOT NULL DEFAULT (datetime('now')),
+  batch_id            INTEGER REFERENCES stock_receipt_items(id)  -- the batch the stock came out of, when it was named
 );
 CREATE INDEX IF NOT EXISTS idx_stock_issues_store ON stock_issues(store_id, issued_on);
 
@@ -499,7 +514,8 @@ CREATE TABLE IF NOT EXISTS sale_items (
   unit_price   INTEGER NOT NULL,    -- price at time of sale, smallest KES subunit (cents), never float
   tax_rate     REAL NOT NULL,
   discount     INTEGER NOT NULL DEFAULT 0, -- smallest KES subunit (cents), never float
-  line_total   INTEGER NOT NULL    -- smallest KES subunit (cents), never float
+  line_total   INTEGER NOT NULL,   -- smallest KES subunit (cents), never float
+  cost_total   INTEGER             -- what the units on this line cost us, fixed when sold (FIFO or average, per the setting). NULL on old rows: they fall back to quantity x products.cost_price
 );
 CREATE INDEX IF NOT EXISTS idx_sale_items_sale ON sale_items(sale_id);
 CREATE INDEX IF NOT EXISTS idx_sale_items_product ON sale_items(product_id);
@@ -630,7 +646,8 @@ CREATE TABLE IF NOT EXISTS order_items (
   quantity     INTEGER NOT NULL,
   unit_price   INTEGER NOT NULL,          -- price at time of order, smallest KES subunit (cents)
   discount     INTEGER NOT NULL DEFAULT 0,
-  line_total   INTEGER NOT NULL
+  line_total   INTEGER NOT NULL,
+  cost_total   INTEGER          -- cost of the units on this line, fixed at dispatch (NULL = old row / not dispatched yet)
 );
 CREATE INDEX IF NOT EXISTS idx_order_items_order ON order_items(order_id);
 CREATE INDEX IF NOT EXISTS idx_order_items_product ON order_items(product_id);

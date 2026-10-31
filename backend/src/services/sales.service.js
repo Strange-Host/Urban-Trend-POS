@@ -1,6 +1,7 @@
 const db = require('../config/db');
 const ApiError = require('../utils/ApiError');
 const { assertLineDiscount, assertSaleDiscount, assertDiscountPercent } = require('../utils/discounts');
+const costing = require('./costing.service');
 
 /**
  * items: [{ product_id, quantity, discount? }]
@@ -121,8 +122,12 @@ function checkout({ storeId, cashierId, customerId, cashSessionId, items, paymen
       VALUES (?, ?, ?, 'sale', ?, ?)
     `);
 
+    const setLineCost = db.prepare('UPDATE sale_items SET cost_total = ? WHERE id = ?');
     for (const li of lineItems) {
-      insertItem.run({ ...li, sale_id: saleId });
+      const itemId = insertItem.run({ ...li, sale_id: saleId }).lastInsertRowid;
+      // What these units cost us, fixed now (oldest batch first, or the moving average - see costing.service.js).
+      // Worked out BEFORE the movement below, so it prices the stock that is about to leave.
+      setLineCost.run(costing.costOfNextUnits(li.product_id, storeId, li.quantity).cost, itemId);
       if (decrementInventory.run(li.quantity, li.product_id, storeId, li.quantity).changes !== 1) {
         throw new ApiError(409, 'Stock changed while this sale was being processed. Please check the cart and try again.');
       }
