@@ -65,7 +65,9 @@ export default function Couriers() {
   async function setActive(c, active) {
     if (!active && !(await dialog.confirm({ title: `Deactivate ${c.name}?`, message: 'They stop appearing in the courier picker. Past orders keep their name.', danger: true, confirmLabel: 'Deactivate' }))) return;
     try {
-      await couriersApi.update(c.id, { is_active: active });
+      // DELETE on a courier only ever deactivates (past orders keep their name); reactivating is an update.
+      if (active) await couriersApi.update(c.id, { is_active: true });
+      else await couriersApi.remove(c.id);
       refresh();
     } catch (err) {
       toast.error(getErrorMessage(err, 'Could not update the courier.'));
