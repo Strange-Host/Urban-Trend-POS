@@ -531,6 +531,7 @@ CREATE TABLE IF NOT EXISTS payments (
   reference   TEXT,               -- e.g. M-Pesa code, card auth code
   created_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
+CREATE INDEX IF NOT EXISTS idx_payments_sale ON payments(sale_id);
 
 -- ---------------------------------------------------------------------
 -- ORDERS  (Phase 1 of the POS -> inventory-management conversion — the
