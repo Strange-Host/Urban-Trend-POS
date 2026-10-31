@@ -9,6 +9,17 @@ if (!fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR, { recursive: true });
 
 const isProduction = process.env.NODE_ENV === 'production';
 
+// Size-based rotation, built into winston's File transport (no extra package). When a file reaches maxsize it is
+// renamed to app1.log (older ones shift to app2.log ...) and a fresh app.log starts; once maxFiles files exist the
+// oldest is deleted. With the defaults each log is capped at about LOG_MAX_MB x LOG_MAX_FILES = 50 MB, so logs can
+// no longer fill the volume the database lives on. tailable keeps the newest entries in app.log itself.
+const positive = (value, fallback) => (Number(value) > 0 ? Number(value) : fallback);
+const ROTATION = {
+  maxsize: positive(process.env.LOG_MAX_MB, 10) * 1024 * 1024,
+  maxFiles: Math.floor(positive(process.env.LOG_MAX_FILES, 5)),
+  tailable: true,
+};
+
 // Console: human-readable in development, structured JSON in production
 // (so it's grep/parse-friendly if piped into a log aggregator later).
 // File: always JSON, always on — this is what makes "what happened at
@@ -33,13 +44,9 @@ const logger = winston.createLogger({
             })
           ),
     }),
-    new winston.transports.File({ filename: path.join(LOG_DIR, 'app.log') }),
-    new winston.transports.File({ filename: path.join(LOG_DIR, 'error.log'), level: 'error' }),
+    new winston.transports.File({ filename: path.join(LOG_DIR, 'app.log'), ...ROTATION }),
+    new winston.transports.File({ filename: path.join(LOG_DIR, 'error.log'), level: 'error', ...ROTATION }),
   ],
-  // No log-rotation library wired in — app.log and error.log will grow
-  // unbounded over time. Fine to start; if this becomes a real disk-space
-  // concern, add `winston-daily-rotate-file` as a transport later rather
-  // than reinventing rotation here.
 });
 
 module.exports = logger;
