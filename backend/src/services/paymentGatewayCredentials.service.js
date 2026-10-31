@@ -89,7 +89,7 @@ function upsert({ storeId, provider, data }) {
         mpesa_shortcode = @mpesa_shortcode, mpesa_consumer_key = @mpesa_consumer_key, mpesa_consumer_secret = @mpesa_consumer_secret,
         mpesa_passkey = @mpesa_passkey, mpesa_initiator_name = @mpesa_initiator_name, mpesa_initiator_password = @mpesa_initiator_password,
         kcb_account_number = @kcb_account_number, kcb_client_id = @kcb_client_id, kcb_api_key = @kcb_api_key, kcb_api_secret = @kcb_api_secret,
-        webhook_secret = @webhook_secret, updated_at = datetime('now')
+        webhook_secret = @webhook_secret, is_active = 1, updated_at = datetime('now')
       WHERE id = @id
     `).run({ ...values, id: existing.id });
     return getSafe({ storeId, provider });
