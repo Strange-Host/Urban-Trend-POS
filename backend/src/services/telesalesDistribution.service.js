@@ -81,7 +81,7 @@ function rebalanceStaleAssignments({ storeId, cutoffHour }) {
     const placeholders = openStatuses.map(() => '?').join(',');
     // Unassigned: always eligible for a sweep, any time of day.
     const unassigned = db.prepare(`
-      SELECT id FROM ${table} WHERE store_id = ? AND assigned_staff_id IS NULL AND status IN (${placeholders}) AND deleted_at IS NULL
+      SELECT id, assigned_staff_id AS from_staff_id, 'unassigned' AS reason FROM ${table} WHERE store_id = ? AND assigned_staff_id IS NULL AND status IN (${placeholders}) AND deleted_at IS NULL
     `).all(storeId, ...openStatuses);
 
     // Assigned to someone NOT clocked in today: only reassigned once
@@ -89,7 +89,7 @@ function rebalanceStaleAssignments({ storeId, cutoffHour }) {
     // (Attendance-based reassignment only makes sense while attendance is in use.)
     const staleAssigned = pastCutoff && modules.isEnabled('hr')
       ? db.prepare(`
-          SELECT t.id FROM ${table} t
+          SELECT t.id, t.assigned_staff_id AS from_staff_id, 'not_clocked_in' AS reason FROM ${table} t
           WHERE t.store_id = ? AND t.assigned_staff_id IS NOT NULL AND t.status IN (${placeholders}) AND t.deleted_at IS NULL
             AND NOT EXISTS (
               SELECT 1 FROM staff_attendance a
@@ -103,6 +103,11 @@ function rebalanceStaleAssignments({ storeId, cutoffHour }) {
       if (!newStaffId) continue; // no one eligible yet — leave it, next sweep will retry
       db.prepare(`UPDATE ${table} SET assigned_staff_id = ?, updated_at = datetime('now') WHERE id = ?`).run(newStaffId, row.id);
       moved[table].push({ id: row.id, assignedStaffId: newStaffId });
+      // Remember who it was taken from, so the manager's end-of-day review can show reassigned work.
+      db.prepare(`
+        INSERT INTO assignment_moves (store_id, entity_type, entity_id, from_staff_id, to_staff_id, reason, work_date)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(storeId, table === 'leads' ? 'lead' : 'order', row.id, row.from_staff_id ?? null, newStaffId, row.reason, attendanceService.todayDate());
       if (table === 'leads') {
         const lead = db.prepare('SELECT * FROM leads WHERE id = ?').get(row.id);
         notificationsService.notifyLeadAssigned({ lead, assignedStaffId: newStaffId, actorId: null });

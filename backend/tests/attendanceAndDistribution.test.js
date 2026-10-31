@@ -28,7 +28,9 @@ describe('attendance (Phase 5)', () => {
     const dupInRes = await request(app).post('/api/attendance/clock-in').set('Authorization', `Bearer ${repAToken}`);
     expect(dupInRes.status).toBe(409);
 
-    const outRes = await request(app).post('/api/attendance/clock-out').set('Authorization', `Bearer ${repAToken}`);
+    // Clock-out now needs the two confirmations (nothing is open for this rep, so both are honest).
+    const outRes = await request(app).post('/api/attendance/clock-out').set('Authorization', `Bearer ${repAToken}`)
+      .send({ confirm_all_dispatched: true, confirm_nairobi_reconciled: true });
     expect(outRes.status).toBe(200);
     expect(outRes.body.data.clock_out_at).toBeTruthy();
   });
