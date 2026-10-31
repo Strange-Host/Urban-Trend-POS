@@ -28,6 +28,9 @@ const update = asyncHandler(async (req, res) => {
       throw new ApiError(400, `${key === 'vat_rate_percent' ? 'VAT rate' : 'Maximum discount'} must be a number between 0 and 100.`);
     }
   }
+  if (req.body?.clockout_gate_mode !== undefined && !['reason', 'block'].includes(String(req.body.clockout_gate_mode))) {
+    throw new ApiError(400, 'clockout_gate_mode must be "reason" or "block".');
+  }
   if (req.body?.delivery_use_area_rates !== undefined && !['0', '1'].includes(String(req.body.delivery_use_area_rates))) {
     throw new ApiError(400, 'delivery_use_area_rates must be 0 or 1.');
   }

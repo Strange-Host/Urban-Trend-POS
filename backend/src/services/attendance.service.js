@@ -27,6 +27,14 @@ function clockIn({ staffId, storeId }) {
   return db.prepare('SELECT * FROM staff_attendance WHERE id = ?').get(result.lastInsertRowid);
 }
 
+// Same checks clockOut() makes, available up front so the clock-out gate can answer "you aren't clocked in" (409)
+// before it starts asking about open orders.
+function assertClockedInNow(staffId) {
+  const existing = getForDate(staffId, todayDate());
+  if (!existing || !existing.clock_in_at) throw new ApiError(409, 'Not clocked in today.');
+  if (existing.clock_out_at) throw new ApiError(409, 'Already clocked out today.');
+}
+
 function clockOut({ staffId }) {
   const workDate = todayDate();
   const existing = getForDate(staffId, workDate);
@@ -60,4 +68,4 @@ function getAbsencesToday({ storeId }) {
   return listForDate({ storeId }).filter((row) => !row.clock_in_at);
 }
 
-module.exports = { todayDate, clockIn, clockOut, isClockedInToday, listForDate, getAbsencesToday, getForDate };
+module.exports = { todayDate, clockIn, clockOut, assertClockedInNow, isClockedInToday, listForDate, getAbsencesToday, getForDate };

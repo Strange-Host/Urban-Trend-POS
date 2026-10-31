@@ -19,6 +19,7 @@ const PERMISSIONS = {
   'payroll.view':          { group: 'Team',      label: 'View payroll and commission',                roles: ['admin', 'manager'] },
   'staff.view':            { group: 'Team',      label: 'View the staff list',                        roles: ['admin', 'manager'] },
   'attendance.view':       { group: 'Team',      label: 'View today\'s attendance and absences',      roles: ['admin', 'manager'] },
+  'attendance.review':     { group: 'Team',      label: 'Review and approve the end-of-day report',   roles: ['admin', 'manager'] },
   'expenses.manage':       { group: 'Money',     label: 'Record and edit expenses and petty cash top-ups', roles: ['admin', 'manager'] },
   'expenses.approve':      { group: 'Money',     label: 'Approve or reject expenses and petty cash top-ups', roles: ['admin', 'manager'] },
   'payments.manage':       { group: 'Money',     label: 'Record and refund payments',                 roles: ['admin', 'manager'] },

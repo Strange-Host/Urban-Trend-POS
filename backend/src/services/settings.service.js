@@ -37,6 +37,9 @@ const DEFAULTS = {
   // Phase 6 (attendance-based payroll deductions §12):
   attendance_workday_start_hour: '8',          // late fee kicks in after this hour
   attendance_late_fee_per_hour_kes: '50',
+  // What a missed day costs IN TOTAL. The daily retainer is only paid for days logged in, so a no-show already
+  // loses the retainer; this fee is counted from there (fee minus retainer, never below 0), so a day is never
+  // charged twice. At the default 300 / 300 a no-show simply earns no retainer and nothing more is deducted.
   attendance_absence_fee_kes: '300',
   attendance_expected_hours: '8',              // a full clocked day — short of this incurs the missing-hours fee
   attendance_missing_hour_fee_kes: '30',
@@ -55,6 +58,9 @@ const DEFAULTS = {
   // Phase 7 (employee onboarding & e-signature §13):
   employee_policy_version: '1',
   employee_policy_text: '',                     // shown at first login — set this before onboarding anyone for real
+  // Clock-out gate. 'reason' = someone who still has orders undispatched or Nairobi payments unreconciled can clock
+  // out only by writing why; 'block' = they cannot clock out until those are cleared.
+  clockout_gate_mode: 'reason',
   // Phase 5 (telesales distribution §3):
   telesales_cutoff_hour: '10',                   // the "10:00 AM Rule" — configurable in case your actual cutoff differs
   // Off-site email backups (see backup.service.js) — comma-separated list

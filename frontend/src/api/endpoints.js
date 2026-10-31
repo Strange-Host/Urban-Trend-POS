@@ -284,9 +284,17 @@ export const paymentReconciliationApi = {
 
 export const attendanceApi = {
   clockIn: () => client.post('/attendance/clock-in'),
-  clockOut: (handoverNotes) => client.post('/attendance/clock-out', handoverNotes ? { handover_notes: handoverNotes } : {}),
+  // { notes, dispatched, nairobi }: the handover note and the two clock-out confirmations (all assigned orders
+  // dispatched, all Nairobi payments reconciled). The server checks both against the data.
+  clockOut: ({ notes, dispatched, nairobi } = {}) => client.post('/attendance/clock-out', {
+    ...(notes ? { handover_notes: notes } : {}),
+    confirm_all_dispatched: dispatched === true,
+    confirm_nairobi_reconciled: nairobi === true,
+  }),
   today: (date) => client.get('/attendance/today', { params: date ? { date } : {} }),
   absencesToday: () => client.get('/attendance/absences-today'),
+  endOfDay: (date) => client.get('/end-of-day', { params: date ? { date } : {} }),
+  approveEndOfDay: ({ date, note, acknowledged }) => client.post('/end-of-day/approve', { date, note, acknowledged }),
 };
 
 export const payrollApi = {

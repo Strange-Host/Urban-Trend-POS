@@ -824,6 +824,71 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_staff_attendance_staff_date ON staff_atten
 CREATE INDEX IF NOT EXISTS idx_staff_attendance_store_date ON staff_attendance(store_id, work_date);
 
 -- ---------------------------------------------------------------------
+-- SHIFT HANDOVERS  (one row every time someone clocks out or closes their till.
+-- This is what the manager's end-of-day review reads. The same snapshot also goes
+-- to staff_logs; this table exists so the notes and the two clock-out confirmations
+-- can be listed for a day without digging through JSON in the activity log.)
+--   dispatch_confirmed / nairobi_confirmed: the person ticked "all my assigned orders
+--   are dispatched" / "all my Nairobi payments are reconciled" AND the system agreed
+--   (nothing was actually still open). 0 means they left with that item unresolved,
+--   in which case notes holds their reason (clock-out requires one).
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS shift_handovers (
+  id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+  store_id              INTEGER NOT NULL REFERENCES stores(id),
+  staff_id              INTEGER NOT NULL REFERENCES users(id),
+  work_date             TEXT NOT NULL,   -- shop calendar date (Nairobi), YYYY-MM-DD
+  trigger               TEXT NOT NULL CHECK (trigger IN ('clock_out','cash_session_close')),
+  notes                 TEXT,
+  dispatch_confirmed    INTEGER NOT NULL DEFAULT 0 CHECK (dispatch_confirmed IN (0,1)),
+  nairobi_confirmed     INTEGER NOT NULL DEFAULT 0 CHECK (nairobi_confirmed IN (0,1)),
+  undispatched_count    INTEGER NOT NULL DEFAULT 0,
+  nairobi_unpaid_count  INTEGER NOT NULL DEFAULT 0,
+  nairobi_unpaid_amount INTEGER NOT NULL DEFAULT 0,   -- smallest KES subunit
+  other_open_count      INTEGER NOT NULL DEFAULT 0,   -- unpaid parcels, COD, leads, shop cash still held
+  snapshot              TEXT,                         -- JSON: the full open-items summary at the time
+  created_at            TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_shift_handovers_store_date ON shift_handovers(store_id, work_date);
+CREATE INDEX IF NOT EXISTS idx_shift_handovers_staff ON shift_handovers(staff_id, work_date);
+
+-- ---------------------------------------------------------------------
+-- ASSIGNMENT MOVES  (every order or lead the automatic distribution moved from one
+-- rep to another — the 10:00 rule and unplanned absences. Before this table the move
+-- only changed assigned_staff_id, so nobody could later see what had been taken from
+-- whom. from_staff_id is NULL when the item had no owner yet.)
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS assignment_moves (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  store_id      INTEGER NOT NULL REFERENCES stores(id),
+  entity_type   TEXT NOT NULL CHECK (entity_type IN ('order','lead')),
+  entity_id     INTEGER NOT NULL,
+  from_staff_id INTEGER REFERENCES users(id),
+  to_staff_id   INTEGER NOT NULL REFERENCES users(id),
+  reason        TEXT NOT NULL CHECK (reason IN ('not_clocked_in','unassigned')),
+  work_date     TEXT NOT NULL,
+  created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_assignment_moves_store_date ON assignment_moves(store_id, work_date);
+
+-- ---------------------------------------------------------------------
+-- END-OF-DAY REVIEWS  (the manager's sign-off on a day: they have seen who was absent
+-- or late, what was reassigned, and what each person left in their handover note.
+-- One per shop per day. snapshot freezes what the manager was looking at when they
+-- approved, so the record still means something after later edits.)
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS end_of_day_reviews (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  store_id    INTEGER NOT NULL REFERENCES stores(id),
+  work_date   TEXT NOT NULL,
+  reviewed_by INTEGER NOT NULL REFERENCES users(id),
+  note        TEXT,
+  snapshot    TEXT NOT NULL,
+  created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_end_of_day_reviews_store_date ON end_of_day_reviews(store_id, work_date);
+
+-- ---------------------------------------------------------------------
 -- PAYROLL ADJUSTMENTS  (Phase 6 — event-based deductions/credits that
 -- can't be derived from attendance alone: salary/personal advances
 -- (auto-posted here when a 'salary_advance' requisition is approved — see
