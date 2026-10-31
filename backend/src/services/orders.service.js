@@ -14,6 +14,7 @@ const deliveryAreas = require('./deliveryAreas.service');
 const telesalesDistribution = require('./telesalesDistribution.service');
 const { assertLineDiscount, assertSaleDiscount, assertDiscountPercent } = require('../utils/discounts');
 const commissionReversal = require('./commissionReversal.service');
+const costing = require('./costing.service');
 
 // State machine — see schema.sql's CHECK on orders.status for the full
 // list. Stock deduction happens on the ONE transition into
@@ -393,7 +394,10 @@ function dispatch({ orderId, storeId, staffId, packageFee, packageFeeZeroReason 
         throw new ApiError(409, `Insufficient stock for "${product?.name || productId}". Available: ${available}, requested: ${requested}.`);
       }
     }
+    const setLineCost = db.prepare('UPDATE order_items SET cost_total = ? WHERE id = ?');
     for (const item of items) {
+      // Cost of the units leaving, fixed now and worked out before this line's movement (see costing.service.js).
+      setLineCost.run(costing.costOfNextUnits(item.product_id, storeId, item.quantity).cost, item.id);
       if (decrementInventory.run(item.quantity, item.product_id, storeId, item.quantity).changes !== 1) {
         throw new ApiError(409, 'Stock changed while this order was being dispatched. Please try again.');
       }

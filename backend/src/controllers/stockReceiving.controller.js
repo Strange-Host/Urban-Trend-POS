@@ -7,6 +7,7 @@ const { dateParam } = require('../utils/storeTime');
 const permissionsService = require('../services/permissions.service');
 const notifications = require('../services/notifications.service');
 const stock = require('../services/stock.service');
+const costing = require('../services/costing.service');
 const { nextAutoSku } = require('../utils/autoSku');
 const { createSupplier } = require('./suppliers.controller');
 
@@ -52,17 +53,22 @@ function resolveCategory(user, np, canManage) {
 }
 
 // ---- reading -------------------------------------------------------------------------------------------------------
-function withItems(receipts) {
+// Buying prices are hidden from people who may not see them (the storekeeper): unit_cost is dropped from their copy.
+function withItems(receipts, canSeeCost = false) {
   if (receipts.length === 0) return receipts;
   const ids = receipts.map((r) => r.id);
   const items = db.prepare(`
     SELECT i.id, i.receipt_id, i.product_id, i.quantity, i.sell_price, i.is_new_product,
+           i.batch_no, i.expiry_date, i.unit_cost, i.recalled_at,
            p.name AS product_name, p.sku, p.image_url, p.approval_status AS product_status
     FROM stock_receipt_items i JOIN products p ON p.id = i.product_id
     WHERE i.receipt_id IN (${ids.map(() => '?').join(',')}) ORDER BY i.id
   `).all(...ids);
   const byReceipt = new Map(receipts.map((r) => [r.id, []]));
-  for (const it of items) byReceipt.get(it.receipt_id).push(it);
+  for (const it of items) {
+    if (!canSeeCost) { delete it.unit_cost; }
+    byReceipt.get(it.receipt_id).push(it);
+  }
   return receipts.map((r) => {
     const its = byReceipt.get(r.id);
     return { ...r, items: its, total_units: its.reduce((n, i) => n + i.quantity, 0) };
@@ -91,20 +97,38 @@ const listReceipts = asyncHandler(async (req, res) => {
   const whereSql = `WHERE ${where.join(' AND ')}`;
   const rows = db.prepare(`${RECEIPT_SELECT} ${whereSql} ORDER BY r.received_on DESC, r.id DESC LIMIT @limit OFFSET @offset`).all({ ...params, limit, offset });
   const total = db.prepare(`SELECT COUNT(*) AS c FROM stock_receipts r ${whereSql}`).get(params).c;
-  res.json(paginatedResponse({ rows: withItems(rows), total, page, limit }));
+  res.json(paginatedResponse({ rows: withItems(rows, permissionsService.can(req.user, 'products.view_cost')), total, page, limit }));
 });
 
 // GET /api/stock/receipts/:id
 const getReceipt = asyncHandler(async (req, res) => {
   const row = db.prepare(`${RECEIPT_SELECT} WHERE r.id = ?`).get(req.params.id);
   if (!row || (row.store_id !== req.user.storeId && !permissionsService.can(req.user, 'stock.review'))) throw new ApiError(404, 'Receipt not found.');
-  res.json({ data: withItems([row])[0] });
+  res.json({ data: withItems([row], permissionsService.can(req.user, 'products.view_cost'))[0] });
 });
+
+// Expiry arrives as YYYY-MM-DD, or blank for stock that does not expire. Stock that is already past its date is refused
+// at the door: it should be rejected back to the supplier, not shelved.
+function parseExpiry(value, receivedOn, where) {
+  if (value === undefined || value === null || value === '') return null;
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value) || Number.isNaN(Date.parse(value))) {
+    throw new ApiError(400, `${where}: expiry_date must look like 2027-03-31.`);
+  }
+  if (value < receivedOn) throw new ApiError(400, `${where}: this batch is already past its expiry date (${value}).`);
+  return value;
+}
+
+// Only someone who may see buying prices can put one on a batch; for everyone else the field is ignored.
+function parseUnitCost(value, allowed, where) {
+  if (!allowed || value === undefined || value === null || value === '') return null;
+  if (!Number.isInteger(value) || value < 0) throw new ApiError(400, `${where}: unit_cost must be a whole number of cents, zero or more.`);
+  return value;
+}
 
 // ---- receiving -----------------------------------------------------------------------------------------------------
 // POST /api/stock/receipts
 // { supplier_id? | new_supplier?: {name,...}, reference?, note?, received_on?,
-//   items: [ { product_id, quantity }  |  { quantity, new_product: { name, sell_price, image_url?, category_id? |
+//   items: [ { product_id, quantity, batch_no?, expiry_date?, unit_cost? }  |  { quantity, new_product: { name, sell_price, image_url?, category_id? |
 //             new_category?: {name, parent_id?}, sku?, barcode?, brand?, description? } } ] }
 //
 // Stock goes in straight away (it is physically on the shelf), one 'receipt' movement per line. A NEW product follows the
@@ -144,8 +168,14 @@ const createReceipt = asyncHandler(async (req, res) => {
     `).run(storeId, supplierId, stock.trimmed(body.reference) || null, stock.trimmed(body.note) || null, receivedOn, user.id).lastInsertRowid;
 
     const insertItem = db.prepare(`
-      INSERT INTO stock_receipt_items (receipt_id, product_id, quantity, sell_price, is_new_product) VALUES (?, ?, ?, ?, ?)
+      INSERT INTO stock_receipt_items (receipt_id, product_id, quantity, sell_price, is_new_product, batch_no, expiry_date, unit_cost, costed_by_staff_id, costed_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CASE WHEN ? IS NULL THEN NULL ELSE datetime('now') END)
     `);
+    const addItem = (productId, qty, sellPrice, isNew, item, defaultCost, where) => {
+      const unitCost = parseUnitCost(item.unit_cost !== undefined ? item.unit_cost : defaultCost, canManage && canSeeCost, where);
+      insertItem.run(receiptId, productId, qty, sellPrice, isNew, stock.trimmed(item.batch_no) || null,
+        parseExpiry(item.expiry_date, receivedOn, where), unitCost, unitCost === null ? null : user.id, unitCost);
+    };
 
     body.items.forEach((item, idx) => {
       const where = `Line ${idx + 1}`;
@@ -158,7 +188,7 @@ const createReceipt = asyncHandler(async (req, res) => {
         const p = db.prepare('SELECT id, sell_price, approval_status FROM products WHERE id = ?').get(item.product_id);
         if (!p) throw new ApiError(404, `${where}: product not found.`);
         if (p.approval_status === 'rejected') throw new ApiError(409, `${where}: that product was rejected; it cannot receive stock.`);
-        insertItem.run(receiptId, p.id, qty, p.sell_price, 0);
+        addItem(p.id, qty, p.sell_price, 0, item, undefined, where);
         stock.applyMovement({ productId: p.id, storeId, change: qty, reason: 'receipt', referenceType: 'receipt', referenceId: receiptId, userId: user.id });
         return;
       }
@@ -187,7 +217,7 @@ const createReceipt = asyncHandler(async (req, res) => {
         stock.trimmed(np.image_url) || null, proposing ? 0 : 1, proposing ? 'pending' : 'approved', user.id).lastInsertRowid;
       if (proposing) proposedIds.push(productId);
 
-      insertItem.run(receiptId, productId, qty, np.sell_price, 1);
+      addItem(productId, qty, np.sell_price, 1, item, Number.isInteger(np.cost_price) ? np.cost_price : undefined, where);
       stock.applyMovement({ productId, storeId, change: qty, reason: 'receipt', referenceType: 'receipt', referenceId: receiptId, userId: user.id });
     });
 
@@ -195,7 +225,7 @@ const createReceipt = asyncHandler(async (req, res) => {
   });
 
   const receiptId = txn();
-  const receipt = withItems([db.prepare(`${RECEIPT_SELECT} WHERE r.id = ?`).get(receiptId)])[0];
+  const receipt = withItems([db.prepare(`${RECEIPT_SELECT} WHERE r.id = ?`).get(receiptId)], canSeeCost)[0];
   logStaffAction({
     staffId: user.id, action: 'create', entityType: 'stock_receipt', entityId: receiptId,
     after: { store_id: storeId, supplier_id: receipt.supplier_id, reference: receipt.reference, received_on: receipt.received_on, lines: receipt.items.length, units: receipt.total_units },
@@ -213,7 +243,7 @@ const createReceipt = asyncHandler(async (req, res) => {
 });
 
 // ---- issuing -------------------------------------------------------------------------------------------------------
-const ISSUE_REASONS = ['damaged', 'expired', 'lost', 'internal_use', 'returned_to_supplier', 'other'];
+const ISSUE_REASONS = ['damaged', 'expired', 'lost', 'internal_use', 'returned_to_supplier', 'other']; // 'recalled' exists too, but only a recall creates it
 const LOSS_REASONS = ['damaged', 'expired', 'lost'];
 
 const ISSUE_SELECT = `
@@ -241,7 +271,9 @@ const listIssues = asyncHandler(async (req, res) => {
   res.json(paginatedResponse({ rows, total, page, limit }));
 });
 
-// POST /api/stock/issues  { product_id, quantity, reason, supplier_id?, note?, issued_on? }
+// POST /api/stock/issues  { product_id, quantity, reason, supplier_id?, note?, issued_on?, batch_id? }
+// batch_id names the received batch the stock came out of (for writing off an expired or damaged batch); without it the
+// oldest batch is used. A recall is not issued here - see stockBatches.controller.js.
 const createIssue = asyncHandler(async (req, res) => {
   const user = req.user;
   const b = req.body || {};
@@ -261,17 +293,26 @@ const createIssue = asyncHandler(async (req, res) => {
     supplierId = b.supplier_id;
   }
 
+  let batchId = null;
+  if (b.batch_id !== undefined && b.batch_id !== null && b.batch_id !== '') {
+    const batch = db.prepare('SELECT id, product_id, batch_no FROM stock_receipt_items WHERE id = ?').get(b.batch_id);
+    if (!batch || batch.product_id !== product.id) throw new ApiError(400, 'That batch does not belong to this product.');
+    const onShelf = costing.batchRemaining(product.id, user.storeId, batch.id);
+    if (onShelf < qty) throw new ApiError(409, `Only ${onShelf} unit(s) of that batch are left here; you tried to issue ${qty}.`, null, 'INSUFFICIENT_BATCH_STOCK');
+    batchId = batch.id;
+  }
+
   const id = db.transaction(() => {
     const issueId = db.prepare(`
-      INSERT INTO stock_issues (store_id, product_id, quantity, reason, supplier_id, note, issued_on, issued_by_staff_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(user.storeId, product.id, qty, b.reason, supplierId, note || null, issuedOn, user.id).lastInsertRowid;
-    stock.applyMovement({ productId: product.id, storeId: user.storeId, change: -qty, reason: 'issue', referenceType: 'issue', referenceId: issueId, userId: user.id });
+      INSERT INTO stock_issues (store_id, product_id, quantity, reason, supplier_id, note, issued_on, issued_by_staff_id, batch_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(user.storeId, product.id, qty, b.reason, supplierId, note || null, issuedOn, user.id, batchId).lastInsertRowid;
+    stock.applyMovement({ productId: product.id, storeId: user.storeId, change: -qty, reason: 'issue', referenceType: 'issue', referenceId: issueId, userId: user.id, batchId });
     return issueId;
   })();
 
   const issue = db.prepare(`${ISSUE_SELECT} WHERE i.id = ?`).get(id);
-  logStaffAction({ staffId: user.id, action: 'create', entityType: 'stock_issue', entityId: id, after: { product_id: product.id, quantity: qty, reason: b.reason, note: note || null } });
+  logStaffAction({ staffId: user.id, action: 'create', entityType: 'stock_issue', entityId: id, after: { product_id: product.id, quantity: qty, reason: b.reason, note: note || null, batch_id: batchId } });
   if (LOSS_REASONS.includes(b.reason)) {
     notifications.notify({
       storeId: user.storeId, roles: ['admin', 'manager'], type: 'stock_issued_loss', severity: 'warning',

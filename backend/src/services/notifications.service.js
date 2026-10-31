@@ -2,6 +2,9 @@ const db = require('../config/db');
 const { todaySql } = require('../utils/storeTime');
 const ApiError = require('../utils/ApiError');
 const logger = require('../utils/logger');
+const costing = require('./costing.service');
+const stockAlerts = require('./stockAlerts.service');
+const { shopToday } = require('./stock.service');
 
 // In-app notifications. One row per RECIPIENT, so a notice for "all
 // managers" fans out to one row each; read-state and ownership are then a
@@ -166,6 +169,29 @@ function sweepLowStock() {
   return created;
 }
 
+// Batches that are expired, or will expire within the alert window, and still have units on a shelf. One notice per
+// (batch, store) and kind: it is raised once when the batch first enters the window, and once more if it then expires.
+function sweepExpiry() {
+  const rows = costing.batchesByStatus({ status: 'all', today: shopToday(), withinDays: stockAlerts.expiryWindowDays() });
+  let created = 0;
+  for (const r of rows) {
+    if (r.state !== 'expired' && r.state !== 'expiring') continue;
+    const label = `${r.product_name}${r.batch_no ? ` (batch ${r.batch_no})` : ''}`;
+    created += notify({
+      storeId: r.store_id, roles: ['admin', 'manager'],
+      type: r.state === 'expired' ? 'stock_expired' : 'stock_expiring',
+      severity: r.state === 'expired' ? 'urgent' : 'warning',
+      title: r.state === 'expired' ? `Expired stock: ${label}` : `Expiring soon: ${label}`,
+      body: r.state === 'expired'
+        ? `${r.remaining} unit(s) expired on ${r.expiry_date} and are still in stock.`
+        : `${r.remaining} unit(s) expire on ${r.expiry_date} (${r.days_left} day${r.days_left === 1 ? '' : 's'} left).`,
+      entityType: 'stock_batch', entityId: r.batch_id,
+      dedupeKey: `${r.state === 'expired' ? 'stock_expired' : 'stock_expiring'}:${r.batch_id}:${r.store_id}`,
+    });
+  }
+  return created;
+}
+
 // Housekeeping so the table can't grow forever: read notices after 30 days,
 // anything after 90.
 function pruneOld() {
@@ -176,9 +202,10 @@ function pruneOld() {
 }
 
 function runSweeps() {
-  const result = { followUps: 0, lowStock: 0, pruned: 0 };
+  const result = { followUps: 0, lowStock: 0, expiry: 0, pruned: 0 };
   result.followUps = sweepLeadFollowUps();
   result.lowStock = sweepLowStock();
+  result.expiry = sweepExpiry();
   result.pruned = pruneOld();
   return result;
 }
@@ -186,5 +213,5 @@ function runSweeps() {
 module.exports = {
   notify, listForUser, unreadCount, markRead, markAllRead,
   notifyLeadAssigned, notifyDamagedReturn, notifyUnmatchedPayment,
-  sweepLeadFollowUps, sweepLowStock, pruneOld, runSweeps,
+  sweepLeadFollowUps, sweepLowStock, sweepExpiry, pruneOld, runSweeps,
 };
