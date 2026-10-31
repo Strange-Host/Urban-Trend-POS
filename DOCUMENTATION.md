@@ -204,7 +204,9 @@ Standard CRUD; delete blocked (409) if any active product references it.
 |---|---|---|---|
 | GET | `/` | any | Per-store stock levels |
 | GET | `/low-stock` | any | `quantity <= reorder_level` |
-| GET | `/:productId/movements` | any | Ledger, last 100 |
+| GET | `/:productId/movements` | any | Ledger, newest first, paged (`page`, `limit`, `store_id` to look at another branch if you can review stock) |
+| GET | `/reconcile` | `inventory.adjust` | Rows where the cached quantity no longer matches the ledger; changes nothing |
+| POST | `/reconcile` | admin | Sets the cached quantity of every drifted row (all branches) back to the ledger sum |
 | POST | `/adjust` | admin, manager | `{ product_id, change_qty, reason }`, transactional |
 
 ### Sales / POS — `/api/sales`
