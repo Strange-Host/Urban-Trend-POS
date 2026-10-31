@@ -373,6 +373,12 @@ export const couriersApi = {
   createStatement: (id, data) => client.post(`/couriers/${id}/statements`, data),
 };
 
+// Shop cash held by staff until it is deposited (custody.manage). A deposit takes no body: it closes the whole record.
+export const custodyApi = {
+  list: () => client.get('/custody'),
+  deposit: (id) => client.post(`/custody/${id}/deposit`),
+};
+
 export const shiftApi = {
   handover: () => client.get('/shift/handover'),
 };
