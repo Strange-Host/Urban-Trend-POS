@@ -10,6 +10,7 @@ const helmet = require('helmet');
 const compression = require('compression');
 const logger = require('./utils/logger');
 const rateLimit = require('express-rate-limit');
+const { userOrIpKey } = require('./utils/rateLimitKey');
 const { RATE_LIMITS } = require('./config/limits');
 
 const errorHandler = require('./middleware/errorHandler');
@@ -112,7 +113,9 @@ app.use((req, res, next) => {
 // at all. Generous enough that normal use (POS + dashboard + reports)
 // never comes close — this is a DoS/scripted-abuse backstop, not a
 // per-user throttle.
-const generalApiLimiter = rateLimit({ ...RATE_LIMITS.GENERAL_API, standardHeaders: true });
+// Counted per signed-in user (falling back to the IP for anonymous requests) so a shop's tills, which all share one
+// public IP, don't drain a single budget between them. See utils/rateLimitKey.js.
+const generalApiLimiter = rateLimit({ ...RATE_LIMITS.GENERAL_API, standardHeaders: true, keyGenerator: userOrIpKey });
 app.use('/api', generalApiLimiter);
 
 app.use('/api/auth', authRoutes);
