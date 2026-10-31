@@ -1,13 +1,13 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
-import { staffApi } from '../api/endpoints';
+import { staffApi, storesApi } from '../api/endpoints';
 import { getErrorMessage } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { useToast, useDialog } from '../context/UIContext';
 import StaffAccessModal from '../components/StaffAccessModal';
 import useModules from '../hooks/useModules';
 import Pager, { usePager } from '../components/Pager';
-import { Segmented } from '../components/Picker';
+import Picker, { Segmented } from '../components/Picker';
 import RemoveAccountSheet from '../components/RemoveAccountSheet';
 import { passwordHint } from '../utils/passwordRules';
 
@@ -30,12 +30,17 @@ export default function Staff() {
   const [tempPassword, setTempPassword] = useState(null);
   const [accessFor, setAccessFor] = useState(null);
   const modules = useModules();
+  // Another branch (an outlet) can be chosen to see its staff and add people to it. Editing them is done from that
+  // branch's own admin account, so the row buttons are hidden while another branch is shown.
+  const [branchId, setBranchId] = useState('');
+  const { data: stores = [] } = useQuery({ queryKey: ['stores'], queryFn: () => storesApi.list().then((r) => r.data.data) });
+  const otherBranch = Boolean(branchId) && stores.some((b) => String(b.id) === branchId && !b.is_current);
   const queryClient = useQueryClient();
 
   const pager = usePager(25);
   const { data, isLoading } = useQuery({
-    queryKey: ['staff', { search, roleFilter, statusFilter, page: pager.page, size: pager.pageSize }],
-    queryFn: () => staffApi.list({ ...pager.params, search: search || undefined, role: roleFilter || undefined, status: statusFilter === 'all' ? undefined : statusFilter }).then((r) => r.data),
+    queryKey: ['staff', { branchId, search, roleFilter, statusFilter, page: pager.page, size: pager.pageSize }],
+    queryFn: () => staffApi.list({ ...pager.params, store_id: otherBranch ? branchId : undefined, search: search || undefined, role: roleFilter || undefined, status: statusFilter === 'all' ? undefined : statusFilter }).then((r) => r.data),
     placeholderData: keepPreviousData,
   });
   const staff = data?.data || [];
@@ -62,7 +67,7 @@ export default function Staff() {
         if (form.pin) payload.pin = form.pin;
         await staffApi.update(editing.id, payload);
       } else {
-        await staffApi.create(form);
+        await staffApi.create(otherBranch ? { ...form, store_id: Number(branchId) } : form);
       }
       queryClient.invalidateQueries({ queryKey: ['staff'] });
       setEditing(null);
@@ -126,6 +131,14 @@ export default function Staff() {
         </button>
       </div>
 
+      {stores.length > 1 && (
+        <div className="mb-3 max-w-sm">
+          <Picker value={branchId || String(stores.find((b) => b.is_current)?.id ?? '')} onChange={(v) => { setBranchId(String(v)); pager.reset(); }} title="Branch" aria-label="Branch"
+            options={stores.map((b) => ({ value: String(b.id), label: b.name + (b.is_main ? ' (main)' : '') }))} />
+          {otherBranch && <p className="text-xs text-text-muted mt-1">You can add people here. To edit or remove them, sign in as that branch's admin.</p>}
+        </div>
+      )}
+
       <Segmented
         value={statusFilter} onChange={(v) => { setStatusFilter(v); pager.reset(); }} aria-label="Which accounts to show" className="mb-3 max-w-sm"
         options={[{ value: 'active', label: 'Active' }, { value: 'inactive', label: 'Inactive' }, { value: 'all', label: 'All' }]}
@@ -178,13 +191,13 @@ export default function Staff() {
                 </td>
                 <td className="px-4 py-3 text-right whitespace-nowrap">
                   <div className="flex gap-2 justify-start sm:justify-end">
-                    {!s.erased && s.status === 'inactive' && (
+                    {!otherBranch && !s.erased && s.status === 'inactive' && (
                       <button onClick={() => handleReactivate(s)} className="min-h-[44px] sm:min-h-[36px] px-3 rounded-lg border border-line text-xs font-medium hover:border-text-muted">Reactivate</button>
                     )}
-                    {!s.erased && (
+                    {!otherBranch && !s.erased && (
                       <button onClick={() => openEdit(s)} className="min-h-[44px] sm:min-h-[36px] px-3 rounded-lg border border-line text-xs font-medium hover:border-text-muted">Edit</button>
                     )}
-                    <button onClick={() => setActionsFor(s)} className="min-h-[44px] sm:min-h-[36px] px-3 rounded-lg border border-line text-xs font-medium hover:border-text-muted" aria-label={`More actions for ${s.name}`}>More ▾</button>
+                    {!otherBranch && <button onClick={() => setActionsFor(s)} className="min-h-[44px] sm:min-h-[36px] px-3 rounded-lg border border-line text-xs font-medium hover:border-text-muted" aria-label={`More actions for ${s.name}`}>More ▾</button>}
                   </div>
                 </td>
               </tr>

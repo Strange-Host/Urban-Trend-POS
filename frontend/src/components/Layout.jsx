@@ -35,6 +35,7 @@ const GROUPS = [
     label: 'Stock',
     items: [
       { to: '/catalog', label: 'Catalog', icon: '▤', roles: ['admin', 'manager', 'store'], perm: ['products.manage', 'products.propose'] },
+      { to: '/stock', label: 'Stock control', icon: '⇅', roles: ['admin', 'manager', 'store'], perm: ['stock.receive', 'stock.transfer', 'stock.count'] },
       { to: '/shopify-sync', label: 'Shopify sync', icon: '⇄', roles: ['admin', 'manager'], perm: 'shopify.sync' },
     ],
   },

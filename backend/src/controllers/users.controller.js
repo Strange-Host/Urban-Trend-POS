@@ -1,3 +1,4 @@
+const db = require('../config/db');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const { parsePagination, paginatedResponse } = require('../utils/paginate');
@@ -6,11 +7,22 @@ const securityAlerts = require('../services/securityAlerts.service');
 
 const actorOf = (req) => ({ id: req.user.id, name: req.user.name });
 
+// An admin can look at, and add staff to, another branch (an outlet) by naming it; everyone else stays in their own.
+// Editing or removing outlet staff is still done from that branch's own admin account.
+function targetStoreId(req, source) {
+  const wanted = source && source.store_id;
+  if (!wanted || Number(wanted) === req.user.storeId) return req.user.storeId;
+  if (req.user.role !== 'admin') throw new ApiError(403, 'You can only manage staff in your own branch.');
+  const store = db.prepare('SELECT id, is_active FROM stores WHERE id = ?').get(Number(wanted));
+  if (!store || !store.is_active) throw new ApiError(400, 'That branch does not exist (or is switched off).');
+  return store.id;
+}
+
 // GET /api/staff?role=&status=&search=&page=&limit=
 const list = asyncHandler(async (req, res) => {
   const { page, limit, offset } = parsePagination(req.query);
   const { rows, total } = usersService.list({
-    storeId: req.user.storeId, role: req.query.role, status: req.query.status, search: req.query.search, limit, offset,
+    storeId: targetStoreId(req, req.query), role: req.query.role, status: req.query.status, search: req.query.search, limit, offset,
   });
   res.json(paginatedResponse({ rows, total, page, limit }));
 });
@@ -25,8 +37,9 @@ const getById = asyncHandler(async (req, res) => {
 // POST /api/staff  { name, email, phone, password, pin, role }
 const create = asyncHandler(async (req, res) => {
   const { name, email, phone, password, pin, role } = req.body;
-  const user = usersService.create({ storeId: req.user.storeId, staffId: req.user.id, name, email, phone, password, pin, role });
-  securityAlerts.staffEvent({ storeId: req.user.storeId, actor: actorOf(req), kind: 'created', subjectName: `${user.name} (${user.role})`, subjectId: user.id });
+  const storeId = targetStoreId(req, req.body);
+  const user = usersService.create({ storeId, staffId: req.user.id, name, email, phone, password, pin, role });
+  securityAlerts.staffEvent({ storeId, actor: actorOf(req), kind: 'created', subjectName: `${user.name} (${user.role})`, subjectId: user.id });
   res.status(201).json({ data: user });
 });
 

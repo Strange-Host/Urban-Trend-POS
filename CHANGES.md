@@ -1,3 +1,44 @@
+# Priority 2: main-store inventory control
+
+Receiving, suppliers, issue logs, inter-branch transfers with approval, and outlet opening/closing counts with a
+who-did-what log. Backend in `controllers/stock*.controller.js`, `suppliers.controller.js`, `stores.controller.js`,
+`services/stock.service.js`; page `pages/StockControl.jsx` (Stock > Stock control). Tests: `tests/priorityTwo.test.js`,
+`tests/stockControlMigration.test.js`.
+
+**Database** (all additive; existing data is kept): `stores.is_main` (the oldest store becomes the main store on upgrade);
+new tables `suppliers`, `stock_receipts`, `stock_receipt_items`, `stock_issues`, `stock_transfers`, `stock_transfer_items`,
+`stock_counts`, `stock_count_items`. `inventory_movements` is rebuilt (rows and indexes carried over) to accept the new
+reasons `receipt`, `issue`, `transfer_out`, `transfer_in`, `stocktake`, so every stock change is still in the ledger the
+reconciliation job checks. No table here holds a buying price.
+
+1. **Receiving** (`POST /api/stock/receipts`, main store only). Lines are an existing product + quantity, or a NEW product
+   (name, quantity, selling price, image link, category or a new **sub-category**). Stock goes in at once, one `receipt`
+   movement per line, all-or-nothing. A new product from the storekeeper is the same pending proposal as in the catalog:
+   inactive, no buying price (anything typed is ignored), managers notified; the approver adds the buying price when
+   approving. A storekeeper may add a sub-category inside an existing category but not a top-level one; an existing
+   sub-category of the same name is reused. Duplicate names/SKUs/barcodes are refused.
+2. **Suppliers** (`/api/suppliers`): add and list for anyone who can receive (a supplier can also be created while
+   receiving); rename / switch off needs `products.manage`.
+3. **Issue log** (`POST /api/stock/issues`): damaged, expired, lost, used in the shop, returned to supplier, other (note
+   required). Cannot take stock below zero. Losses notify managers.
+4. **Transfers** (`/api/stock/transfers`): request -> a different manager approves -> two movements (`transfer_out` /
+   `transfer_in`) in one transaction. Stock is re-checked at approval; a second approval is refused. Reject needs a reason;
+   the requester can withdraw. Admins may approve their own, like elsewhere.
+5. **Outlet counts** (`/api/stock/counts`): opening and closing, one per branch/day/kind. The variance against the
+   system's figure is fixed at submission. A different person approves or rejects; approving can post the variances as
+   `stocktake` adjustments. `GET /counts/day-summary` ties the two counts together using the ledger (opening count + real
+   flows between = expected closing; the rest is missing or surplus). A rejected count can be redone.
+6. **Who did what** (`GET /api/stock/activity`): every non-sale stock movement, count submission/review and transfer
+   step with the person's name, plus a per-person tally; reviewers only.
+7. **Branches**: `GET/POST/PUT /api/stores` (create/edit are admin only; the main store cannot be switched off). An admin
+   can list and add staff in another branch (`store_id` on `GET`/`POST /api/staff`; Staff page has a branch picker).
+
+New permissions: `stock.receive`, `stock.transfer` (admin, manager, store), `stock.count` (also cashier),
+`stock.review` (admin, manager: approve transfers and counts, see the activity log).
+
+Not done: a buying price on the receipt line itself (the buying price is set when the product is approved); editing or
+removing outlet staff from the main admin account (do it from that branch's own admin); automatic stock-take scheduling.
+
 # Sign-in rate limit kept in the database
 
 Ported in spirit from the `update` branch's `auth/rateLimit.ts`. The per-address limit on the endpoints someone can guess

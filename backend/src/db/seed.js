@@ -15,7 +15,7 @@ function seed() {
   let storeId;
   if (storeCount === 0) {
     storeId = db
-      .prepare('INSERT INTO stores (name, address) VALUES (?, ?)')
+      .prepare('INSERT INTO stores (name, address, is_main) VALUES (?, ?, 1)')
       .run('Urban Trends — Main Branch', 'Nairobi, Kenya').lastInsertRowid;
     console.log('Created default store.');
   } else {
