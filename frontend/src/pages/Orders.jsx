@@ -5,6 +5,7 @@ import PrintReceiptButton from '../components/PrintReceipt';
 import InvoiceButton from '../components/InvoiceButton';
 import PrintWaybillButton from '../components/PrintWaybill';
 import AddItemsSheet from '../components/AddItemsSheet';
+import NewOrderSheet from '../components/NewOrderSheet';
 import CustomerOrderHistory from '../components/CustomerOrderHistory';
 import { getErrorMessage } from '../api/client';
 import { useAuth } from '../context/AuthContext';
@@ -90,6 +91,7 @@ export default function Orders() {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [addingItems, setAddingItems] = useState(false);
+  const [newOrder, setNewOrder] = useState(false);
   const [paymentForm, setPaymentForm] = useState({ method: 'mobile_money', amount: '', reference: '' });
 
   const { data, isLoading } = useQuery({
@@ -164,7 +166,12 @@ export default function Orders() {
         title="Orders"
         description="Online and COD orders — confirmation, courier dispatch, payment, and returns."
         meta={data?.total > 0 ? `${data.total} order${data.total === 1 ? '' : 's'}\n${money(data.summary?.outstanding || 0)} outstanding` : null}
-        actions={<PullOnlineOrders onPulled={invalidate} />}
+        actions={(
+          <div className="flex items-center gap-2 flex-wrap">
+            <button type="button" onClick={() => setNewOrder(true)} className="px-3.5 py-2 rounded-lg bg-ink text-white text-sm font-medium hover:bg-ink-soft">+ New order</button>
+            <PullOnlineOrders onPulled={invalidate} />
+          </div>
+        )}
       />
 
       {isManager && (
@@ -560,6 +567,13 @@ export default function Orders() {
 
       {addingItems && order && order.status === 'awaiting_dispatch' && (
         <AddItemsSheet order={order} onClose={() => setAddingItems(false)} onAdded={invalidate} />
+      )}
+
+      {newOrder && (
+        <NewOrderSheet
+          onClose={() => setNewOrder(false)}
+          onCreated={(created) => { invalidate(); setView('orders'); if (created?.id) setSelectedId(created.id); }}
+        />
       )}
     </div>
   );
