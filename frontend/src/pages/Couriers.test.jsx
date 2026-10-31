@@ -1,18 +1,19 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import Couriers from './Couriers';
 import { couriersApi } from '../api/endpoints';
 
 vi.mock('../api/endpoints', () => ({
   couriersApi: {
-    list: vi.fn(), update: vi.fn(), create: vi.fn(), payables: vi.fn(), costs: vi.fn(), balance: vi.fn(), payouts: vi.fn(),
+    list: vi.fn(), update: vi.fn(), remove: vi.fn(), create: vi.fn(), payables: vi.fn(), costs: vi.fn(), balance: vi.fn(), payouts: vi.fn(),
     standing: vi.fn(), collections: vi.fn(), statements: vi.fn(), recordCost: vi.fn(),
   },
 }));
 let perms = new Set();
 vi.mock('../context/AuthContext', () => ({ useAuth: () => ({ user: { id: 5 }, can: (p) => perms.has(p) }) }));
-vi.mock('../context/UIContext', () => ({ useToast: () => ({ success: vi.fn(), error: vi.fn() }), useDialog: () => ({ confirm: vi.fn(), prompt: vi.fn() }) }));
+const confirm = vi.fn();
+vi.mock('../context/UIContext', () => ({ useToast: () => ({ success: vi.fn(), error: vi.fn() }), useDialog: () => ({ confirm, prompt: vi.fn() }) }));
 
 const ok = (data) => Promise.resolve({ data: { data } });
 const couriers = [
@@ -28,6 +29,7 @@ beforeEach(() => {
   couriersApi.costs.mockReturnValue(ok([]));
   couriersApi.balance.mockReturnValue(ok({ courier: { id: 2, name: 'Juma' }, fees_owed: 0, costs_owed: 0, total_owed: 0, pending_costs: 0, pending_costs_amount: 0, items: [] }));
   couriersApi.standing.mockReturnValue(ok({ courierId: 3, outstanding: 0, overdue: 0, limit: null, paused: false, buckets: [] }));
+  confirm.mockReset();
   perms = new Set();
 });
 
@@ -83,5 +85,31 @@ describe('Couriers page', () => {
     mount();
     fireEvent.click(await screen.findByRole('tab', { name: 'Payables & costs' }));
     expect(await screen.findByText('No rider is owed anything right now.')).toBeInTheDocument();
+  });
+
+  it('deactivates through the courier remove call, but only after the confirmation', async () => {
+    perms = new Set(['couriers.manage']);
+    couriersApi.remove.mockResolvedValue({ data: { data: {} } });
+    confirm.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    mount();
+    await screen.findByText('Juma');
+    const deactivate = screen.getAllByRole('button', { name: 'Deactivate' })[0];
+    fireEvent.click(deactivate);
+    await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1));
+    expect(couriersApi.remove).not.toHaveBeenCalled();
+    fireEvent.click(deactivate);
+    await waitFor(() => expect(couriersApi.remove).toHaveBeenCalledWith(2));
+    expect(couriersApi.update).not.toHaveBeenCalled();
+  });
+
+  it('reactivates through update, with no confirmation', async () => {
+    perms = new Set(['couriers.manage']);
+    couriersApi.list.mockReturnValue(ok([{ ...couriers[0], is_active: 0 }]));
+    couriersApi.update.mockResolvedValue({ data: { data: {} } });
+    mount();
+    fireEvent.click(await screen.findByRole('button', { name: 'Reactivate' }));
+    await waitFor(() => expect(couriersApi.update).toHaveBeenCalledWith(2, { is_active: true }));
+    expect(couriersApi.remove).not.toHaveBeenCalled();
+    expect(confirm).not.toHaveBeenCalled();
   });
 });

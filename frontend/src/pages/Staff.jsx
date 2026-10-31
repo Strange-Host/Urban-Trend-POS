@@ -9,6 +9,7 @@ import useModules from '../hooks/useModules';
 import Pager, { usePager } from '../components/Pager';
 import Picker, { Segmented } from '../components/Picker';
 import RemoveAccountSheet from '../components/RemoveAccountSheet';
+import StaffDetailSheet from '../components/StaffDetailSheet';
 import { passwordHint } from '../utils/passwordRules';
 
 import Sheet from '../components/Sheet';
@@ -23,6 +24,7 @@ export default function Staff() {
   const [roleFilter, setRoleFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('active');   // active | inactive | all
   const [actionsFor, setActionsFor] = useState(null);           // the "more actions" sheet
+  const [detailFor, setDetailFor] = useState(null);           // the read-only details + sessions sheet
   const [removing, setRemoving] = useState(null);               // the "remove this account" sheet
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(emptyForm);
@@ -191,6 +193,9 @@ export default function Staff() {
                 </td>
                 <td className="px-4 py-3 text-right whitespace-nowrap">
                   <div className="flex gap-2 justify-start sm:justify-end">
+                    {!otherBranch && !s.erased && (
+                      <button onClick={() => setDetailFor(s)} className="min-h-[44px] sm:min-h-[36px] px-3 rounded-lg border border-line text-xs font-medium hover:border-text-muted" aria-label={`Details for ${s.name}`}>Details</button>
+                    )}
                     {!otherBranch && !s.erased && s.status === 'inactive' && (
                       <button onClick={() => handleReactivate(s)} className="min-h-[44px] sm:min-h-[36px] px-3 rounded-lg border border-line text-xs font-medium hover:border-text-muted">Reactivate</button>
                     )}
@@ -287,6 +292,7 @@ export default function Staff() {
         </Sheet>
       )}
 
+      {detailFor && <StaffDetailSheet staff={detailFor} onClose={() => setDetailFor(null)} />}
       {removing && <RemoveAccountSheet staff={removing} onClose={() => setRemoving(null)} />}
 
       {accessFor && modules.control && <StaffAccessModal staff={accessFor} isSelf={accessFor.id === currentUser?.id} onClose={() => setAccessFor(null)} />}
