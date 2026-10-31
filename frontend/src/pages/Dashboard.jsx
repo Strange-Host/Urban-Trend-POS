@@ -5,6 +5,7 @@ import RevenueChart from '../components/RevenueChart';
 import useSlidingPill from '../hooks/useSlidingPill';
 import { useAuth } from '../context/AuthContext';
 import { useQuery } from '@tanstack/react-query';
+import { Link } from 'react-router-dom';
 import { reportsApi } from '../api/endpoints';
 
 const CHANNEL_LABEL = { local: 'Local store', shopify: 'Shopify', woocommerce: 'WooCommerce' };
@@ -165,6 +166,18 @@ function RangeToggle({ value, onChange }) {
   );
 }
 
+/* A tile that needs someone's attention. Goes quiet (green, "all clear") when the count is zero. */
+function AlertTile({ to, label, count, detail, clearText }) {
+  const hot = count > 0;
+  return (
+    <Link to={to} className={`@container block rounded-2xl border p-4 sm:p-5 transition-colors hover:border-ink ${hot ? 'bg-surface border-accent' : 'bg-surface border-line'}`}>
+      <div className="text-sm text-text-muted mb-2">{label}</div>
+      <div className={`font-display font-700 tracking-tight tabular-nums text-3xl ${hot ? 'text-accent' : 'text-success'}`}>{count}</div>
+      <div className="text-xs text-text-muted mt-1.5">{hot ? detail : clearText}</div>
+    </Link>
+  );
+}
+
 export default function Dashboard() {
   const { user } = useAuth();
   const [range, setRange] = useState('30');
@@ -177,6 +190,10 @@ export default function Dashboard() {
   const { data: trend } = useQuery({ queryKey: ['reports', 'trend', range], queryFn: () => reportsApi.salesTrend({ from: range === 'all' ? undefined : from.slice(0, 10) }).then((r) => r.data.data) });
   const { data: paymentMethods } = useQuery({ queryKey: ['reports', 'payments', range], queryFn: () => reportsApi.paymentMethods(params).then((r) => r.data.data) });
   const { data: topByChannel } = useQuery({ queryKey: ['reports', 'top-by-channel', range], queryFn: () => reportsApi.topProductsByChannel({ ...params, limit: 6 }).then((r) => r.data.data) });
+
+  const { data: overview } = useQuery({ queryKey: ['reports', 'dashboard-overview'], queryFn: () => reportsApi.dashboardOverview().then((r) => r.data.data) });
+  const unpaidParcels = (overview?.unpaidParcelsByCourier || []).reduce((s, c) => s + c.parcel_count, 0);
+  const capitalTiedUp = (overview?.unpaidParcelsByCourier || []).reduce((s, c) => s + c.capital_tied_up, 0);
 
   const onlineRevenue = (byChannel || []).filter((c) => c.source_type !== 'local').reduce((s, c) => s + c.revenue, 0);
   const localRevenue = (byChannel || []).filter((c) => c.source_type === 'local').reduce((s, c) => s + c.revenue, 0);
@@ -195,6 +212,13 @@ export default function Dashboard() {
         </div>
         <RangeToggle value={range} onChange={setRange} />
       </div>
+
+      {overview && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6" aria-label="Alerts">
+          <AlertTile to="/stock" label="Low stock" count={overview.lowStockCount} detail="Products at or below their reorder level" clearText="Every product is above its reorder level" />
+          <AlertTile to="/money-at-risk" label="Unpaid parcels" count={unpaidParcels} detail={`${money(capitalTiedUp)} still owed on dispatched parcels`} clearText="No dispatched parcel is waiting on payment" />
+        </div>
+      )}
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
         <StatCard size="large" label="Revenue" value={summary ? <Money cents={summary.revenue} /> : '—'} sub={summary ? `${summary.transaction_count} transactions` : undefined} />
