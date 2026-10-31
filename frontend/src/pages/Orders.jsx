@@ -14,6 +14,8 @@ import PullOnlineOrders from '../components/PullOnlineOrders';
 import TabBar from '../components/TabBar';
 import Pager, { usePager } from '../components/Pager';
 import useModules from '../hooks/useModules';
+import { OwnerDecisionQueue, IntegrityPanel, ShopCashForm } from '../components/OrderAdminPanels';
+import usePendingDecisionCount from '../hooks/usePendingDecisionCount';
 
 function money(cents) {
   return (cents / 100).toLocaleString(undefined, { style: 'currency', currency: 'KES' });
@@ -78,6 +80,9 @@ export default function Orders() {
   const queryClient = useQueryClient();
 
   const pager = usePager(25);
+  // Admin/manager-only views over the same screen: the order list, damaged returns waiting on the owner, and the data check.
+  const [view, setView] = useState('orders');
+  const pendingDecisions = usePendingDecisionCount(isManager);
   const [channel, setChannel] = useState('all');
   const [statusFilter, setStatusFilter] = useState('');
   const [search, setSearch] = useState('');
@@ -162,11 +167,24 @@ export default function Orders() {
         actions={<PullOnlineOrders onPulled={invalidate} />}
       />
 
-      <TabBar tabs={CHANNELS} active={channel} onChange={(k) => { setChannel(k); pager.reset(); setSelectedId(null); }} variant="filter" className="mb-4" />
+      {isManager && (
+        <TabBar
+          tabs={[
+            { key: 'orders', label: 'All orders' },
+            { key: 'decisions', label: pendingDecisions > 0 ? `Needs decision (${pendingDecisions})` : 'Needs decision' },
+            { key: 'integrity', label: 'Integrity' },
+          ]}
+          active={view}
+          onChange={(k) => { setView(k); setError(''); }}
+          className="mb-4"
+        />
+      )}
+
+      {view === 'orders' && <TabBar tabs={CHANNELS} active={channel} onChange={(k) => { setChannel(k); pager.reset(); setSelectedId(null); }} variant="filter" className="mb-4" />}
 
       {error && <div className="mb-4 px-3.5 py-2.5 rounded-lg bg-danger-soft text-danger text-sm">{error}</div>}
 
-      <div className="flex flex-col sm:flex-row gap-3 mb-5">
+      {view === 'orders' && <div className="flex flex-col sm:flex-row gap-3 mb-5">
         <input
           value={search}
           onChange={(e) => { setSearch(e.target.value); pager.reset(); }}
@@ -181,11 +199,14 @@ export default function Orders() {
           <option value="">All statuses</option>
           {Object.entries(STATUS_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
         </select>
-      </div>
+      </div>}
 
       <div className="grid xl:grid-cols-[1fr_400px] gap-5 items-start">
         {/* Order list + pager (one grid cell, so the pager never becomes a column of its own) */}
         <div className="min-w-0">
+        {isManager && view === 'decisions' && <OwnerDecisionQueue canDecide={isAdmin} selectedId={selectedId} onSelect={(id) => { setSelectedId(id); setError(''); }} />}
+        {isManager && view === 'integrity' && <IntegrityPanel selectedId={selectedId} onSelect={(id) => { setSelectedId(id); setError(''); }} />}
+        {view === 'orders' && (<>
         <div className="bg-surface border border-line rounded-xl overflow-hidden">
           {isLoading && <div className="p-6 text-text-muted text-sm">Loading…</div>}
           {!isLoading && orders.length === 0 && (
@@ -240,6 +261,7 @@ export default function Orders() {
         </div>
 
         <Pager pager={pager} data={data} noun="orders" />
+        </>)}
         </div>
 
         {/* Detail / action panel. Below xl it is a slide-up sheet (opens when an order is picked);
@@ -415,6 +437,8 @@ export default function Orders() {
                     </button>
                   </div>
                 )}
+
+                {['dispatched_unpaid', 'dispatched_partial'].includes(order.status) && <ShopCashForm key={order.id} order={order} />}
 
                 {order.status.startsWith('dispatched') && (
                   <button
