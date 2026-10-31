@@ -127,6 +127,12 @@ export const reportsApi = {
   salesTrend: (params) => client.get('/reports/sales-trend', { params }),
   paymentMethods: (params) => client.get('/reports/payment-methods', { params }),
   topProductsByChannel: (params) => client.get('/reports/top-products-by-channel', { params }),
+  pnl: (params) => client.get('/reports/pnl', { params }),
+  discounts: (params) => client.get('/reports/discounts', { params }),
+  vat: (params) => client.get('/reports/vat', { params }),
+  branchComparison: (params) => client.get('/reports/branch-comparison', { params }),
+  agentPerformance: (params) => client.get('/reports/agent-performance', { params }),
+  setForecast: (month, data) => client.put(`/reports/forecasts/${month}`, data),
 };
 
 export const leadsApi = {
@@ -321,6 +327,14 @@ export const couriersApi = {
 
 export const shiftApi = {
   handover: () => client.get('/shift/handover'),
+};
+
+export const deliveryAreasApi = {
+  list: (params) => client.get('/delivery-areas', { params }),
+  create: (data) => client.post('/delivery-areas', data),
+  update: (id, data) => client.patch(`/delivery-areas/${id}`, data),
+  remove: (id) => client.delete(`/delivery-areas/${id}`),
+  importRows: (rows) => client.post('/delivery-areas/import', { rows }),
 };
 
 export const receiptsApi = {

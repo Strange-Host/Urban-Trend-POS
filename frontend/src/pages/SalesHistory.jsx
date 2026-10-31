@@ -3,6 +3,7 @@ import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-quer
 import { salesApi } from '../api/endpoints';
 import { useAuth } from '../context/AuthContext';
 import PrintReceiptButton from '../components/PrintReceipt';
+import InvoiceButton from '../components/InvoiceButton';
 import TabBar from '../components/TabBar';
 import { useDialog } from '../context/UIContext';
 import Pager, { usePager } from '../components/Pager';
@@ -102,7 +103,10 @@ export default function SalesHistory() {
                 <td className="px-4 py-3 text-text-muted text-xs">{new Date(s.created_at).toLocaleString()}</td>
                 <td className="px-4 py-3 text-right whitespace-nowrap">
                   {s.source_type === 'local' && (
-                    <PrintReceiptButton kind="sale" id={s.id} label="Print" className="text-xs text-text-muted hover:text-text mr-3 disabled:opacity-50" />
+                    <>
+                      <PrintReceiptButton kind="sale" id={s.id} label="Print" className="text-xs text-text-muted hover:text-text mr-3 disabled:opacity-50" />
+                      <InvoiceButton kind="sale" id={s.id} className="text-xs text-text-muted hover:text-text mr-3 disabled:opacity-50" />
+                    </>
                   )}
                   {hasRole('admin', 'manager') && s.status === 'completed' && s.source_type === 'local' && (
                     <button onClick={() => handleVoid(s.id)} className="text-xs text-danger hover:opacity-70">Void</button>
