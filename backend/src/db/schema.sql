@@ -54,6 +54,12 @@ CREATE TABLE IF NOT EXISTS users (
   pin_locked_until   TEXT,
   password_changed_at TEXT,                     -- used to refuse reusing the same password and to show 'last changed'
   erased_at          TEXT,                      -- set when a former staff member's personal data was wiped (records kept)
+  -- Pay terms (services/payTerms.service.js). 'fixed' = a set amount per unit sold (commission_fixed_cents, or the
+  -- store's achievement tiers when that is NULL: how everyone was paid before this existed); 'percentage' = a share
+  -- of each secured order's total (basis points, 10000 = 100%); 'combined' = both added together.
+  commission_type        TEXT NOT NULL DEFAULT 'fixed' CHECK (commission_type IN ('fixed','percentage','combined')),
+  commission_fixed_cents INTEGER CHECK (commission_fixed_cents IS NULL OR commission_fixed_cents >= 0),
+  commission_percent_bp  INTEGER NOT NULL DEFAULT 0 CHECK (commission_percent_bp BETWEEN 0 AND 10000),
 
   created_at     TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at     TEXT NOT NULL DEFAULT (datetime('now'))
@@ -835,10 +841,15 @@ CREATE TABLE IF NOT EXISTS payroll_adjustments (
   type           TEXT NOT NULL CHECK (type IN ('salary_advance','loss_deduction')),
   amount         INTEGER NOT NULL CHECK (amount > 0),  -- smallest KES subunit — always a deduction, never negative
   requisition_id INTEGER REFERENCES requisitions(id),   -- set when this came from an approved salary-advance requisition
+  -- Set when this is the take-back of commission already paid on an order that was later refunded, returned or
+  -- cancelled (services/commissionReversal.service.js). It is a 'loss_deduction' in the period the reversal happened,
+  -- so a locked run is never touched; the unique index below means an order is reversed at most once.
+  reverses_order_id INTEGER REFERENCES orders(id),
   notes          TEXT,
   created_by     INTEGER REFERENCES users(id),
   created_at     TEXT NOT NULL DEFAULT (datetime('now'))
 );
+CREATE UNIQUE INDEX IF NOT EXISTS idx_payroll_adjustments_reversal ON payroll_adjustments(reverses_order_id) WHERE reverses_order_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_payroll_adjustments_staff ON payroll_adjustments(staff_id);
 CREATE INDEX IF NOT EXISTS idx_payroll_adjustments_created ON payroll_adjustments(created_at);
 
@@ -938,6 +949,13 @@ CREATE TABLE IF NOT EXISTS requisitions (
   reviewed_at             TEXT,
   rejection_reason        TEXT,
   notes                   TEXT,
+  -- Employee acknowledgement (typed name, same convention as the onboarding agreement). The requester signs when
+  -- asking (for an advance: agreeing it comes off their pay) and signs again when they actually receive the money
+  -- or the goods. Both are checked against the signer's own account name.
+  request_signature_name  TEXT,
+  request_signature_at    TEXT,
+  receipt_signature_name  TEXT,
+  receipt_signature_at    TEXT,
   created_at              TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at              TEXT NOT NULL DEFAULT (datetime('now')),
   deleted_at              TEXT
@@ -1423,6 +1441,10 @@ CREATE TABLE IF NOT EXISTS payroll_runs (
   paid_at        TEXT,
   payment_method TEXT CHECK (payment_method IS NULL OR payment_method IN ('mpesa','bank','cash')),
   payment_ref    TEXT,
+  pay_date       TEXT,                         -- the fixed pay day this run is due on (settings payroll_pay_day, the 3rd of the next month)
+  signed_off_by  INTEGER REFERENCES users(id), -- payout sign-off: who confirmed the exact figures (checksum) before money went out
+  signed_off_at  TEXT,
+  signed_off_name TEXT,                        -- the name they typed as their signature
   CHECK (period_end >= period_start),
   CHECK (status = 'draft' OR (approved_by IS NOT NULL AND approved_at IS NOT NULL AND checksum IS NOT NULL)),
   CHECK (status <> 'paid' OR (paid_by IS NOT NULL AND paid_at IS NOT NULL AND payment_method IS NOT NULL)),
@@ -1444,6 +1466,8 @@ CREATE TABLE IF NOT EXISTS payroll_items (
   tier                  TEXT CHECK (tier IS NULL OR tier IN ('<70%','70-80%','>=80%')),
   rate                  INTEGER NOT NULL CHECK (rate >= 0),             -- per unit, as it was when approved
   commission            INTEGER NOT NULL CHECK (commission >= 0),
+  commission_type       TEXT NOT NULL DEFAULT 'fixed' CHECK (commission_type IN ('fixed','percentage','combined')),  -- this person's pay type, as it was when calculated
+  percent_bp            INTEGER NOT NULL DEFAULT 0 CHECK (percent_bp BETWEEN 0 AND 10000),                          -- their percentage share (basis points) when it applied
   late                  INTEGER NOT NULL CHECK (late >= 0),
   absence               INTEGER NOT NULL CHECK (absence >= 0),
   missing_hours         INTEGER NOT NULL CHECK (missing_hours >= 0),
@@ -1455,7 +1479,7 @@ CREATE TABLE IF NOT EXISTS payroll_items (
   payable               INTEGER NOT NULL CHECK (payable >= 0),          -- what is actually paid out
   shortfall             INTEGER NOT NULL CHECK (shortfall >= 0),        -- deductions beyond earnings: what the person owes back
   UNIQUE (run_id, staff_id),
-  CHECK (commission = units_sold * rate),
+  CHECK (commission_type <> 'fixed' OR commission = units_sold * rate),
   CHECK (gross = retainer + commission),
   CHECK (deductions = late + absence + missing_hours + advances + loss_deductions),
   CHECK (net = gross - deductions),
@@ -1479,7 +1503,8 @@ CREATE TABLE IF NOT EXISTS commissioned_orders (
   staff_id    INTEGER NOT NULL REFERENCES users(id),
   units       INTEGER NOT NULL CHECK (units > 0),
   total       INTEGER NOT NULL CHECK (total > 0),
-  secured_at  TEXT NOT NULL
+  secured_at  TEXT NOT NULL,
+  commission  INTEGER CHECK (commission IS NULL OR commission >= 0)   -- what this order earned; NULL on rows written before pay types existed (then units x the run's rate)
 );
 CREATE INDEX IF NOT EXISTS idx_commissioned_orders_run ON commissioned_orders(run_id);
 

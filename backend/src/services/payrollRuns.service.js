@@ -3,9 +3,12 @@ const db = require('../config/db');
 const ApiError = require('../utils/ApiError');
 const { logStaffAction } = require('../utils/auditLog');
 const settingsService = require('./settings.service');
-const { sqlOffset } = require('../utils/storeTime');
+const { sqlOffset, localDate } = require('../utils/storeTime');
 const { securedOrders } = require('./commission.service');
 const { calculateStaff } = require('./payroll.service');
+const { sweepReversals } = require('./commissionReversal.service');
+const { requireSignature } = require('../utils/signature');
+const { isRealDate, isMonth, monthBounds, sameMonth, payDateFor, normalizePayDay, cycleAround } = require('../utils/payCycle');
 
 // Locked payroll runs. Ported from the update branch's payroll/runs.ts (Rule 9: a locked run never changes).
 //
@@ -19,17 +22,19 @@ const { calculateStaff } = require('./payroll.service');
 
 const runError = (status, code, message) => new ApiError(status, message, null, code);
 
-const isDateString = (s) => {
-  if (typeof s !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
-  const d = new Date(`${s}T00:00:00Z`);
-  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s;
-};
-
+// The pay cycle (utils/payCycle.js): a period is inside ONE calendar month and is paid on a fixed day of the next
+// (settings payroll_pay_day, the 3rd). Commission targets are per month, so a period that straddled two would
+// blend two targets into one tier.
 function checkPeriod(from, to) {
-  if (!isDateString(from) || !isDateString(to) || to < from) {
+  if (!isRealDate(from) || !isRealDate(to) || to < from) {
     throw runError(422, 'PAYROLL_BAD_PERIOD', 'A pay period needs a start and an end date (YYYY-MM-DD), end not before start.');
   }
+  if (!sameMonth(from, to)) {
+    throw runError(422, 'PAYROLL_CROSSES_MONTH', 'A pay period is one calendar month at most: commission starts again each month. Run each month separately.');
+  }
 }
+
+const payDayNow = () => normalizePayDay(settingsService.getAll().payroll_pay_day);
 
 // ---------------------------------------------------------------- calculating a period
 
@@ -55,6 +60,7 @@ function previewPayroll({ storeId, from, to }) {
       daysWorked: c.dailyRetainer.daysLoggedIn, retainer: c.dailyRetainer.total,
       unitsSold: c.commission.unitsSold, achievedSales: c.commission.achievedSales, target: c.commission.target,
       achievementBp: c.commission.achievementBp, tier: c.commission.tier, rate: c.commission.rate, commission: c.commission.commissionTotal,
+      commissionType: c.commission.type, percentBp: c.commission.percentBp,
       late: c.attendance.lateTotal, absence: c.attendance.absenceTotal, missingHours: c.attendance.missingHoursTotal,
       advances: c.advancesTotal, lossDeductions: c.lossDeductionsTotal,
       gross: c.grossPay, deductions: c.totalDeductions, net, payable: Math.max(net, 0), shortfall: Math.max(-net, 0),
@@ -70,10 +76,16 @@ const MONEY_KEYS = ['daysWorked', 'retainer', 'unitsSold', 'achievedSales', 'tar
 
 /** A stable text form of a run's figures: used to compare a draft with a fresh calculation and to fingerprint a locked run. */
 function canonicalItems(period, items) {
-  const rows = [...items].sort((a, b) => a.staffId - b.staffId).map((i) => [
-    i.staffId, ...MONEY_KEYS.map((k) => i[k]),
-    i.lines.map((l) => [l.kind, l.refDate ?? null, l.refText ?? null, l.quantity ?? null, l.amountCents]),
-  ]);
+  // The pay type is part of the fingerprint only when it is not the plain per-unit kind. Every run approved before pay
+  // types existed was 'fixed', and leaving it out for them keeps their recorded checksums verifying exactly as before.
+  const rows = [...items].sort((a, b) => a.staffId - b.staffId).map((i) => {
+    const row = [
+      i.staffId, ...MONEY_KEYS.map((k) => i[k]),
+      i.lines.map((l) => [l.kind, l.refDate ?? null, l.refText ?? null, l.quantity ?? null, l.amountCents]),
+    ];
+    if (i.commissionType && i.commissionType !== 'fixed') row.push(['pay', i.commissionType, i.percentBp]);
+    return row;
+  });
   return JSON.stringify({ period: [period.from, period.to], items: rows });
 }
 
@@ -89,6 +101,7 @@ function loadItems(runId) {
   return items.map((r) => ({
     staffId: r.staff_id, staffName: r.staff_name, daysWorked: r.days_worked, retainer: r.retainer, unitsSold: r.units_sold,
     achievedSales: r.achieved_sales, target: r.target, achievementBp: r.achievement_bp, tier: r.tier, rate: r.rate, commission: r.commission,
+    commissionType: r.commission_type, percentBp: r.percent_bp,
     late: r.late, absence: r.absence, missingHours: r.missing_hours, advances: r.advances, lossDeductions: r.loss_deductions,
     gross: r.gross, deductions: r.deductions, net: r.net, payable: r.payable, shortfall: r.shortfall,
     lines: lines.filter((l) => l.item_id === r.id).map((l) => ({ kind: l.kind, refDate: l.ref_date, refText: l.ref_text, quantity: l.quantity, amountCents: l.amount })),
@@ -102,13 +115,15 @@ const totalsOf = (items) => ({
 });
 
 const RUN_SELECT = `SELECT r.*, (SELECT name FROM users WHERE id = r.created_by) AS created_by_name,
-  (SELECT name FROM users WHERE id = r.approved_by) AS approved_by_name, (SELECT name FROM users WHERE id = r.paid_by) AS paid_by_name FROM payroll_runs r`;
+  (SELECT name FROM users WHERE id = r.approved_by) AS approved_by_name, (SELECT name FROM users WHERE id = r.paid_by) AS paid_by_name,
+  (SELECT name FROM users WHERE id = r.signed_off_by) AS signed_off_by_name FROM payroll_runs r`;
 
 const viewOf = (r) => ({
   createdByName: r.created_by_name, approvedByName: r.approved_by_name, paidByName: r.paid_by_name,
   id: r.id, periodStart: r.period_start, periodEnd: r.period_end, status: r.status, createdBy: r.created_by, createdAt: r.created_at,
   approvedBy: r.approved_by, approvedAt: r.approved_at, paidBy: r.paid_by, paidAt: r.paid_at,
   paymentMethod: r.payment_method, paymentRef: r.payment_ref, checksum: r.checksum,
+  payDate: r.pay_date, signedOffBy: r.signed_off_by, signedOffByName: r.signed_off_by_name, signedOffAt: r.signed_off_at, signedOffName: r.signed_off_name,
 });
 
 function getRun({ runId, storeId }) {
@@ -138,9 +153,9 @@ function verifyRun({ runId, storeId }) {
 
 const insertItem = () => db.prepare(`
   INSERT INTO payroll_items (run_id, staff_id, staff_name, days_worked, retainer, units_sold, achieved_sales, target, achievement_bp, tier, rate,
-                             commission, late, absence, missing_hours, advances, loss_deductions, gross, deductions, net, payable, shortfall)
+                             commission, commission_type, percent_bp, late, absence, missing_hours, advances, loss_deductions, gross, deductions, net, payable, shortfall)
   VALUES (@runId, @staffId, @staffName, @daysWorked, @retainer, @unitsSold, @achievedSales, @target, @achievementBp, @tier, @rate,
-          @commission, @late, @absence, @missingHours, @advances, @lossDeductions, @gross, @deductions, @net, @payable, @shortfall)
+          @commission, @commissionType, @percentBp, @late, @absence, @missingHours, @advances, @lossDeductions, @gross, @deductions, @net, @payable, @shortfall)
 `);
 const insertLine = () => db.prepare('INSERT INTO payroll_item_lines (item_id, kind, ref_date, ref_text, quantity, amount) VALUES (?, ?, ?, ?, ?, ?)');
 
@@ -148,14 +163,24 @@ const overlappingLocked = (storeId, from, to) => db.prepare(`
   SELECT id FROM payroll_runs WHERE store_id = ? AND status <> 'draft' AND period_start <= ? AND period_end >= ? LIMIT 1
 `).get(storeId, to, from);
 
-/** Calculates the period and saves it as a draft. Running it again for the same period replaces the draft with a fresh calculation. */
-function generateDraft({ storeId, from, to, staffId }) {
+/**
+ * Calculates the period and saves it as a draft. Running it again for the same period replaces the draft with a fresh
+ * calculation. Pass `month` ('YYYY-MM') for a whole calendar month, or `from`/`to` for part of one.
+ */
+function generateDraft({ storeId, month, from, to, staffId }) {
+  if (month !== undefined && month !== null && month !== '') {
+    if (!isMonth(month)) throw runError(422, 'PAYROLL_BAD_PERIOD', 'month must look like 2026-10.');
+    ({ from, to } = monthBounds(month));
+  }
   checkPeriod(from, to);
   if (!staffId) throw runError(422, 'PAY_NO_ACTOR', 'The person generating payroll is required.');
 
   return db.transaction(() => {
     const locked = overlappingLocked(storeId, from, to);
     if (locked) throw runError(409, 'PERIOD_LOCKED', `That period overlaps payroll run ${locked.id}, which is locked.`);
+
+    // Take back commission on any already-commissioned order whose sale has since fallen through, before calculating.
+    sweepReversals({ storeId, actorId: staffId });
 
     const existing = db.prepare(`SELECT id FROM payroll_runs WHERE store_id = ? AND status = 'draft' AND period_start = ? AND period_end = ?`).get(storeId, from, to);
     let runId;
@@ -164,7 +189,8 @@ function generateDraft({ storeId, from, to, staffId }) {
       db.prepare('DELETE FROM payroll_item_lines WHERE item_id IN (SELECT id FROM payroll_items WHERE run_id = ?)').run(runId);
       db.prepare('DELETE FROM payroll_items WHERE run_id = ?').run(runId);
     } else {
-      runId = db.prepare('INSERT INTO payroll_runs (store_id, period_start, period_end, created_by) VALUES (?, ?, ?, ?)').run(storeId, from, to, staffId).lastInsertRowid;
+      runId = db.prepare('INSERT INTO payroll_runs (store_id, period_start, period_end, created_by, pay_date) VALUES (?, ?, ?, ?, ?)')
+        .run(storeId, from, to, staffId, payDateFor(to, payDayNow())).lastInsertRowid;
     }
 
     const addItem = insertItem();
@@ -200,9 +226,9 @@ function approveRun({ runId, storeId, staffId }) {
       throw runError(409, 'RUN_STALE', 'Something has changed since this draft was generated. Generate it again, review it, then approve.');
     }
 
-    const addOrder = db.prepare('INSERT INTO commissioned_orders (order_id, run_id, staff_id, units, total, secured_at) VALUES (?, ?, ?, ?, ?, ?)');
+    const addOrder = db.prepare('INSERT INTO commissioned_orders (order_id, run_id, staff_id, units, total, secured_at, commission) VALUES (?, ?, ?, ?, ?, ?, ?)');
     try {
-      for (const i of fresh) for (const o of i.orders) addOrder.run(o.orderId, run.id, i.staffId, o.units, o.total, o.securedAt);
+      for (const i of fresh) for (const o of i.orders) addOrder.run(o.orderId, run.id, i.staffId, o.units, o.total, o.securedAt, o.commission);
     } catch (err) {
       if (/commissioned_orders\.order_id|UNIQUE constraint/.test(err.message)) {
         throw runError(409, 'COMMISSION_ALREADY_PAID', 'An order in this run has already earned commission in another payroll run.');
@@ -212,7 +238,10 @@ function approveRun({ runId, storeId, staffId }) {
 
     const checksum = fingerprint(canonicalItems(period, stored));
     try {
-      db.prepare(`UPDATE payroll_runs SET status = 'approved', approved_by = ?, approved_at = datetime('now'), checksum = ? WHERE id = ?`).run(staffId, checksum, run.id);
+      // pay_date is recomputed here: a draft row cannot be edited, but approval may set it, and the pay day setting
+      // may have been changed since the draft was generated.
+      db.prepare(`UPDATE payroll_runs SET status = 'approved', approved_by = ?, approved_at = datetime('now'), checksum = ?, pay_date = ? WHERE id = ?`)
+        .run(staffId, checksum, payDateFor(run.period_end, payDayNow()), run.id);
     } catch (err) {
       if (/PERIOD_LOCKED/.test(err.message)) throw runError(409, 'PERIOD_LOCKED', 'Another locked payroll run already covers part of this period.');
       throw err;
@@ -222,26 +251,68 @@ function approveRun({ runId, storeId, staffId }) {
   }).immediate();
 }
 
-/** Records that an approved run has been paid. The run stays exactly as approved. */
-function markRunPaid({ runId, storeId, staffId, method, paymentRef }) {
+/**
+ * Records that an approved run has been paid, with the sign-off of the person releasing the money.
+ *
+ * Sign-off is two things the payer must give, on top of being an admin: their own full name typed as a signature
+ * (checked against their account) and the run's checksum - the fingerprint of the exact figures, which the screen
+ * shows beside the totals - so what they signed is provably what was approved. The run is re-verified first: a run
+ * whose stored figures no longer match its checksum is never paid. The run stays exactly as approved.
+ *
+ * Paying before the pay date is allowed (an advance of a day or two happens) and is simply visible: pay_date and
+ * paid_at are both on the record.
+ */
+function markRunPaid({ runId, storeId, staffId, method, paymentRef, signedName, checksum }) {
   if (!staffId) throw runError(422, 'PAY_NO_ACTOR', 'The person paying is required.');
   if (!['mpesa', 'bank', 'cash'].includes(method)) throw runError(422, 'PAYOUT_BAD_METHOD', 'Pay by mpesa, bank or cash.');
   const ref = typeof paymentRef === 'string' ? paymentRef.trim() : '';
   if (method !== 'cash' && !ref) throw runError(422, 'PAYOUT_REFERENCE_REQUIRED', 'Enter the payment reference.');
 
   return db.transaction(() => {
-    const run = db.prepare('SELECT status FROM payroll_runs WHERE id = ? AND store_id = ?').get(runId, storeId);
+    const run = db.prepare('SELECT status, checksum FROM payroll_runs WHERE id = ? AND store_id = ?').get(runId, storeId);
     if (!run) throw runError(404, 'RUN_NOT_FOUND', 'Payroll run not found.');
     if (run.status !== 'approved') {
       throw runError(409, 'RUN_NOT_APPROVED', run.status === 'paid' ? 'This run has already been paid.' : 'Only an approved run can be paid.');
     }
-    db.prepare(`UPDATE payroll_runs SET status = 'paid', paid_by = ?, paid_at = datetime('now'), payment_method = ?, payment_ref = ? WHERE id = ?`)
-      .run(staffId, method, ref || null, runId);
-    logStaffAction({ staffId, action: 'update', entityType: 'payroll_run', entityId: runId, before: { status: 'approved' }, after: { status: 'paid', payment_method: method } });
+
+    const payer = db.prepare('SELECT name FROM users WHERE id = ?').get(staffId);
+    const signature = requireSignature(signedName, payer ? payer.name : '', 'this payout');
+    if (!checksum || checksum !== run.checksum) {
+      throw runError(422, 'PAYOUT_CHECKSUM_MISMATCH', 'Sign-off needs the run checksum shown with the totals, so what you sign is exactly what was approved.');
+    }
+    if (!verifyRun({ runId, storeId }).intact) {
+      throw runError(409, 'RUN_TAMPERED', 'This run no longer matches the fingerprint recorded when it was approved, so it will not be paid. Investigate before releasing any money.');
+    }
+
+    db.prepare(`UPDATE payroll_runs SET status = 'paid', paid_by = ?, paid_at = datetime('now'), payment_method = ?, payment_ref = ?,
+                                       signed_off_by = ?, signed_off_at = datetime('now'), signed_off_name = ? WHERE id = ?`)
+      .run(staffId, method, ref || null, staffId, signature, runId);
+    logStaffAction({ staffId, action: 'update', entityType: 'payroll_run', entityId: runId, before: { status: 'approved' }, after: { status: 'paid', payment_method: method, signed_off_name: signature } });
     return getRun({ runId, storeId });
   }).immediate();
 }
 
+/**
+ * Where the pay cycle stands today: the month being worked, and the month just finished with whether its pay has been
+ * calculated, approved and paid and whether the fixed pay date has arrived (or passed with the money not yet out).
+ */
+function cycleStatus({ storeId }) {
+  const today = localDate();
+  const payDay = payDayNow();
+  const { current, previous } = cycleAround(today, payDay);
+  const runFor = (c) => db.prepare(`
+    SELECT id, status, pay_date FROM payroll_runs WHERE store_id = ? AND period_start = ? AND period_end = ?
+     ORDER BY CASE status WHEN 'paid' THEN 0 WHEN 'approved' THEN 1 ELSE 2 END, id DESC LIMIT 1
+  `).get(storeId, c.from, c.to) || null;
+  const prevRun = runFor(previous);
+  const paid = prevRun && prevRun.status === 'paid';
+  return {
+    today, payDay,
+    current: { ...current, run: runFor(current) },
+    previous: { ...previous, run: prevRun, payDue: today >= previous.payDate, overdue: today > previous.payDate && !paid },
+  };
+}
+
 module.exports = {
-  previewPayroll, canonicalItems, fingerprint, totalsOf, getRun, listRuns, verifyRun, generateDraft, approveRun, markRunPaid,
+  previewPayroll, canonicalItems, fingerprint, totalsOf, getRun, listRuns, verifyRun, generateDraft, approveRun, markRunPaid, cycleStatus,
 };

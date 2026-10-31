@@ -33,6 +33,8 @@ const DEFAULTS = {
   attendance_expected_hours: '8',              // a full clocked day — short of this incurs the missing-hours fee
   attendance_missing_hour_fee_kes: '30',
   daily_retainer_kes: '300',                   // paid for every day logged in, on top of commission
+  // Pay cycle: a calendar month's work is paid on this day of the following month (1-28; the 3rd).
+  payroll_pay_day: '3',
   // Commission tiers — BEST GUESS pending confirmation (see CHANGES.md):
   // the source requirements gave two different numbers for this before
   // landing on this one, which has an odd wrinkle (below AND at 70% pay

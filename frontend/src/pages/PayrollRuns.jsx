@@ -17,16 +17,27 @@ const STATUS = {
   approved: { tone: 'accent', label: 'Approved · locked' },
   paid: { tone: 'success', label: 'Paid · locked' },
 };
+const monthLabel = (ym) => new Date(`${ym}-01T00:00:00`).toLocaleString(undefined, { month: 'long', year: 'numeric' });
+const dayLabel = (ymd) => new Date(`${ymd}T00:00:00`).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
 const LINE_LABEL = {
   retainer_day: 'Retainer day', commission_order: 'Commission', late: 'Late', absence: 'Absence', missing_hours: 'Short hours',
   salary_advance: 'Salary advance', loss_deduction: 'Loss deduction',
 };
 const isDeduction = (kind) => !['retainer_day', 'commission_order'].includes(kind);
 
-function firstOfMonth() {
+// The month whose pay is next to be calculated: the one that just finished.
+function lastMonth() {
   const d = new Date();
-  return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().slice(0, 10);
+  const prev = new Date(d.getFullYear(), d.getMonth() - 1, 1);
+  return `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, '0')}`;
 }
+// A reversal is a loss deduction that carries the order it takes commission back from.
+const lineLabel = (l) => (l.kind === 'loss_deduction' && (l.refText || '').startsWith('Commission reversed') ? 'Commission reversed' : LINE_LABEL[l.kind] || l.kind);
+const payType = (i) => {
+  if (i.commissionType === 'percentage') return `${i.percentBp / 100}% of sales`;
+  if (i.commissionType === 'combined') return `${money(i.rate)}/unit + ${i.percentBp / 100}%`;
+  return `${money(i.rate)} per unit`;
+};
 const errorCode = (err) => err?.response?.data?.error?.code;
 
 function StatusBadge({ status }) {
@@ -37,20 +48,20 @@ function StatusBadge({ status }) {
 export default function PayrollRuns() {
   const qc = useQueryClient();
   const toast = useToast();
-  const [from, setFrom] = useState(firstOfMonth());
-  const [to, setTo] = useState(new Date().toISOString().slice(0, 10));
+  const [month, setMonth] = useState(lastMonth());
   const [selectedId, setSelectedId] = useState(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
   const { data: runs, isLoading } = useQuery({ queryKey: ['payroll', 'runs'], queryFn: () => payrollApi.runs().then((r) => r.data.data) });
+  const { data: cycle } = useQuery({ queryKey: ['payroll', 'cycle'], queryFn: () => payrollApi.cycle().then((r) => r.data.data) });
 
   async function calculate() {
     setBusy(true);
     setError('');
     try {
-      const run = (await payrollApi.generateRun(from, to)).data.data;
-      qc.invalidateQueries({ queryKey: ['payroll', 'runs'] });
+      const run = (await payrollApi.generateRun({ month })).data.data;
+      qc.invalidateQueries({ queryKey: ['payroll'] });
       setSelectedId(run.id);
       toast.success('Draft calculated.');
     } catch (err) {
@@ -64,22 +75,20 @@ export default function PayrollRuns() {
     <div className="p-4 md:p-6 max-w-5xl">
       <h1 className="font-display font-700 text-2xl mb-1">Pay runs</h1>
       <p className="text-text-muted text-sm mb-5">
-        Calculate a period, review it, approve it to lock the figures, then record the payment. A locked run never changes, and
-        commission is paid only on secured money, once per order.
+        Each month is worked, calculated, reviewed, approved (which locks the figures) and paid on the {cycle?.payDay ?? 3}rd of the next month. A locked run never changes,
+        and commission is paid only on secured money, once per order. Commission targets start again every month.
       </p>
+
+      {cycle && <CycleBanner cycle={cycle} />}
 
       {error && <div className="mb-4 px-3.5 py-2.5 rounded-lg bg-danger-soft text-danger text-sm" role="alert">{error}</div>}
 
       <div className="flex flex-col sm:flex-row sm:items-end gap-3 mb-6">
-        <label className="text-xs text-text-muted">From
-          <input type="date" value={from} onChange={(e) => setFrom(e.target.value)}
+        <label className="text-xs text-text-muted">Month
+          <input type="month" value={month} onChange={(e) => setMonth(e.target.value)}
             className="mt-1 block w-full px-3.5 py-2.5 rounded-lg border border-line bg-surface text-sm text-text focus:border-accent outline-none" />
         </label>
-        <label className="text-xs text-text-muted">To
-          <input type="date" value={to} onChange={(e) => setTo(e.target.value)}
-            className="mt-1 block w-full px-3.5 py-2.5 rounded-lg border border-line bg-surface text-sm text-text focus:border-accent outline-none" />
-        </label>
-        <button onClick={calculate} disabled={busy || !from || !to}
+        <button onClick={calculate} disabled={busy || !month}
           className="px-4 py-2.5 rounded-lg bg-ink text-white text-sm font-medium hover:bg-ink-soft disabled:opacity-50">
           Calculate draft
         </button>
@@ -89,7 +98,7 @@ export default function PayrollRuns() {
         <div className="bg-surface border border-line rounded-xl overflow-hidden">
           <div className="px-4 py-3 font-display font-600 text-sm border-b border-line">Runs</div>
           {isLoading && <div className="p-4 text-sm text-text-muted">Loading…</div>}
-          {runs && runs.length === 0 && <div className="p-4 text-sm text-text-muted">No runs yet. Pick a period and calculate a draft.</div>}
+          {runs && runs.length === 0 && <div className="p-4 text-sm text-text-muted">No runs yet. Pick a month and calculate a draft.</div>}
           <ul>
             {(runs || []).map((r) => (
               <li key={r.id}>
@@ -113,6 +122,26 @@ export default function PayrollRuns() {
   );
 }
 
+// Where the cycle stands: the month just finished and whether its pay is calculated, locked, paid, due or late.
+function CycleBanner({ cycle }) {
+  const prev = cycle.previous;
+  const status = prev.run ? prev.run.status : 'none';
+  const text = {
+    none: 'not calculated yet',
+    draft: 'drafted, not yet approved',
+    approved: 'approved and locked, not yet paid',
+    paid: 'paid',
+  }[status];
+  const late = prev.overdue;
+  const tone = late ? 'bg-danger-soft text-danger' : status === 'paid' ? 'bg-bg text-text-muted' : 'bg-bg text-text';
+  return (
+    <div className={`mb-4 px-3.5 py-2.5 rounded-lg text-sm ${tone}`} role={late ? 'alert' : undefined}>
+      <span className="font-medium">{monthLabel(prev.month)} pay</span> is {text} · due {dayLabel(prev.payDate)}
+      {late && ' · overdue'}
+    </div>
+  );
+}
+
 function RunDetail({ runId, onError }) {
   const qc = useQueryClient();
   const toast = useToast();
@@ -121,7 +150,7 @@ function RunDetail({ runId, onError }) {
   const [expanded, setExpanded] = useState(() => new Set());
   const [confirming, setConfirming] = useState(false);
   const [paying, setPaying] = useState(false);
-  const [pay, setPay] = useState({ method: 'mpesa', ref: '' });
+  const [pay, setPay] = useState({ method: 'mpesa', ref: '', signedName: '' });
   const [stale, setStale] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -160,7 +189,7 @@ function RunDetail({ runId, onError }) {
     if (await act(() => payrollApi.generateRun(run.periodStart, run.periodEnd), 'Draft recalculated.')) { setStale(false); setConfirming(false); }
   };
   const markPaid = async () => {
-    if (await act(() => payrollApi.payRun(runId, pay.method, pay.ref), 'Marked as paid.')) setPaying(false);
+    if (await act(() => payrollApi.payRun(runId, pay.method, pay.ref, pay.signedName.trim(), run.checksum), 'Payout signed off and recorded.')) setPaying(false);
   };
   const toggle = (id) => setExpanded((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
 
@@ -184,10 +213,13 @@ function RunDetail({ runId, onError }) {
         </div>
 
         <div className="text-xs text-text-muted space-y-0.5">
-          <div>Calculated by {run.createdByName || 'staff'} · {when(run.createdAt)}</div>
+          <div>Calculated by {run.createdByName || 'staff'} · {when(run.createdAt)}{run.payDate ? ` · pay date ${run.payDate}` : ''}</div>
           {run.approvedAt && <div>Approved by {run.approvedByName || 'admin'} · {when(run.approvedAt)}</div>}
           {run.status === 'paid' && (
             <div>Paid by {run.paidByName || 'admin'} · {when(run.paidAt)} · {run.paymentMethod}{run.paymentRef ? ` · ${run.paymentRef}` : ''}</div>
+          )}
+          {run.status === 'paid' && run.signedOffName && (
+            <div>Signed off by {run.signedOffByName || 'admin'} as “{run.signedOffName}” · {when(run.signedOffAt)}</div>
           )}
           {locked && verify && (
             verify.intact
@@ -227,6 +259,10 @@ function RunDetail({ runId, onError }) {
 
         {run.status === 'approved' && (
           paying ? (
+            <div>
+              <p className="text-xs text-text-muted mb-2">
+                You are signing off these exact figures: payable {money(run.totals.payable)}, fingerprint <span className="font-mono">{run.checksum.slice(0, 12)}…</span>
+              </p>
             <div className="flex flex-col sm:flex-row sm:items-end gap-2">
               <label className="text-xs text-text-muted">Paid by
                 <select value={pay.method} onChange={(e) => setPay({ ...pay, method: e.target.value })}
@@ -240,9 +276,14 @@ function RunDetail({ runId, onError }) {
                     className="mt-1 block w-full px-3 py-2 rounded-lg border border-line bg-surface text-sm text-text outline-none focus:border-accent" />
                 </label>
               )}
-              <button onClick={markPaid} disabled={busy || !isAdmin || (needsRef && !pay.ref.trim())} title={adminOnly}
+              <label className="text-xs text-text-muted flex-1">Sign off: type your full name
+                <input value={pay.signedName} onChange={(e) => setPay({ ...pay, signedName: e.target.value })} placeholder={user?.name || 'Your full name'} autoComplete="off"
+                  className="mt-1 block w-full px-3 py-2 rounded-lg border border-line bg-surface text-sm text-text outline-none focus:border-accent" />
+              </label>
+              <button onClick={markPaid} disabled={busy || !isAdmin || !pay.signedName.trim() || (needsRef && !pay.ref.trim())} title={adminOnly}
                 className="px-4 py-2 rounded-lg bg-ink text-white text-sm font-medium hover:bg-ink-soft disabled:opacity-50">Confirm payment</button>
               <button onClick={() => setPaying(false)} className="px-4 py-2 rounded-lg border border-line text-sm">Cancel</button>
+            </div>
             </div>
           ) : (
             <div className="flex flex-wrap items-center gap-3">
@@ -299,7 +340,7 @@ function ItemRows({ item: i, open, onToggle }) {
           <button onClick={onToggle} aria-expanded={open} className="text-left">
             <span className="font-medium">{i.staffName}</span>
             <span className="block text-xs text-text-muted">
-              {i.daysWorked} days · {i.unitsSold} units · {i.tier} tier
+              {i.daysWorked} days · {i.unitsSold} units · {i.commissionType && i.commissionType !== 'fixed' ? payType(i) : `${i.tier} tier`}
             </span>
           </button>
         </td>
@@ -318,7 +359,7 @@ function ItemRows({ item: i, open, onToggle }) {
               {i.lines.map((l, idx) => (
                 <div key={idx} className="flex justify-between gap-3 text-text-muted">
                   <span>
-                    {l.refDate} · {LINE_LABEL[l.kind] || l.kind}
+                    {l.refDate} · {lineLabel(l)}
                     {l.refText ? ` · ${l.refText}` : ''}
                     {l.quantity ? ` (${l.quantity}${l.kind === 'commission_order' ? ' units' : 'h'})` : ''}
                   </span>
@@ -326,7 +367,7 @@ function ItemRows({ item: i, open, onToggle }) {
                 </div>
               ))}
               <div className="pt-1 flex justify-between text-text">
-                <span>Achievement {(i.achievementBp / 100).toFixed(1)}% of {money(i.target)} target · {money(i.rate)} per unit</span>
+                <span>Achievement {(i.achievementBp / 100).toFixed(1)}% of {money(i.target)} target · {payType(i)}</span>
                 <span>Net {money(i.net)}</span>
               </div>
             </div>
