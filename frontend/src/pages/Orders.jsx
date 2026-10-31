@@ -5,6 +5,7 @@ import PrintReceiptButton from '../components/PrintReceipt';
 import InvoiceButton from '../components/InvoiceButton';
 import PrintWaybillButton from '../components/PrintWaybill';
 import AddItemsSheet from '../components/AddItemsSheet';
+import CustomerOrderHistory from '../components/CustomerOrderHistory';
 import { getErrorMessage } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { useDialog } from '../context/UIContext';
@@ -283,6 +284,11 @@ export default function Orders() {
                 {order.customer?.phone}{order.customer?.city ? ` · ${order.customer.city}` : ''}
                 {order.delivery_zone && ` · ${order.delivery_zone === 'nairobi' ? 'Nairobi (2h)' : 'Outside Nairobi (24–48h)'}`}
               </div>
+
+              <CustomerOrderHistory
+                customerId={order.customer?.id} currentOrderId={order.id} onSelectOrder={setSelectedId}
+                statusLabels={STATUS_LABELS} statusTones={STATUS_TONES}
+              />
 
               {modules.control && order.customer?.prepay_required === 1 && (
                 <div className="mb-4 px-3 py-2 rounded-lg bg-danger-soft text-danger text-xs">
