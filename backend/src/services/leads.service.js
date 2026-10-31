@@ -36,6 +36,52 @@ function findDuplicateByPhone({ storeId, phone }) {
   `).get(storeId, phoneNormalized);
 }
 
+// Duplicate detection (§1.2), in two strengths:
+//   exact    - the same phone number or the same email address: certainly the same person, so creating is refused.
+//   possible - the same full name on a lead that is still being worked: could be a different person, so the caller
+//              must say "create it anyway" (allowPossibleDuplicate). Single-word names never match (too common),
+//              word order and punctuation are ignored ("Wanjiru, Jane" = "jane wanjiru"), and closed leads
+//              (converted/lost) are not compared - the point is to stop two reps chasing the same person.
+const OPEN_STATUSES = ['new', 'contacted', 'rescheduled'];
+
+const normalizeEmail = (email) => (typeof email === 'string' ? email.trim().toLowerCase() : '');
+
+function nameTokens(name) {
+  return String(name || '').toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, ' ').split(/\s+/).filter(Boolean).sort();
+}
+
+function findDuplicateByEmail({ storeId, email, excludeId }) {
+  const normalized = normalizeEmail(email);
+  if (!normalized) return null;
+  return db.prepare(`
+    SELECT * FROM leads WHERE store_id = ? AND lower(trim(email)) = ? AND deleted_at IS NULL AND id != ?
+  `).get(storeId, normalized, excludeId ?? 0) || null;
+}
+
+function findPossibleDuplicatesByName({ storeId, name, excludeId }) {
+  const tokens = nameTokens(name);
+  if (tokens.length < 2) return [];
+  const key = tokens.join(' ');
+  const placeholders = OPEN_STATUSES.map(() => '?').join(',');
+  // LIKE on one word narrows the rows; the exact comparison happens on the normalised words below.
+  return db.prepare(`
+    SELECT id, name, status FROM leads
+    WHERE store_id = ? AND deleted_at IS NULL AND id != ? AND status IN (${placeholders}) AND lower(name) LIKE ?
+  `).all(storeId, excludeId ?? 0, ...OPEN_STATUSES, `%${tokens[0].replace(/[%_]/g, '')}%`)
+    .filter((row) => nameTokens(row.name).join(' ') === key);
+}
+
+// Phone or email already on another lead -> 409 carrying that lead's id (web-form intake uses it to log a repeat enquiry).
+function assertNoExactDuplicate({ storeId, phone, email, excludeId }) {
+  const phoneKey = normalizePhone(phone);
+  const byPhone = phoneKey && db.prepare(`
+    SELECT * FROM leads WHERE store_id = ? AND phone_normalized = ? AND deleted_at IS NULL AND id != ?
+  `).get(storeId, phoneKey, excludeId ?? 0);
+  if (byPhone) throw new ApiError(409, 'A lead with this phone number already exists.', { existingLeadId: byPhone.id, matchedOn: 'phone' });
+  const byEmail = findDuplicateByEmail({ storeId, email, excludeId });
+  if (byEmail) throw new ApiError(409, 'A lead with this email address already exists.', { existingLeadId: byEmail.id, matchedOn: 'email' });
+}
+
 // Cashiers only see/manage their own assigned leads (§5.2: "own assigned leads only").
 function scopeToRole(where, params, { role, userId }) {
   if (role === 'cashier') {
@@ -117,16 +163,20 @@ function getById({ id, storeId, role, userId }) {
   return { ...lead, activities, status_history: statusHistory };
 }
 
-function create({ storeId, staffId, name, phone, email, source, notes, assignedStaffId }) {
+function create({ storeId, staffId, name, phone, email, source, notes, assignedStaffId, allowPossibleDuplicate }) {
   if (!name || !phone || !source) throw new ApiError(400, 'name, phone, and source are required.');
   if (!VALID_SOURCES.includes(source)) {
     throw new ApiError(400, `source must be one of ${VALID_SOURCES.join(', ')}.`);
   }
 
   // Duplicate detection (§1.2) — never silently merge, surface a 409 with the existing id.
-  const duplicate = findDuplicateByPhone({ storeId, phone });
-  if (duplicate) {
-    throw new ApiError(409, 'A lead with this phone number already exists.', { existingLeadId: duplicate.id });
+  assertNoExactDuplicate({ storeId, phone, email });
+  if (allowPossibleDuplicate !== true) {
+    const possible = findPossibleDuplicatesByName({ storeId, name });
+    if (possible.length) {
+      throw new ApiError(409, `A lead named "${possible[0].name}" is already open. Create this one anyway?`,
+        { possibleDuplicates: possible.map((p) => ({ id: p.id, name: p.name, status: p.status })) }, 'POSSIBLE_DUPLICATE_LEAD');
+    }
   }
 
   // §3 Equal Distribution: an explicit assignedStaffId always wins (a
@@ -158,6 +208,15 @@ function update({ id, storeId, role, userId, staffId, name, phone, email, notes,
   const finalPhone = phone ?? existing.phone;
   const finalEmail = email ?? existing.email;
   const finalNotes = notes ?? existing.notes;
+  // Editing a lead onto another lead's phone or email would create the very duplicate create() refuses.
+  // Only checked for a value that is actually changing, so an old lead that already clashes can still be edited.
+  const phoneChanged = normalizePhone(finalPhone) !== existing.phone_normalized;
+  const emailChanged = normalizeEmail(finalEmail) !== normalizeEmail(existing.email);
+  if (phoneChanged || emailChanged) {
+    assertNoExactDuplicate({
+      storeId, phone: phoneChanged ? finalPhone : null, email: emailChanged ? finalEmail : null, excludeId: existing.id,
+    });
+  }
   const finalAssignedStaffId = assignedStaffId ?? existing.assigned_staff_id;
   const finalConvertedOrderId = convertedOrderId ?? existing.converted_order_id;
   if (convertedOrderId != null) {
@@ -340,6 +399,6 @@ function remove({ id, storeId, staffId }) {
 }
 
 module.exports = {
-  TRANSITIONS, assertValidTransition, findDuplicateByPhone,
+  TRANSITIONS, assertValidTransition, findDuplicateByPhone, findDuplicateByEmail, findPossibleDuplicatesByName,
   list, getStats, getById, create, update, changeStatus, convertToOrder, addActivity, remove,
 };

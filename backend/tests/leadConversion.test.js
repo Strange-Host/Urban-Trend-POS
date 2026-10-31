@@ -18,7 +18,7 @@ const nextPhone = () => `07440${String(10000 + phoneCounter++)}`;
 
 async function makeLead(extra = {}) {
   const res = await request(app).post('/api/leads').set(auth())
-    .send({ name: 'Phase0 Lead', phone: nextPhone(), source: 'walk_in', ...extra });
+    .send({ name: 'Phase0 Lead', phone: nextPhone(), source: 'walk_in', allow_possible_duplicate: true, ...extra });
   expect(res.status).toBe(201);
   return res.body.data;
 }
