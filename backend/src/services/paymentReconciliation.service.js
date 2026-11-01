@@ -143,7 +143,7 @@ function ingestNotification({ storeId, source, method, amount, externalReference
 
 // Outgoing (§ "money spent... mirrored into the application"): no order to
 // match, so this always mirrors straight into `expenses` — visible in
-// profit-summary the same as any manually-entered expense — and marks
+// the profit & loss report (GET /api/reports/pnl) the same as any manually-entered expense — and marks
 // itself 'matched' (meaning "successfully recorded", not "matched to an
 // order"; there's no order for an outgoing payment to match).
 function ingestOutgoing({ storeId, source, method, amount, externalReference, narrative, payerName, rawPayload }) {

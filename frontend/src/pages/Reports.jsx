@@ -18,7 +18,13 @@ const TABS = [
   { key: 'vat', label: 'VAT' },
   { key: 'branches', label: 'Branches' },
   { key: 'agents', label: 'Sales agents' },
+  { key: 'unpaid', label: 'Unpaid parcels' },
+  { key: 'leaders', label: 'Profit leaders' },
 ];
+
+// These two have no Excel/PDF export on the server. Unpaid parcels is also "right now", so it ignores the date range.
+const NO_EXPORT = new Set(['unpaid', 'leaders']);
+const NO_DATE_RANGE = new Set(['unpaid']);
 
 const iso = (d) => d.toISOString().slice(0, 10);
 const daysAgo = (n) => iso(new Date(Date.now() - n * 86400000));
@@ -221,6 +227,68 @@ function AgentsTab({ params }) {
   );
 }
 
+const daysSince = (ts) => {
+  const t = ts ? Date.parse(String(ts).replace(' ', 'T') + (/[zZ]|[+-]\d\d:?\d\d$/.test(ts) ? '' : 'Z')) : NaN;
+  return Number.isNaN(t) ? null : Math.max(0, Math.floor((Date.now() - t) / 86400000));
+};
+const marginPct = (revenue, margin) => (revenue > 0 ? Math.round((margin / revenue) * 1000) / 10 : null);
+
+// Dispatched orders the courier has not fully paid for yet: the row-level list behind the dashboard's parcel count.
+function UnpaidParcelsTab() {
+  const [courier, setCourier] = useState('');
+  const { data, isLoading, error } = useQuery({
+    queryKey: ['reports', 'unpaid-parcels', courier],
+    queryFn: () => reportsApi.unpaidParcels(courier ? { courier } : {}).then((r) => r.data.data),
+  });
+  if (isLoading) return <div className="text-sm text-text-muted">Loading…</div>;
+  if (error) return <div className="text-sm text-danger">{getErrorMessage(error)}</div>;
+  const rows = data.map((r) => ({ ...r, courier: r.courier_type || 'unassigned', days_waiting: daysSince(r.dispatched_at) }));
+  const outstanding = rows.reduce((sum, r) => sum + r.outstanding, 0);
+  return (
+    <>
+      <div className="grid grid-cols-2 gap-3 mb-4 max-w-md">
+        <StatCard label="Parcels waiting" value={num(rows.length)} />
+        <StatCard label="Owed to us (KES)" value={kes(outstanding)} />
+      </div>
+      <label className="block text-xs font-medium text-text-muted mb-3">Courier
+        <select className={`${inputCls} mt-1 max-w-[12rem]`} value={courier} onChange={(e) => setCourier(e.target.value)}>
+          <option value="">All couriers</option>
+          <option value="boda">Boda</option>
+          <option value="g4s">G4S</option>
+        </select>
+      </label>
+      <Panel title="Unpaid parcels" description="Dispatched but not fully paid, oldest first. This is the position right now, so the date range does not apply.">
+        <Table
+          empty="No unpaid parcels."
+          columns={[T('product_code', 'Order'), T('customer_name', 'Customer'), T('customer_phone', 'Phone'), T('courier', 'Courier'), I('days_waiting', 'Days waiting'), M('total', 'Total'), M('amount_paid', 'Paid'), M('outstanding', 'Outstanding')]}
+          rows={rows} totals={rows.length ? { product_code: 'Total', outstanding } : undefined}
+        />
+      </Panel>
+    </>
+  );
+}
+
+// Who and what actually makes the money: margin (revenue minus cost) rather than revenue alone.
+function ProfitLeadersTab({ params }) {
+  const products = useQuery({ queryKey: ['reports', 'top-products-by-profit', params], queryFn: () => reportsApi.topProductsByProfit(params).then((r) => r.data.data) });
+  const staff = useQuery({ queryKey: ['reports', 'top-staff-by-profit', params], queryFn: () => reportsApi.topStaffByProfit(params).then((r) => r.data.data) });
+  if (products.isLoading || staff.isLoading) return <div className="text-sm text-text-muted">Loading…</div>;
+  const failed = products.error || staff.error;
+  if (failed) return <div className="text-sm text-danger">{getErrorMessage(failed)}</div>;
+  const productRows = products.data.map((r) => ({ ...r, margin_percent: marginPct(r.revenue, r.profit) }));
+  const staffRows = staff.data.map((r) => ({ ...r, margin_percent: marginPct(r.revenue, r.margin) }));
+  return (
+    <>
+      <Panel title="Top products by profit" description="Till and online sales together, ranked by revenue minus cost." className="mb-4">
+        <Table columns={[T('name', 'Product'), T('sku', 'SKU'), I('units_sold', 'Units'), M('revenue', 'Revenue'), M('cost', 'Cost'), M('profit', 'Profit'), P('margin_percent', 'Margin %')]} rows={productRows} />
+      </Panel>
+      <Panel title="Sales staff by margin" description="Margin on the paid, dispatched orders assigned to each person, before their own commission (see Payroll for that).">
+        <Table columns={[T('name', 'Staff'), I('orders_count', 'Orders'), M('revenue', 'Revenue'), M('cost', 'Cost'), M('margin', 'Margin'), P('margin_percent', 'Margin %')]} rows={staffRows} />
+      </Panel>
+    </>
+  );
+}
+
 export default function Reports() {
   const toast = useToast();
   const [tab, setTab] = useState('pnl');
@@ -246,18 +314,20 @@ export default function Reports() {
       <h1 className="font-display font-700 text-2xl tracking-tight mb-4">Reports</h1>
       <TabBar tabs={TABS} active={tab} onChange={setTab} className="mb-4" />
       <div className="flex flex-wrap items-end gap-3 mb-4">
-        <label className="text-xs font-medium text-text-muted">From
-          <input type="date" className={`${inputCls} mt-1`} value={from} max={to} onChange={(e) => setFrom(e.target.value)} />
-        </label>
-        <label className="text-xs font-medium text-text-muted">To
-          <input type="date" className={`${inputCls} mt-1`} value={to} min={from} onChange={(e) => setTo(e.target.value)} />
-        </label>
-        <div className="flex gap-2 sm:ml-auto">
+        {!NO_DATE_RANGE.has(tab) && (<>
+          <label className="text-xs font-medium text-text-muted">From
+            <input type="date" className={`${inputCls} mt-1`} value={from} max={to} onChange={(e) => setFrom(e.target.value)} />
+          </label>
+          <label className="text-xs font-medium text-text-muted">To
+            <input type="date" className={`${inputCls} mt-1`} value={to} min={from} onChange={(e) => setTo(e.target.value)} />
+          </label>
+        </>)}
+        {!NO_EXPORT.has(tab) && <div className="flex gap-2 sm:ml-auto">
           <button onClick={() => exportAs('xlsx')} disabled={!validRange || !!busy} className="px-3 py-2 rounded-lg border border-line text-sm font-medium hover:border-text-muted disabled:opacity-50">{busy === 'xlsx' ? 'Preparing…' : 'Download Excel'}</button>
           <button onClick={() => exportAs('pdf')} disabled={!validRange || !!busy} className="px-3 py-2 rounded-lg border border-line text-sm font-medium hover:border-text-muted disabled:opacity-50">{busy === 'pdf' ? 'Preparing…' : 'Download PDF'}</button>
-        </div>
+        </div>}
       </div>
-      {!validRange ? (
+      {tab === 'unpaid' ? <UnpaidParcelsTab /> : !validRange ? (
         <div className="text-sm text-danger">Pick a start date that is on or before the end date.</div>
       ) : (
         <>
@@ -266,6 +336,7 @@ export default function Reports() {
           {tab === 'vat' && <VatTab params={params} />}
           {tab === 'branches' && <BranchesTab params={params} />}
           {tab === 'agents' && <AgentsTab params={params} />}
+          {tab === 'leaders' && <ProfitLeadersTab params={params} />}
         </>
       )}
     </div>
