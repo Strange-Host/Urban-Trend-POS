@@ -91,22 +91,8 @@ async function ingestWooProducts(source, products, userId) {
       fetched_at = datetime('now')
   `);
 
-  // Stock quantity auto-syncs on every pull regardless of review status —
-  // see shopify.service.js for the reasoning (it's a fact, not a judgment
-  // call, and stale counts are the most operationally damaging kind of drift).
-  const syncInventoryForMatch = db.transaction((productId, incomingQty, userId) => {
-    // A store can report negative stock (oversold there); the POS never holds below zero.
-    const newQty = Math.max(0, incomingQty);
-    const rows = db.prepare('SELECT * FROM inventory WHERE product_id = ?').all(productId);
-    for (const inv of rows) {
-      if (inv.quantity === newQty) continue;
-      db.prepare(`UPDATE inventory SET quantity = ?, updated_at = datetime('now') WHERE id = ?`).run(newQty, inv.id);
-      db.prepare(`
-        INSERT INTO inventory_movements (product_id, store_id, change_qty, reason, created_by)
-        VALUES (?, ?, ?, 'adjustment', ?)
-      `).run(productId, inv.store_id, newQty - inv.quantity, userId || null);
-    }
-  });
+  // WooCommerce's stock count is not copied into the shop's inventory (separate physical stock; see shopify.service.js).
+  // It stays on the staged row as information only.
 
   const txn = db.transaction((rows) => {
     let created = 0, updated = 0, unchanged = 0;
@@ -132,7 +118,6 @@ async function ingestWooProducts(source, products, userId) {
         row.match_status = changed ? 'update' : 'unchanged';
         row.matched_product_id = existing.id;
         changed ? updated++ : unchanged++;
-        syncInventoryForMatch(existing.id, row.inventory_qty, userId);
       }
       upsert.run(row);
     }
