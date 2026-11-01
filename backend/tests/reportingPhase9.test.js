@@ -52,10 +52,10 @@ describe('reporting (Phase 9)', () => {
     expect(res.body.data.some((row) => row.customer_phone === '0733300002')).toBe(true);
   });
 
-  it('profit-summary computes revenue, cost of goods sold, delivery, labor, expenses, and net profit', async () => {
-    const res = await request(app).get(`/api/reports/profit-summary?from=${today}&to=${today}`).set('Authorization', `Bearer ${token}`);
+  it('the P&L summary computes revenue, cost of goods sold, delivery, labor, expenses, and net profit', async () => {
+    const res = await request(app).get(`/api/reports/pnl?from=${today}&to=${today}`).set('Authorization', `Bearer ${token}`);
     expect(res.status).toBe(200);
-    const d = res.body.data;
+    const d = res.body.data.summary;
     expect(d.revenue).toBeGreaterThan(0);
     expect(d.costOfGoodsSold).toBeGreaterThan(0);
     expect(d.grossMargin).toBe(d.revenue - d.costOfGoodsSold);

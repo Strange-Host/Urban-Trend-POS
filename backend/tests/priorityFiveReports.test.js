@@ -57,10 +57,8 @@ beforeAll(async () => {
 afterAll(() => cleanupTestDb());
 
 describe('full P&L', () => {
-  it('summary equals profit-summary, and the category rows add back up to revenue and margin', async () => {
+  it('the category rows add back up to the summary revenue and margin', async () => {
     const full = (await get(`/api/reports/pnl?${q}`)).body.data;
-    const legacy = (await get(`/api/reports/profit-summary?${q}`)).body.data;
-    expect(full.summary).toEqual(legacy);
     expect(full.summary.revenue).toBeGreaterThan(0);
     expect(full.byCategory.total.revenue).toBe(full.summary.revenue);
     expect(full.byCategory.total.margin).toBe(full.summary.grossMargin);
@@ -96,7 +94,7 @@ describe('forecast vs actual', () => {
   it('compares the month so far with its target and budget, and updates in place', async () => {
     const { forecast } = (await get(`/api/reports/pnl?from=${month}-01&to=${today}`)).body.data;
     const row = forecast.rows.find((r) => r.month === month);
-    const monthPnl = (await get(`/api/reports/profit-summary?from=${month}-01&to=${today}`)).body.data;
+    const monthPnl = (await get(`/api/reports/pnl?from=${month}-01&to=${today}`)).body.data.summary;
     expect(row.has_forecast).toBe(true);
     expect(row.revenue_actual).toBe(monthPnl.revenue);
     expect(row.revenue_variance).toBe(monthPnl.revenue - 100000000);
@@ -133,7 +131,7 @@ describe('discount report', () => {
 
 describe('VAT report', () => {
   it('estimates the VAT inside collected sales at the configured rate, agreeing with the P&L', async () => {
-    const pl = (await get(`/api/reports/profit-summary?${q}`)).body.data;
+    const pl = (await get(`/api/reports/pnl?${q}`)).body.data.summary;
     const v = (await get(`/api/reports/vat?${q}`)).body.data;
     expect(v.estimated).toBe(true);
     expect(v.vat_rate_percent).toBe(16);
@@ -182,7 +180,7 @@ describe('Excel and PDF export', () => {
   });
 
   it('puts money in the workbook as KES numbers (not cents) on named sheets', async () => {
-    const pl = (await get(`/api/reports/profit-summary?${q}`)).body.data;
+    const pl = (await get(`/api/reports/pnl?${q}`)).body.data.summary;
     const res = await get(`/api/reports/export/pnl?format=xlsx&${q}`).buffer(true).parse((r, cb) => { const c = []; r.on('data', (d) => c.push(d)); r.on('end', () => cb(null, Buffer.concat(c))); });
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load(res.body);
