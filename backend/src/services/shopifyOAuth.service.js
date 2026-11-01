@@ -3,6 +3,7 @@ const db = require('../config/db');
 const ApiError = require('../utils/ApiError');
 const { fromUpstreamError } = require('../utils/upstreamError');
 const { encrypt } = require('../utils/crypto');
+const { assertShopifyDomain, guardedAxiosOptions } = require('../utils/outboundGuard');
 
 // Client Credentials Grant (RFC 6749 §4.4): the app exchanges its own
 // Client ID + Secret directly with the shop, server-to-server, no browser
@@ -22,6 +23,7 @@ async function fetchClientCredentialsToken(source) {
     throw new ApiError(400, 'Set the shop domain, API key, and API secret (from the Shopify Dev Dashboard) before connecting.');
   }
 
+  assertShopifyDomain(source.shop_domain);
   const body = new URLSearchParams({
     client_id: source.api_key,
     client_secret: source.api_secret,
@@ -32,6 +34,9 @@ async function fetchClientCredentialsToken(source) {
   try {
     res = await axios.post(`https://${source.shop_domain}/admin/oauth/access_token`, body, {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
+      // The client secret travels in this request body: never follow a redirect with it to some other host.
+      maxRedirects: 0,
+      ...guardedAxiosOptions(`https://${source.shop_domain}`),
     });
   } catch (err) {
     throw fromUpstreamError(err, 'Shopify');

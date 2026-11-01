@@ -84,7 +84,12 @@ app.use(compression());
 // Webhook deliveries are signed over their exact bytes, so keep the raw body for those routes - and only
 // those. They also get a bigger body limit (a store sends whole orders/products) and a form parser for
 // WooCommerce's unsigned "ping". Everything else keeps the tight 1 MB JSON limit.
-app.use('/api/integrations/webhooks', express.json({ limit: '10mb', verify: (req, _res, buf) => { req.rawBody = buf; } }), express.urlencoded({ extended: false }));
+// These routes are public (they authenticate by signature AFTER the body is read), so two guards sit in front of the
+// parser: a per-IP limiter - registered here, because the general /api limiter further down runs after body parsing and
+// so never throttled the parsing cost - and a body cap of 2 MB (override with WEBHOOK_BODY_LIMIT, e.g. '5mb', if a
+// store really sends bigger payloads) instead of the old 10 MB.
+const webhookIngressLimiter = rateLimit({ ...RATE_LIMITS.WEBHOOK, standardHeaders: true });
+app.use('/api/integrations/webhooks', webhookIngressLimiter, express.json({ limit: process.env.WEBHOOK_BODY_LIMIT || '2mb', verify: (req, _res, buf) => { req.rawBody = buf; } }), express.urlencoded({ extended: false, limit: '256kb' }));
 app.use(express.json({ limit: '1mb' }));
 app.use(cookieParser());
 // Provider callbacks (M-Pesa/KCB) carry their shared secret IN THE URL PATH
