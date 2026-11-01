@@ -15,6 +15,7 @@ router.get('/:id', ctrl.getById);
 router.post('/', requireAnyPermission('products.manage', 'products.propose'), validate(createProductSchema), ctrl.create);
 router.post('/:id/approve', requirePermission('products.approve'), ctrl.approve);
 router.post('/:id/reject', requirePermission('products.approve'), ctrl.reject);
+router.post('/:id/catalogue', requirePermission('products.manage'), ctrl.setCatalogue);
 router.put('/:id', requirePermission('products.manage'), validate(updateProductSchema), ctrl.update);
 router.delete('/:id', requirePermission('products.manage'), ctrl.remove);
 

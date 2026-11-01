@@ -237,6 +237,11 @@ CREATE TABLE IF NOT EXISTS products (
   reviewed_by_staff_id        INTEGER REFERENCES users(id),
   reviewed_at                 TEXT,
   review_note                 TEXT,
+  -- Which catalogue the product belongs to. 'shop' = stocked in the shop: the till sells it and its stock is tracked.
+  -- 'online' = a Shopify/WooCommerce listing whose stock is held elsewhere: the shop does not track its stock, the till
+  -- never shows it, and dispatching an online order never touches shop stock. Moving a product between the two is a
+  -- deliberate action (POST /api/products/:id/catalogue), never something a sync does.
+  catalogue                   TEXT NOT NULL DEFAULT 'shop' CHECK (catalogue IN ('shop','online')),
   created_at                  TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at                  TEXT NOT NULL DEFAULT (datetime('now'))
 );

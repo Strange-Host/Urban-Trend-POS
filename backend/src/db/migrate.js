@@ -16,6 +16,9 @@ const ADDITIVE_COLUMNS = {
     `reviewed_by_staff_id INTEGER REFERENCES users(id)`,
     `reviewed_at TEXT`,
     `review_note TEXT`,
+    // Which catalogue: 'shop' (stocked, sold at the till) or 'online' (Shopify/WooCommerce listing, stock not tracked here).
+    // Every existing product stays 'shop', so nothing changes until someone moves one.
+    `catalogue TEXT NOT NULL DEFAULT 'shop' CHECK (catalogue IN ('shop','online'))`,
   ],
   expenses: [
     // Rows recorded before the approval workflow existed were already counted, so they stay 'approved'.
