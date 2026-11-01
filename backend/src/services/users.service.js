@@ -47,7 +47,7 @@ function getById({ id, storeId }) {
   return user ? safe(user) : null;
 }
 
-function create({ storeId, staffId, name, email, phone, password, pin, role }) {
+async function create({ storeId, staffId, name, email, phone, password, pin, role }) {
   if (!name || !phone || !password || !role) {
     throw new ApiError(400, 'name, phone, password, and role are required.');
   }
@@ -59,8 +59,8 @@ function create({ storeId, staffId, name, email, phone, password, pin, role }) {
 
   assertValidPin(pin);
   assertStrongPassword(password, { role, email: normalizedEmail, name, phone });
-  const passwordHash = bcrypt.hashSync(password, 10);
-  const pinHash = pin ? bcrypt.hashSync(pin, 10) : null;
+  const passwordHash = await bcrypt.hash(password, 10);
+  const pinHash = pin ? await bcrypt.hash(pin, 10) : null;
 
   const result = db.prepare(`
     INSERT INTO users (store_id, name, email, phone, password_hash, pin_code_hash, role, password_changed_at)
@@ -72,19 +72,23 @@ function create({ storeId, staffId, name, email, phone, password, pin, role }) {
   return safe(user);
 }
 
-function update({ id, storeId, staffId, name, email, phone, role, status, password, pin }) {
+async function update({ id, storeId, staffId, name, email, phone, role, status, password, pin }) {
+  // Hash BEFORE reading the row: hashing is async, and nothing may change the row between reading it and writing it back.
+  assertValidPin(pin);
+  const newPasswordHash = password ? await bcrypt.hash(password, 10) : null;
+  const newPinHash = pin ? await bcrypt.hash(pin, 10) : null;
+
   const existing = db.prepare('SELECT * FROM users WHERE id = ? AND store_id = ?').get(id, storeId);
   if (!existing) return null;
   if (existing.erased_at) throw new ApiError(400, "This account's personal data was erased, so it can no longer be changed or reactivated. Create a new account instead.", null, 'ACCOUNT_ERASED');
 
-  assertValidPin(pin);
   const finalName = name ?? existing.name;
   const finalEmail = email ? email.trim().toLowerCase() : existing.email;
   const finalPhone = phone ?? existing.phone;
   const finalRole = role ?? existing.role;
   const isActive = status ? (status === 'active' ? 1 : 0) : existing.is_active;
-  const passwordHash = password ? bcrypt.hashSync(password, 10) : existing.password_hash;
-  const pinHash = pin ? bcrypt.hashSync(pin, 10) : existing.pin_code_hash;
+  const passwordHash = newPasswordHash ?? existing.password_hash;
+  const pinHash = newPinHash ?? existing.pin_code_hash;
 
   if (finalRole !== existing.role && !VALID_ROLES.includes(finalRole)) {
     throw new ApiError(400, `role must be one of ${VALID_ROLES.join(', ')}.`);
@@ -129,13 +133,13 @@ function remove({ id, storeId, requestingStaffId }) {
 }
 
 // Admin-triggered, generates a temp password (§5.3)
-function resetPassword({ id, storeId, staffId }) {
+async function resetPassword({ id, storeId, staffId }) {
   const existing = db.prepare('SELECT * FROM users WHERE id = ? AND store_id = ?').get(id, storeId);
   if (!existing) return null;
 
   if (existing.erased_at) throw new ApiError(400, 'This account was erased and cannot be used.', null, 'ACCOUNT_ERASED');
   const tempPassword = crypto.randomBytes(9).toString('base64url'); // 12 characters, e.g. "kQ3f9RtZb2Xe"
-  const passwordHash = bcrypt.hashSync(tempPassword, 10);
+  const passwordHash = await bcrypt.hash(tempPassword, 10);
   // A temporary password only lets the person set a real one (same rule as the seeded admin password).
   db.prepare(`UPDATE users SET password_hash = ?, must_change_password = 1, token_version = token_version + 1, updated_at = datetime('now') WHERE id = ?`).run(passwordHash, id);
   authTokens.revokeAllForUser(id);
@@ -215,12 +219,12 @@ function removalCheck({ id, storeId, requestingStaffId }) {
   };
 }
 
-function reactivate({ id, storeId, staffId }) {
+async function reactivate({ id, storeId, staffId }) {
   const existing = db.prepare('SELECT * FROM users WHERE id = ? AND store_id = ?').get(id, storeId);
   if (!existing) return null;
   if (existing.erased_at) throw new ApiError(400, "This account's personal data was erased, so it cannot be reactivated. Create a new account instead.", null, 'ACCOUNT_ERASED');
   if (existing.is_active === 1) return safe(existing);
-  return update({ id, storeId, staffId, status: 'active' });
+  return await update({ id, storeId, staffId, status: 'active' });
 }
 
 /** B: delete an account that never did anything. Returns a snapshot of what was deleted (for the alert). */
@@ -244,7 +248,9 @@ function deletePermanently({ id, storeId, requestingStaffId }) {
 }
 
 /** C: wipe a former staff member's personal data but keep the account (and so all their history). */
-function erasePersonalData({ id, storeId, requestingStaffId }) {
+async function erasePersonalData({ id, storeId, requestingStaffId }) {
+  // Async hash first, so the checks and the write below happen with no await in between.
+  const unusable = await bcrypt.hash(crypto.randomBytes(32).toString('hex'), 10);   // nobody knows it; the account can't sign in anyway
   const check = removalCheck({ id, storeId, requestingStaffId });
   if (!check) return null;
   if (check.erased) throw new ApiError(400, 'This account was already erased.', null, 'ACCOUNT_ERASED');
@@ -253,7 +259,6 @@ function erasePersonalData({ id, storeId, requestingStaffId }) {
 
   const existing = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
   const label = `Former staff #${id}`;
-  const unusable = bcrypt.hashSync(crypto.randomBytes(32).toString('hex'), 10);   // nobody knows it; the account can't sign in anyway
   db.transaction(() => {
     db.prepare(`
       UPDATE users SET name = ?, email = ?, phone = ?, password_hash = ?, pin_code_hash = NULL, two_factor_enabled = 0,

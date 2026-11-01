@@ -5,6 +5,7 @@ const woocommerce = require('../config/woocommerce');
 const shopifyOAuth = require('./shopifyOAuth.service');
 const { fromUpstreamError } = require('../utils/upstreamError');
 const { encrypt, decrypt } = require('../utils/crypto');
+const { assertShopifyDomain } = require('../utils/outboundGuard');
 
 // Columns holding third-party secrets — encrypted at rest (see utils/crypto.js).
 const ENCRYPTED_FIELDS = ['api_secret', 'access_token', 'consumer_key', 'consumer_secret', 'webhook_secret'];
@@ -19,6 +20,14 @@ function normalizeDomainOrUrl(value) {
   let v = value.trim().replace(/^https?:\/\//i, '');
   v = v.split('/')[0]; // drop any path/query that came along for the ride
   return v.replace(/\/+$/, '') || null;
+}
+// A Shopify shop domain also has to BE a Shopify domain: the token exchange sends the app's client id and secret to
+// whatever host is saved here, so a typo'd or hostile value must be refused when it is saved, not discovered later.
+function normalizeShopifyDomain(value) {
+  const v = normalizeDomainOrUrl(value);
+  if (!v) return null;
+  assertShopifyDomain(v.toLowerCase());
+  return v.toLowerCase();
 }
 function normalizeSiteUrl(value) {
   if (!value) return null;
@@ -73,7 +82,7 @@ function create(data) {
     name: data.name.trim(),
     platform: data.platform,
     store_id: data.store_id || null,
-    shop_domain: normalizeDomainOrUrl(data.shop_domain),
+    shop_domain: normalizeShopifyDomain(data.shop_domain),
     api_key: data.api_key || null,
     api_secret: encrypt(data.api_secret || null),
     api_version: data.api_version || null,
@@ -94,7 +103,7 @@ function update(id, data) {
       // Blank string means "leave the stored secret alone" (the UI never re-sends a secret it can't see)
       if (['api_secret', 'consumer_key', 'consumer_secret'].includes(f) && data[f] === '') continue;
       sets.push(`${f} = @${f}`);
-      if (f === 'shop_domain') params[f] = normalizeDomainOrUrl(data[f]);
+      if (f === 'shop_domain') params[f] = normalizeShopifyDomain(data[f]);
       else if (f === 'site_url') params[f] = normalizeSiteUrl(data[f]);
       else if (ENCRYPTED_FIELDS.includes(f)) params[f] = encrypt(data[f]);
       else params[f] = data[f];

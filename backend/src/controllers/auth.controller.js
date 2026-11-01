@@ -27,10 +27,13 @@ const REFRESH_TOKEN_EXPIRES_DAYS = Number(process.env.REFRESH_TOKEN_EXPIRES_DAYS
 // "Remember this device" decides the cookie's life: ticked = it survives closing the browser (until the session's
 // own maximum); unticked = a browser-session cookie that is dropped when the browser closes. The server enforces
 // the real limits either way (services/sessions.service.js), so this is the friendly half, not the only one.
-function refreshCookieOptions(session) {
+// `Secure` is set in production AND whenever this very request arrived over HTTPS (req.secure is true behind Railway /
+// Cloudflare because of `trust proxy` + X-Forwarded-Proto). The second condition means a hosted deploy that forgot
+// NODE_ENV=production still never sends the refresh token over plain HTTP; plain-HTTP local use is unaffected.
+function refreshCookieOptions(session, req) {
   const opts = {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
+    secure: process.env.NODE_ENV === 'production' || Boolean(req && req.secure),
     sameSite: 'strict',
     path: '/api/auth',
   };
@@ -48,7 +51,7 @@ function signAccessToken(user, session) {
   return jwt.sign(
     { id: user.id, role: user.role, storeId: user.store_id, name: user.name, tokenVersion: user.token_version, sid: session.id },
     process.env.JWT_SECRET,
-    { expiresIn: process.env.ACCESS_TOKEN_EXPIRES_IN || '15m' }
+    { algorithm: 'HS256', expiresIn: process.env.ACCESS_TOKEN_EXPIRES_IN || '15m' }
   );
 }
 
@@ -63,7 +66,7 @@ function toPublicUser(user) {
 function issueSession(user, req, res, { remember = false } = {}) {
   const session = sessionsService.create(user, { remember: remember === true, ip: req.ip, userAgent: req.get('user-agent') });
   const refreshToken = authTokens.issue(user.id, session.id);
-  res.cookie(REFRESH_COOKIE_NAME, refreshToken, refreshCookieOptions(session));
+  res.cookie(REFRESH_COOKIE_NAME, refreshToken, refreshCookieOptions(session, req));
   return { token: signAccessToken(user, session), user: toPublicUser(user), session: sessionsService.clientPolicy(user, session) };
 }
 
@@ -155,7 +158,7 @@ const pinLogin = asyncHandler(async (req, res) => {
 // and re-set as the cookie). No request body — the cookie IS the input.
 const refresh = asyncHandler(async (req, res) => {
   const { user, refreshToken, session } = authTokens.rotate(req.cookies[REFRESH_COOKIE_NAME], { ip: req.ip });
-  res.cookie(REFRESH_COOKIE_NAME, refreshToken, refreshCookieOptions(session));
+  res.cookie(REFRESH_COOKIE_NAME, refreshToken, refreshCookieOptions(session, req));
   res.json({ token: signAccessToken(user, session), user: toPublicUser(user), session: sessionsService.clientPolicy(user, session) });
 });
 
