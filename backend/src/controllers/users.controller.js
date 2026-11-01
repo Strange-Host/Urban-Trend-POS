@@ -38,7 +38,7 @@ const getById = asyncHandler(async (req, res) => {
 const create = asyncHandler(async (req, res) => {
   const { name, email, phone, password, pin, role } = req.body;
   const storeId = targetStoreId(req, req.body);
-  const user = usersService.create({ storeId, staffId: req.user.id, name, email, phone, password, pin, role });
+  const user = await usersService.create({ storeId, staffId: req.user.id, name, email, phone, password, pin, role });
   securityAlerts.staffEvent({ storeId, actor: actorOf(req), kind: 'created', subjectName: `${user.name} (${user.role})`, subjectId: user.id });
   res.status(201).json({ data: user });
 });
@@ -46,7 +46,7 @@ const create = asyncHandler(async (req, res) => {
 // PATCH /api/staff/:id  { name, phone, email, role, status, password?, pin? }
 const update = asyncHandler(async (req, res) => {
   const before = usersService.getById({ id: req.params.id, storeId: req.user.storeId });
-  const user = usersService.update({
+  const user = await usersService.update({
     id: req.params.id, storeId: req.user.storeId, staffId: req.user.id,
     name: req.body.name, email: req.body.email, phone: req.body.phone, role: req.body.role,
     status: req.body.status, password: req.body.password, pin: req.body.pin,
@@ -75,7 +75,7 @@ const remove = asyncHandler(async (req, res) => {
 
 // POST /api/staff/:id/reset-password
 const resetPassword = asyncHandler(async (req, res) => {
-  const result = usersService.resetPassword({ id: req.params.id, storeId: req.user.storeId, staffId: req.user.id });
+  const result = await usersService.resetPassword({ id: req.params.id, storeId: req.user.storeId, staffId: req.user.id });
   if (!result) throw new ApiError(404, 'Staff member not found.');
   const target = usersService.getById({ id: req.params.id, storeId: req.user.storeId });
   securityAlerts.staffEvent({ storeId: req.user.storeId, actor: actorOf(req), kind: 'password_reset', subjectName: target.name, subjectId: target.id, detail: 'A temporary password was issued. They must choose a new one at their next sign-in.' });
@@ -120,7 +120,7 @@ const removalCheck = asyncHandler(async (req, res) => {
 
 // POST /api/staff/:id/reactivate
 const reactivate = asyncHandler(async (req, res) => {
-  const user = usersService.reactivate({ id: req.params.id, storeId: req.user.storeId, staffId: req.user.id });
+  const user = await usersService.reactivate({ id: req.params.id, storeId: req.user.storeId, staffId: req.user.id });
   if (!user) throw new ApiError(404, 'Staff member not found.');
   securityAlerts.staffEvent({ storeId: req.user.storeId, actor: actorOf(req), kind: 'reactivated', subjectName: user.name, subjectId: user.id });
   res.json({ data: user });
@@ -141,7 +141,7 @@ const erasePersonalData = asyncHandler(async (req, res) => {
   const target = usersService.getById({ id: req.params.id, storeId: req.user.storeId });
   if (!target) throw new ApiError(404, 'Staff member not found.');
   if (String(req.body?.confirmName || '').trim() !== target.name) throw new ApiError(400, "Type the person's full name to confirm.", null, 'CONFIRMATION_MISMATCH');
-  const user = usersService.erasePersonalData({ id: req.params.id, storeId: req.user.storeId, requestingStaffId: req.user.id });
+  const user = await usersService.erasePersonalData({ id: req.params.id, storeId: req.user.storeId, requestingStaffId: req.user.id });
   securityAlerts.staffEvent({ storeId: req.user.storeId, actor: actorOf(req), kind: 'erased', subjectName: target.name, subjectId: user.id, detail: 'Name, email, phone, password and HR documents were erased. Sales and records they handled are kept under "Former staff".' });
   res.json({ data: user });
 });

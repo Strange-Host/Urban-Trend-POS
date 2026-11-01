@@ -1,4 +1,5 @@
 const axios = require('axios');
+const { guardedAxiosOptions } = require('../utils/outboundGuard');
 
 // WooCommerce auth is much simpler than Shopify's — a Consumer Key/Secret
 // pair generated once under WooCommerce → Settings → Advanced → REST API,
@@ -12,7 +13,9 @@ function getClient(source) {
     throw new Error('WooCommerce site URL, consumer key, and consumer secret are all required.');
   }
 
+  // An admin typed this address: refuse private/internal targets (see utils/outboundGuard.js).
   return axios.create({
+    ...guardedAxiosOptions(baseUrl),
     baseURL: `${baseUrl.replace(/\/$/, '')}/wp-json/wc/v3`,
     auth: { username: key, password: secret },
     timeout: 20000,

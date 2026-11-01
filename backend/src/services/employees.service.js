@@ -13,12 +13,12 @@ const VALID_ROLES = ['admin', 'manager', 'cashier', 'store'];
 // stays fully unaffected and still creates an immediately-active account.
 // Use this one specifically when you want the document/signature gate;
 // use the other for a quick internal account.
-function onboard({ storeId, staffId, name, email, phone, password, role }) {
+async function onboard({ storeId, staffId, name, email, phone, password, role }) {
   if (!name || !phone || !password || !role) throw new ApiError(400, 'name, phone, password, and role are required.');
   if (!VALID_ROLES.includes(role)) throw new ApiError(400, `role must be one of ${VALID_ROLES.join(', ')}.`);
   if (!email) throw new ApiError(400, 'email is required.');
 
-  const passwordHash = bcrypt.hashSync(password, 10);
+  const passwordHash = await bcrypt.hash(password, 10);
   const result = db.prepare(`
     INSERT INTO users (store_id, name, email, phone, password_hash, role, is_active, onboarding_status)
     VALUES (?, ?, ?, ?, ?, ?, 0, 'pending_documents')

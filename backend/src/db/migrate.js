@@ -765,6 +765,49 @@ function rebuildPayrollItemsTable(schema) {
   console.log(`  + payroll_items rebuilt; ${copied} payroll line(s) carried over unchanged`);
 }
 
+// ---- "Shop day" expression indexes ---------------------------------------------------------------------------------
+// Reports ask "what happened on the shop's calendar day?", written as date(<utc column>, '+180 minutes') BETWEEN ? AND ?
+// (see utils/storeTime.js dateOf). Wrapping the column in date() stopped SQLite using a plain index on it, so every
+// report scanned all of a store's history. An index ON THE SAME EXPRESSION fixes that with no change to any query and
+// no change to any result: synced Shopify/WooCommerce rows store ISO-8601 timestamps with offsets, which a plain
+// string-range rewrite of the filter would have bucketed wrongly near midnight, whereas date() - and therefore this
+// index - understands them exactly as before.
+//
+// SQLite only uses an expression index when the query's expression text matches, and the text contains the shop's UTC
+// offset, so the offset is baked into the index name. Another STORE_TIMEZONE (or a daylight-saving flip, then a
+// restart) builds the matching index and drops the stale one; until then queries simply fall back to a scan - still
+// correct, just slower.
+const SHOP_DAY_INDEXES = [
+  { table: 'sales',               column: 'created_at',    lead: 'store_id' },
+  { table: 'orders',              column: 'dispatched_at', lead: 'store_id' },
+  { table: 'payments',            column: 'created_at',    lead: null },
+  { table: 'payment_records',     column: 'created_at',    lead: 'store_id' },
+  { table: 'leads',               column: 'created_at',    lead: 'store_id' },
+  { table: 'inventory_movements', column: 'created_at',    lead: 'store_id' },
+];
+
+function ensureShopDayIndexes() {
+  const { offsetMinutes, sqlOffset } = require('../utils/storeTime');
+  const minutes = offsetMinutes();
+  const literal = sqlOffset();                                   // e.g. '+180 minutes' (built from a number, never user input)
+  const tag = `${minutes >= 0 ? 'p' : 'm'}${Math.abs(minutes)}`;
+
+  for (const { table, column, lead } of SHOP_DAY_INDEXES) {
+    if (!tableExists(table)) continue;
+    const prefix = `idx_${table}_day_`;
+    const wanted = `${prefix}${tag}`;
+    try {
+      db.exec(`CREATE INDEX IF NOT EXISTS ${wanted} ON ${table}(${lead ? `${lead}, ` : ''}date(${column}, ${literal}))`);
+      const stale = db.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = ? AND name LIKE ? AND name <> ?")
+        .all(table, `${prefix}%`, wanted);
+      for (const { name } of stale) db.exec(`DROP INDEX IF EXISTS ${name}`);
+    } catch (err) {
+      // An index is an optimisation: never let it stop the server from starting.
+      console.warn(`Could not create the shop-day index on ${table}.${column}: ${err.message}`);
+    }
+  }
+}
+
 function migrate() {
   const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8');
 
@@ -861,6 +904,8 @@ function migrate() {
   // (and any tables) the first pass couldn't reach. Safe to run every time —
   // everything in schema.sql is IF NOT EXISTS.
   db.exec(schema);
+
+  ensureShopDayIndexes();
 
   // Resend support was removed. Delete what it left behind - above all the encrypted API key, which
   // should not sit in the database (and therefore in every backup of it) once nothing can use it.

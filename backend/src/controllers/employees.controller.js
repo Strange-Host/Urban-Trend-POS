@@ -4,7 +4,7 @@ const employeesService = require('../services/employees.service');
 // POST /api/employees/onboard  { name, email, phone, password, role }
 const onboard = asyncHandler(async (req, res) => {
   const { name, email, phone, password, role } = req.body;
-  const employee = employeesService.onboard({ storeId: req.user.storeId, staffId: req.user.id, name, email, phone, password, role });
+  const employee = await employeesService.onboard({ storeId: req.user.storeId, staffId: req.user.id, name, email, phone, password, role });
   res.status(201).json({ data: employee });
 });
 
