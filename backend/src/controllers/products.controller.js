@@ -5,6 +5,7 @@ const { PAGINATION } = require('../config/limits');
 const permissionsService = require('../services/permissions.service');
 const notifications = require('../services/notifications.service');
 const { logStaffAction } = require('../utils/auditLog');
+const stock = require('../services/stock.service');
 
 // Buying price is confidential: it is removed from every product the API returns unless the person holds
 // 'products.view_cost' (admin and manager by default). Done here, server-side, so hiding it on screen is not the
@@ -24,8 +25,11 @@ const list = asyncHandler(async (req, res) => {
   const pageSize = Math.min(parseInt(req.query.pageSize) || PAGINATION.DEFAULT_PAGE_SIZE, PAGINATION.MAX_PAGE_SIZE);
   const offset = (page - 1) * pageSize;
 
-  const where = ['p.is_active = 1'];
-  const params = {};
+  // Two catalogues: the shop's own stocked products (default, what the till sells) and the online (Shopify/WooCommerce)
+  // listings, whose stock the shop does not track. Ask for the other one with ?catalogue=online.
+  const catalogue = req.query.catalogue === 'online' ? 'online' : 'shop';
+  const where = ['p.is_active = 1', 'p.catalogue = @catalogue'];
+  const params = { catalogue };
   if (q) {
     where.push('(p.name LIKE @q OR p.sku LIKE @q OR p.barcode LIKE @q)');
     params.q = `%${q}%`;
@@ -61,7 +65,7 @@ const getByBarcode = asyncHandler(async (req, res) => {
   const product = db.prepare(`
     SELECT p.*, COALESCE(SUM(i.quantity), 0) AS total_stock
     FROM products p LEFT JOIN inventory i ON i.product_id = p.id
-    WHERE p.barcode = ? AND p.is_active = 1
+    WHERE p.barcode = ? AND p.is_active = 1 AND p.catalogue = 'shop'
     GROUP BY p.id
   `).get(req.params.code);
   if (!product) throw new ApiError(404, 'No product found for that barcode.');
@@ -244,4 +248,49 @@ const remove = asyncHandler(async (req, res) => {
   res.status(204).send();
 });
 
-module.exports = { list, getByBarcode, getById, create, listPending, approve, reject, update, remove };
+
+// POST /api/products/:id/catalogue  { catalogue: 'shop' | 'online', opening_stock?, clear_stock? }
+// The only way a product changes catalogue (no sync ever does it).
+//  -> 'shop'   puts it on the shop's shelves and at the till. opening_stock (whole units, default 0) is what the shop
+//              really holds right now; it is written as a normal ledger movement.
+//  -> 'online' takes it off the till and out of the shop's stock. If the shop's records still show units of it, the move
+//              is refused unless clear_stock is true, which writes those units off through the ledger first, so the
+//              stock history always explains where they went.
+const setCatalogue = asyncHandler(async (req, res) => {
+  const product = db.prepare('SELECT * FROM products WHERE id = ?').get(req.params.id);
+  if (!product) throw new ApiError(404, 'Product not found.');
+  const target = req.body.catalogue;
+  if (!['shop', 'online'].includes(target)) throw new ApiError(400, "catalogue must be 'shop' or 'online'.");
+  if (product.catalogue === target) throw new ApiError(409, `This product is already in the ${target} catalogue.`);
+
+  const storeId = req.user.storeId;
+  const txn = db.transaction(() => {
+    if (target === 'shop') {
+      const opening = req.body.opening_stock;
+      if (opening !== undefined && opening !== null && (!Number.isInteger(opening) || opening < 0)) {
+        throw new ApiError(400, 'opening_stock must be a whole number of units, zero or more.');
+      }
+      db.prepare(`UPDATE products SET catalogue = 'shop', updated_at = datetime('now') WHERE id = ?`).run(product.id);
+      if (opening > 0) {
+        stock.applyMovement({ productId: product.id, storeId, change: opening, reason: 'adjustment', referenceType: 'adjustment', referenceId: null, userId: req.user.id });
+      }
+    } else {
+      const rows = db.prepare('SELECT store_id, quantity FROM inventory WHERE product_id = ? AND quantity > 0').all(product.id);
+      if (rows.length && req.body.clear_stock !== true) {
+        const units = rows.reduce((n, r) => n + r.quantity, 0);
+        throw new ApiError(409, `The shop's records show ${units} unit${units === 1 ? '' : 's'} of this product. Count what is really on the shelf first, or move it with clear_stock to write them off.`, null, 'STOCK_ON_HAND');
+      }
+      for (const r of rows) {
+        stock.applyMovement({ productId: product.id, storeId: r.store_id, change: -r.quantity, reason: 'adjustment', referenceType: 'adjustment', referenceId: null, userId: req.user.id });
+      }
+      db.prepare(`UPDATE products SET catalogue = 'online', updated_at = datetime('now') WHERE id = ?`).run(product.id);
+    }
+  });
+  txn();
+
+  const updated = db.prepare('SELECT * FROM products WHERE id = ?').get(product.id);
+  logStaffAction({ staffId: req.user.id, action: 'update', entityType: 'product', entityId: product.id, before: { catalogue: product.catalogue }, after: { catalogue: target } });
+  res.json({ data: present(req.user, updated) });
+});
+
+module.exports = { list, getByBarcode, getById, create, listPending, approve, reject, update, remove, setCatalogue };

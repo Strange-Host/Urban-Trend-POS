@@ -24,6 +24,8 @@ export const productsApi = {
   listPending: () => client.get('/products/pending/list'),
   approve: (id, data) => client.post(`/products/${id}/approve`, data || {}),
   reject: (id, note) => client.post(`/products/${id}/reject`, { note }),
+  // Move a product between the shop catalogue and the online (Shopify/WooCommerce) one.
+  setCatalogue: (id, data) => client.post(`/products/${id}/catalogue`, data),
 };
 
 export const categoriesApi = {
