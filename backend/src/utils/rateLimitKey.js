@@ -18,7 +18,7 @@ function userOrIpKey(req) {
   const header = req.headers && req.headers.authorization;
   if (header && header.startsWith('Bearer ')) {
     try {
-      const payload = jwt.verify(header.slice(7), process.env.JWT_SECRET);
+      const payload = jwt.verify(header.slice(7), process.env.JWT_SECRET, { algorithms: ['HS256'] });
       if (payload && payload.id != null) return `user:${payload.id}`;
     } catch (_) { /* not a valid token: count it against the address instead */ }
   }

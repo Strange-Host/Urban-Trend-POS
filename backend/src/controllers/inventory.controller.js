@@ -5,26 +5,42 @@ const reconciliationService = require('../services/reconciliation.service');
 const { parsePagination, paginatedResponse } = require('../utils/paginate');
 const { scopeStore } = require('./stockReceiving.controller');
 
-// GET /api/inventory
+// The stock-count screen needs EVERY active product in one go, so these two lists stay "everything" by default - but
+// never unbounded: past INVENTORY_LIST_CAP rows the response is cut and says so (`truncated: true`) instead of
+// growing with the catalog forever. Callers that want pages pass ?page= / ?limit= (max 100, the shared pagination).
+const INVENTORY_LIST_CAP = 5000;
+
+function respondWithInventory(req, res, { select, from, orderBy, params }) {
+  const wantsPages = req.query.page !== undefined || req.query.limit !== undefined;
+  if (wantsPages) {
+    const { page, limit, offset } = parsePagination(req.query);
+    const rows = db.prepare(`${select} ${from} ${orderBy} LIMIT ? OFFSET ?`).all(...params, limit, offset);
+    const total = db.prepare(`SELECT COUNT(*) AS c ${from}`).get(...params).c;
+    return res.json(paginatedResponse({ rows, total, page, limit }));
+  }
+  const rows = db.prepare(`${select} ${from} ${orderBy} LIMIT ?`).all(...params, INVENTORY_LIST_CAP + 1);
+  const truncated = rows.length > INVENTORY_LIST_CAP;
+  return res.json({ data: truncated ? rows.slice(0, INVENTORY_LIST_CAP) : rows, truncated });
+}
+
+// GET /api/inventory   (optional ?page=&limit=)
 const list = asyncHandler(async (req, res) => {
-  const rows = db.prepare(`
-    SELECT i.*, p.name AS product_name, p.sku, p.barcode
-    FROM inventory i JOIN products p ON p.id = i.product_id
-    WHERE i.store_id = ? AND p.is_active = 1
-    ORDER BY p.name ASC
-  `).all(req.user.storeId);
-  res.json({ data: rows });
+  respondWithInventory(req, res, {
+    select: 'SELECT i.*, p.name AS product_name, p.sku, p.barcode',
+    from: 'FROM inventory i JOIN products p ON p.id = i.product_id WHERE i.store_id = ? AND p.is_active = 1',
+    orderBy: 'ORDER BY p.name ASC',
+    params: [req.user.storeId],
+  });
 });
 
-// GET /api/inventory/low-stock
+// GET /api/inventory/low-stock   (optional ?page=&limit=)
 const lowStock = asyncHandler(async (req, res) => {
-  const rows = db.prepare(`
-    SELECT i.*, p.name AS product_name, p.sku
-    FROM inventory i JOIN products p ON p.id = i.product_id
-    WHERE i.store_id = ? AND i.quantity <= i.reorder_level AND p.is_active = 1
-    ORDER BY i.quantity ASC
-  `).all(req.user.storeId);
-  res.json({ data: rows });
+  respondWithInventory(req, res, {
+    select: 'SELECT i.*, p.name AS product_name, p.sku',
+    from: 'FROM inventory i JOIN products p ON p.id = i.product_id WHERE i.store_id = ? AND i.quantity <= i.reorder_level AND p.is_active = 1',
+    orderBy: 'ORDER BY i.quantity ASC',
+    params: [req.user.storeId],
+  });
 });
 
 // POST /api/inventory/adjust  { product_id, change_qty, reason, note }

@@ -10,7 +10,7 @@ function authenticate(req, res, next) {
   const token = header.split(' ')[1];
   let payload;
   try {
-    payload = jwt.verify(token, process.env.JWT_SECRET);
+    payload = jwt.verify(token, process.env.JWT_SECRET, { algorithms: ['HS256'] });
   } catch (err) {
     throw new ApiError(401, 'Invalid or expired token.');
   }
