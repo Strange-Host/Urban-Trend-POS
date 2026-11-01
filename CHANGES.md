@@ -1,3 +1,12 @@
+# Reports: unpaid parcels and profit leaders; `profit-summary` removed
+
+Two new Reports tabs. **Unpaid parcels** lists dispatched orders a courier has not fully paid for (`GET /api/reports/unpaid-parcels`,
+with a courier filter, days waiting and the total owed); it is the position right now, so it ignores the date range and has no
+export. **Profit leaders** ranks products and sales staff by margin (`top-products-by-profit`, `top-staff-by-profit`); the Sales
+agents tab ranks by revenue, so margin was not visible anywhere. `GET /api/reports/profit-summary` is removed: it returned exactly
+`summary` from `GET /api/reports/pnl`, which the Profit & loss tab already uses. Anything calling it should read `data.summary` from
+`/api/reports/pnl` instead (same query string, same numbers).
+
 # POS (item 1.2): void/refund approval, split payments, thermal printing
 
 **Refund / void approval.** A cashier cannot void a sale or refund a payment on their own, but can now ask: `POST /api/approvals`
