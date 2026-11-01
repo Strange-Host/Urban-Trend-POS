@@ -1,4 +1,5 @@
 const axios = require('axios');
+const { assertShopifyDomain, guardedAxiosOptions } = require('../utils/outboundGuard');
 
 // Shopify retired the "create a custom app straight in Admin → copy the
 // token" flow on Jan 1 2026 — new apps are created in the Shopify Dev
@@ -26,7 +27,10 @@ function getClient(source) {
     throw new Error('SHOPIFY_SHOP and SHOPIFY_ACCESS_TOKEN must be set (or connect a Shopify income source in Settings) to use Shopify sync.');
   }
 
+  // Rows saved before the domain check existed (or SHOPIFY_SHOP in the environment) get the same rule at use time.
+  assertShopifyDomain(shop);
   return axios.create({
+    ...guardedAxiosOptions(`https://${shop}`),
     baseURL: `https://${shop}/admin/api/${version}`,
     headers: {
       'X-Shopify-Access-Token': token,
