@@ -54,8 +54,8 @@ function resolveProduct(sku, name, price) {
   }
 
   const result = db.prepare(`
-    INSERT INTO products (sku, name, cost_price, sell_price, tax_rate, is_active, description)
-    VALUES (?, ?, 0, ?, 0, 0, 'Auto-created from an online order - no matching local SKU was found.')
+    INSERT INTO products (sku, name, cost_price, sell_price, tax_rate, is_active, description, catalogue)
+    VALUES (?, ?, 0, ?, 0, 0, 'Auto-created from an online order - no matching local SKU was found.', 'online')
   `).run(placeholderSku, safeName, price || 0);
   return result.lastInsertRowid;
 }

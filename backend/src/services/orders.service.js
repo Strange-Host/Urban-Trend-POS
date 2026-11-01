@@ -259,6 +259,10 @@ function mergeItems({ orderId, storeId, staffId, items }) {
   return txn();
 }
 
+// Does dispatching/returning this order move SHOP stock? Only orders made in the shop do. Orders imported from
+// Shopify/WooCommerce (channel 'shopify' / 'wordpress') are fulfilled from the online store's separate stock.
+const leavesShopStock = (order) => !order.channel || order.channel === 'manual';
+
 // Dispatch: awaiting_dispatch -> dispatched_unpaid. The one place stock
 // actually leaves the shop (§6 Critical Inventory Rules: "Stock deduction
 // happens ONLY when Dispatched is ticked").
@@ -381,9 +385,13 @@ function dispatch({ orderId, storeId, staffId, packageFee, packageFeeZeroReason 
       VALUES (?, ?, ?, 'dispatch', 'order', ?, ?)
     `);
 
+    // An order that came from Shopify/WooCommerce is fulfilled from the online store's own stock, which the shop does
+    // not track: it never checks, takes or returns shop stock. Only orders made in the shop ('manual') leave the shelf.
+    const fromShopStock = leavesShopStock(order);
+
     // Total per product first: an order can list the same product on two lines.
     const requestedByProduct = new Map();
-    for (const item of items) {
+    for (const item of fromShopStock ? items : []) {
       requestedByProduct.set(item.product_id, (requestedByProduct.get(item.product_id) || 0) + item.quantity);
     }
     for (const [productId, requested] of requestedByProduct) {
@@ -396,6 +404,12 @@ function dispatch({ orderId, storeId, staffId, packageFee, packageFeeZeroReason 
     }
     const setLineCost = db.prepare('UPDATE order_items SET cost_total = ? WHERE id = ?');
     for (const item of items) {
+      if (!fromShopStock) {
+        // No shop stock layers exist for online items, so the cost is the product's recorded buying price (0 if none).
+        const unitCost = db.prepare('SELECT cost_price FROM products WHERE id = ?').get(item.product_id)?.cost_price || 0;
+        setLineCost.run(Math.round(unitCost * item.quantity), item.id);
+        continue;
+      }
       // Cost of the units leaving, fixed now and worked out before this line's movement (see costing.service.js).
       setLineCost.run(costing.costOfNextUnits(item.product_id, storeId, item.quantity).cost, item.id);
       if (decrementInventory.run(item.quantity, item.product_id, storeId, item.quantity).changes !== 1) {
@@ -531,7 +545,7 @@ function inspectReturn({ orderId, storeId, staffId, result, notes }) {
       UPDATE orders SET inspected_at = datetime('now'), inspected_by = ?, inspection_result = ? WHERE id = ?
     `).run(staffId, result, orderId);
 
-    if (result === 'good') {
+    if (result === 'good' && leavesShopStock(order)) {
       const items = db.prepare('SELECT * FROM order_items WHERE order_id = ?').all(orderId);
       const restock = db.prepare(`
         UPDATE inventory SET quantity = quantity + ?, updated_at = datetime('now') WHERE product_id = ? AND store_id = ?

@@ -107,27 +107,9 @@ function ingestShopifyProducts(source, shopifyProducts, userId) {
       fetched_at = datetime('now')
   `);
 
-  // Stock quantity isn't a judgment call the way price/name are — it's just a
-  // fact, and stale counts are the most operationally damaging kind of drift
-  // (overselling something that's actually out of stock, or refusing a sale
-  // for something that's actually available). So unlike price/name changes,
-  // already-approved products get their stock synced immediately on every
-  // pull, no re-review needed — applied to every store that already tracks
-  // inventory for that product (in practice, one store for the common
-  // single-location setup).
-  const syncInventoryForMatch = db.transaction((productId, incomingQty, userId) => {
-    // A store can report negative stock (oversold there); the POS never holds below zero.
-    const newQty = Math.max(0, incomingQty);
-    const rows = db.prepare('SELECT * FROM inventory WHERE product_id = ?').all(productId);
-    for (const inv of rows) {
-      if (inv.quantity === newQty) continue;
-      db.prepare(`UPDATE inventory SET quantity = ?, updated_at = datetime('now') WHERE id = ?`).run(newQty, inv.id);
-      db.prepare(`
-        INSERT INTO inventory_movements (product_id, store_id, change_qty, reason, created_by)
-        VALUES (?, ?, ?, 'adjustment', ?)
-      `).run(productId, inv.store_id, newQty - inv.quantity, userId || null);
-    }
-  });
+  // Shopify's stock count is deliberately NOT copied into the shop's inventory. The shop and the online store hold
+  // separate physical stock, so the count Shopify reports says nothing about what is on the shop's shelves. It is kept
+  // on the staged row (inventory_qty) as information only; shop stock changes only through the shop's own movements.
 
   const txn = db.transaction((rows) => {
     let created = 0, updated = 0, unchanged = 0;
@@ -153,7 +135,6 @@ function ingestShopifyProducts(source, shopifyProducts, userId) {
         row.match_status = changed ? 'update' : 'unchanged';
         row.matched_product_id = existing.id;
         changed ? updated++ : unchanged++;
-        syncInventoryForMatch(existing.id, row.inventory_qty, userId);
       }
       upsert.run(row);
     }
@@ -174,9 +155,9 @@ function listStaging(reviewStatus = 'pending', { platform, incomeSourceId } = {}
 }
 
 /**
- * Approves one staged row: creates a new product or updates the matched one,
- * then seeds/updates its inventory for the given store. This is the only
- * place Shopify data is allowed to reach the live catalog.
+ * Approves one staged row: creates a new ONLINE-catalogue product or updates the matched one. It never touches
+ * inventory: online stock is held elsewhere. A matched product keeps whichever catalogue it is already in. This is the
+ * only place Shopify data is allowed to reach the product list. (storeId is kept so callers do not change.)
  */
 function approve(stagingId, storeId, userId) {
   const staged = db.prepare('SELECT * FROM shopify_staging_products WHERE id = ?').get(stagingId);
@@ -208,26 +189,14 @@ function approve(stagingId, storeId, userId) {
     } else {
       const result = db.prepare(`
         INSERT INTO products (sku, barcode, name, category_id, cost_price, sell_price, tax_rate, image_url,
-          shopify_product_id, shopify_variant_id, shopify_inventory_item_id, income_source_id, shopify_synced_at)
-        VALUES (?, ?, ?, ?, 0, ?, 0, ?, ?, ?, ?, ?, datetime('now'))
+          shopify_product_id, shopify_variant_id, shopify_inventory_item_id, income_source_id, shopify_synced_at, catalogue)
+        VALUES (?, ?, ?, ?, 0, ?, 0, ?, ?, ?, ?, ?, datetime('now'), 'online')
       `).run(sku, staged.barcode, staged.name, staged.category_id, staged.sell_price, staged.image_url,
              staged.shopify_product_id, staged.shopify_variant_id, staged.shopify_inventory_item_id, staged.income_source_id);
       productId = result.lastInsertRowid;
     }
 
-    const existingInventory = db.prepare('SELECT * FROM inventory WHERE product_id = ? AND store_id = ?').get(productId, storeId);
-    if (existingInventory) {
-      db.prepare(`UPDATE inventory SET quantity = ?, updated_at = datetime('now') WHERE id = ?`)
-        .run(Math.max(0, staged.inventory_qty), existingInventory.id);
-    } else {
-      db.prepare('INSERT INTO inventory (product_id, store_id, quantity) VALUES (?, ?, ?)')
-        .run(productId, storeId, Math.max(0, staged.inventory_qty));
-    }
-
-    db.prepare(`
-      INSERT INTO inventory_movements (product_id, store_id, change_qty, reason, created_by)
-      VALUES (?, ?, ?, 'adjustment', ?)
-    `).run(productId, storeId, staged.inventory_qty - (existingInventory?.quantity || 0), userId);
+    // No inventory is created or changed here: an online listing carries no shop stock (see the pull above).
 
     db.prepare(`
       UPDATE shopify_staging_products SET sku = ?, review_status = 'approved', reviewed_at = datetime('now'), reviewed_by = ?, matched_product_id = ?

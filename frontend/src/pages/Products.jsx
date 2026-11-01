@@ -10,7 +10,11 @@ import Picker, { Segmented } from '../components/Picker';
 const emptyForm = { sku: '', barcode: '', name: '', category_id: '', cost_price: '', sell_price: '' };
 const emptyAdjustForm = { mode: 'add', qty: '', reason: 'restock' };
 
-export default function Products() {
+// catalogue 'shop': the products the shop stocks and sells at the till, with their stock.
+// catalogue 'online': the Shopify/WooCommerce listings. The shop does not track their stock, so there is no stock column
+// here and nothing to adjust; the only thing to do with one is add it to the shop.
+export default function Products({ catalogue = 'shop' }) {
+  const online = catalogue === 'online';
   const dialog = useDialog();
   const toast = useToast();
   const { can } = useAuth();
@@ -31,11 +35,14 @@ export default function Products() {
   const [adjusting, setAdjusting] = useState(null); // the product row being stock-adjusted, or null
   const [adjustForm, setAdjustForm] = useState(emptyAdjustForm);
   const [adjustError, setAdjustError] = useState('');
+  const [moving, setMoving] = useState(null); // { product, to: 'shop' | 'online' } while the move sheet is open
+  const [openingStock, setOpeningStock] = useState('');
+  const [moveError, setMoveError] = useState('');
   const queryClient = useQueryClient();
 
   const { data, isLoading } = useQuery({
-    queryKey: ['products', 'admin', search, page],
-    queryFn: () => productsApi.list({ q: search, page, pageSize: 20 }).then((r) => r.data),
+    queryKey: ['products', 'admin', catalogue, search, page],
+    queryFn: () => productsApi.list({ q: search, page, pageSize: 20, catalogue }).then((r) => r.data),
   });
 
   const { data: categories } = useQuery({
@@ -46,7 +53,7 @@ export default function Products() {
   const { data: pending } = useQuery({
     queryKey: ['products', 'pending'],
     queryFn: () => productsApi.listPending().then((r) => r.data.data),
-    enabled: canApprove || canPropose,
+    enabled: !online && (canApprove || canPropose),
   });
 
   function openApprove(p) {
@@ -128,6 +135,35 @@ export default function Products() {
     queryClient.invalidateQueries({ queryKey: ['products'] });
   }
 
+  function openMove(product, to) {
+    setOpeningStock('');
+    setMoveError('');
+    setMoving({ product, to });
+  }
+
+  async function handleMove(e) {
+    e.preventDefault();
+    setMoveError('');
+    const { product, to } = moving;
+    const payload = { catalogue: to };
+    if (to === 'shop') {
+      const units = openingStock === '' ? 0 : parseInt(openingStock, 10);
+      if (Number.isNaN(units) || units < 0) { setMoveError('Enter how many you hold on the shelf now (0 or more).'); return; }
+      if (units > 0) payload.opening_stock = units;
+    } else if (product.total_stock > 0) {
+      payload.clear_stock = true;
+    }
+    try {
+      await productsApi.setCatalogue(product.id, payload);
+      queryClient.invalidateQueries({ queryKey: ['products'] });
+      queryClient.invalidateQueries({ queryKey: ['inventory'] });
+      toast.success(to === 'shop' ? `"${product.name}" is now sold in the shop.` : `"${product.name}" moved to the online products.`);
+      setMoving(null);
+    } catch (err) {
+      setMoveError(getErrorMessage(err, 'Could not move this product.'));
+    }
+  }
+
   function openAdjust(p) {
     setAdjustForm(emptyAdjustForm);
     setAdjustError('');
@@ -153,10 +189,14 @@ export default function Products() {
     <div className="p-4 md:p-8 max-w-6xl">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="font-display font-700 text-2xl">Products</h1>
-          <p className="text-text-muted text-sm mt-1">{data?.total ?? '—'} products in catalog</p>
+          <h1 className="font-display font-700 text-2xl">{online ? 'Online products' : 'Products'}</h1>
+          <p className="text-text-muted text-sm mt-1">
+            {online
+              ? `${data?.total ?? '—'} listings from your online store. The shop does not track their stock.`
+              : `${data?.total ?? '—'} products in catalog`}
+          </p>
         </div>
-        {(canManage || canPropose) && (
+        {!online && (canManage || canPropose) && (
           <button
             onClick={openNew}
             className="px-4 py-2.5 rounded-lg bg-ink text-white text-sm font-medium hover:bg-ink-soft transition-colors"
@@ -166,7 +206,7 @@ export default function Products() {
         )}
       </div>
 
-      {pending?.length > 0 && (
+      {!online && pending?.length > 0 && (
         <div className="mb-6 bg-surface border border-line rounded-xl overflow-hidden">
           <div className="px-4 py-3 border-b border-line flex items-center gap-2">
             <span className="px-2 py-0.5 rounded-full bg-accent text-accent-ink text-xs font-medium">{pending.length}</span>
@@ -211,7 +251,7 @@ export default function Products() {
               <th className="px-4 py-3 font-medium font-mono">SKU</th>
               <th className="px-4 py-3 font-medium">Category</th>
               <th className="px-4 py-3 font-medium text-right">Price</th>
-              <th className="px-4 py-3 font-medium text-right">Stock</th>
+              {!online && <th className="px-4 py-3 font-medium text-right">Stock</th>}
               <th className="px-4 py-3"></th>
             </tr>
           </thead>
@@ -219,19 +259,35 @@ export default function Products() {
             {isLoading && (
               <tr><td colSpan={6} className="px-4 py-8 text-center text-text-muted">Loading…</td></tr>
             )}
+            {!isLoading && data?.data.length === 0 && (
+              <tr><td colSpan={6} className="px-4 py-8 text-center text-text-muted">
+                {online
+                  ? 'No online products yet. Pull them from your store on the Shopify sync page and approve them there.'
+                  : search ? `No products match "${search}".` : 'No products yet.'}
+              </td></tr>
+            )}
             {data?.data.map((p) => (
               <tr key={p.id} className="border-b border-line last:border-0 hover:bg-paper/50">
                 <td className="px-4 py-3 font-medium">{p.name}</td>
                 <td className="px-4 py-3 font-mono text-text-muted">{p.sku}</td>
                 <td className="px-4 py-3 text-text-muted">{p.category_name || '—'}</td>
                 <td className="px-4 py-3 text-right font-mono">{(p.sell_price / 100).toFixed(2)}</td>
-                <td className={`px-4 py-3 text-right font-mono ${p.total_stock <= 5 ? 'text-danger' : ''}`}>
-                  {p.total_stock}
-                </td>
+                {!online && (
+                  <td className={`px-4 py-3 text-right font-mono ${p.total_stock <= 5 ? 'text-danger' : ''}`}>
+                    {p.total_stock}
+                  </td>
+                )}
                 <td className="px-4 py-3 text-right whitespace-nowrap">
-                  {canAdjust && <button onClick={() => openAdjust(p)} className="text-xs text-text-muted hover:text-text mr-3">Adjust stock</button>}
-                  {canManage && <button onClick={() => openEdit(p)} className="text-xs text-text-muted hover:text-text mr-3">Edit</button>}
-                  {canManage && <button onClick={() => handleDelete(p.id)} className="text-xs text-danger hover:opacity-70">Remove</button>}
+                  {online ? (
+                    canManage && <button onClick={() => openMove(p, 'shop')} className="text-xs font-medium text-text hover:opacity-70">Add to shop</button>
+                  ) : (
+                    <>
+                      {canAdjust && <button onClick={() => openAdjust(p)} className="text-xs text-text-muted hover:text-text mr-3">Adjust stock</button>}
+                      {canManage && <button onClick={() => openEdit(p)} className="text-xs text-text-muted hover:text-text mr-3">Edit</button>}
+                      {canManage && p.shopify_variant_id && <button onClick={() => openMove(p, 'online')} className="text-xs text-text-muted hover:text-text mr-3">Move to online</button>}
+                      {canManage && <button onClick={() => handleDelete(p.id)} className="text-xs text-danger hover:opacity-70">Remove</button>}
+                    </>
+                  )}
                 </td>
               </tr>
             ))}
@@ -343,6 +399,42 @@ export default function Products() {
               <button type="submit" className="flex-1 py-2.5 rounded-lg bg-ink text-white text-sm font-medium hover:bg-ink-soft">Approve</button>
             </div>
           </Sheet>
+      )}
+
+      {moving && (
+        <Sheet onClose={() => setMoving(null)} size="sm" as="form" onSubmit={handleMove}>
+          <h2 className="font-display font-700 text-lg mb-1">{moving.to === 'shop' ? 'Add to shop' : 'Move to online products'}</h2>
+          <p className="text-text-muted text-sm mb-4">{moving.product.name}</p>
+
+          {moveError && <div className="mb-3 px-3 py-2 rounded-lg bg-danger-soft text-danger text-sm">{moveError}</div>}
+
+          {moving.to === 'shop' ? (
+            <>
+              <p className="text-sm mb-4">It will appear at the till. Enter only what you hold on the shelf today; online stock is not counted.</p>
+              <label htmlFor="opening-stock" className="block text-xs font-medium text-text-muted mb-1">How many are on the shelf now?</label>
+              <input
+                id="opening-stock" type="text" inputMode="numeric" pattern="[0-9]*" enterKeyHint="done" autoComplete="off" maxLength={6}
+                value={openingStock} onChange={(e) => setOpeningStock(e.target.value.replace(/\D/g, ''))}
+                className="w-full px-3 py-3 rounded-lg border border-line outline-none focus:border-accent text-xl font-mono mb-5"
+                placeholder="0"
+              />
+            </>
+          ) : moving.product.total_stock > 0 ? (
+            <p className="text-sm mb-5">
+              The shop's records show <b>{moving.product.total_stock}</b> {moving.product.total_stock === 1 ? 'unit' : 'units'} of this product.
+              Moving it writes them off in the stock history and takes it off the till. Count the shelf first if you are not sure they are gone.
+            </p>
+          ) : (
+            <p className="text-sm mb-5">It will leave the till and the shop's stock lists. Its sales history stays.</p>
+          )}
+
+          <div className="flex gap-2">
+            <button type="button" onClick={() => setMoving(null)} className="flex-1 py-2.5 rounded-lg border border-line text-sm font-medium">Cancel</button>
+            <button type="submit" className="flex-1 py-2.5 rounded-lg bg-ink text-white text-sm font-medium hover:bg-ink-soft">
+              {moving.to === 'shop' ? 'Add to shop' : moving.product.total_stock > 0 ? `Write off ${moving.product.total_stock} and move` : 'Move to online'}
+            </button>
+          </div>
+        </Sheet>
       )}
 
       {adjusting && (
