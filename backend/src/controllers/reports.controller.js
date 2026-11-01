@@ -1,6 +1,5 @@
 const db = require('../config/db');
 const asyncHandler = require('../utils/asyncHandler');
-const pnlService = require('../services/reportsPnl.service');
 const costing = require('../services/costing.service');
 const stockAlerts = require('../services/stockAlerts.service');
 const ApiError = require('../utils/ApiError');
@@ -267,24 +266,6 @@ const unpaidParcels = asyncHandler(async (req, res) => {
   res.json({ data: rows });
 });
 
-// GET /api/reports/profit-summary?from=&to=
-// "What is the actual profit, after product cost, delivery, advertising,
-// salaries and other expenses?" — the one report the whole requirements
-// doc kept circling back to. Combines POS sales + collected online orders
-// for revenue, product cost for both, delivery fees the shop actually
-// pays couriers, telesales payroll (retainer+commission — see
-// payroll.service.js; this is gross labor cost, not net-of-deductions,
-// since deductions reduce what a STAFF member takes home, not what the
-// business spent), and the existing Owner/Admin `expenses` table
-// (marketing, ads, misc). Admin/manager salaries aren't tracked anywhere
-// in this app (only telesales retainer+commission is), so they're not in
-// this number — a real "total salaries" figure needs that added first.
-const profitSummary = asyncHandler(async (req, res) => {
-  const from = dateParam(req.query.from, 'from', isoDaysAgo(29));
-  const to = dateParam(req.query.to, 'to', isoDaysAgo(0));
-  res.json({ data: pnlService.profitLoss({ storeId: req.user.storeId, from, to }) });
-});
-
 // GET /api/reports/top-products-by-profit?from=&to=&limit=10 — combines
 // POS + online sales, unlike the original top-products (POS only).
 const topProductsByProfit = asyncHandler(async (req, res) => {
@@ -348,5 +329,5 @@ const topStaffByProfit = asyncHandler(async (req, res) => {
 
 module.exports = {
   salesSummary, topProducts, inventoryValue, inventoryValuation, salesByChannel, salesTrend, paymentMethods, topProductsByChannel,
-  dashboardOverview, unpaidParcels, profitSummary, topProductsByProfit, topStaffByProfit,
+  dashboardOverview, unpaidParcels, topProductsByProfit, topStaffByProfit,
 };

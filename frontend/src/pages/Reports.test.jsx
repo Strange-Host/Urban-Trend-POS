@@ -6,7 +6,7 @@ import { reportsApi } from '../api/endpoints';
 import { downloadFile } from '../api/client';
 
 vi.mock('../api/endpoints', () => ({
-  reportsApi: { pnl: vi.fn(), discounts: vi.fn(), vat: vi.fn(), branchComparison: vi.fn(), agentPerformance: vi.fn(), setForecast: vi.fn() },
+  reportsApi: { pnl: vi.fn(), discounts: vi.fn(), vat: vi.fn(), branchComparison: vi.fn(), agentPerformance: vi.fn(), setForecast: vi.fn(), unpaidParcels: vi.fn(), topProductsByProfit: vi.fn(), topStaffByProfit: vi.fn() },
 }));
 vi.mock('../api/client', () => ({ downloadFile: vi.fn(), getErrorMessage: (e, f) => e?.response?.data?.error?.message || f || 'error' }));
 let canForecast = true;
@@ -89,5 +89,73 @@ describe('Reports page', () => {
     fireEvent.click(screen.getByText('VAT'));
     expect(await screen.findByText('Estimate.')).toBeInTheDocument();
     expect(screen.getByText('KES 16.00')).toBeInTheDocument();
+  });
+
+  describe('unpaid parcels', () => {
+    const parcel = (o = {}) => ({ id: 1, product_code: 'UT000004', customer_name: 'Wanjiru', customer_phone: '0712345678', courier_type: 'boda', total: 150000, amount_paid: 50000, outstanding: 100000, dispatched_at: '2026-10-20 08:00:00', ...o });
+
+    it('lists what each courier still owes, with the total, and no date range or export', async () => {
+      reportsApi.unpaidParcels.mockReturnValue(ok([parcel(), parcel({ id: 2, product_code: 'UT000005', courier_type: 'g4s', total: 80000, amount_paid: 0, outstanding: 80000 })]));
+      mount();
+      await screen.findByText('Forecast vs actual');
+      fireEvent.click(screen.getByText('Unpaid parcels'));
+      expect(await screen.findByText('UT000004')).toBeInTheDocument();
+      expect(screen.getByText('UT000005')).toBeInTheDocument();
+      expect(screen.getByText('Owed to us (KES)').nextSibling).toHaveTextContent('1,800.00');
+      expect(screen.queryByText('Download Excel')).not.toBeInTheDocument();
+      expect(screen.queryByLabelText('From')).not.toBeInTheDocument();
+    });
+
+    it('asks the server for one courier when filtered', async () => {
+      reportsApi.unpaidParcels.mockReturnValue(ok([parcel()]));
+      mount();
+      await screen.findByText('Forecast vs actual');
+      fireEvent.click(screen.getByText('Unpaid parcels'));
+      await screen.findByText('UT000004');
+      fireEvent.change(screen.getByLabelText('Courier'), { target: { value: 'g4s' } });
+      await waitFor(() => expect(reportsApi.unpaidParcels).toHaveBeenLastCalledWith({ courier: 'g4s' }));
+    });
+
+    it('shows an empty state', async () => {
+      reportsApi.unpaidParcels.mockReturnValue(ok([]));
+      mount();
+      await screen.findByText('Forecast vs actual');
+      fireEvent.click(screen.getByText('Unpaid parcels'));
+      expect(await screen.findByText('No unpaid parcels.')).toBeInTheDocument();
+    });
+  });
+
+  describe('profit leaders', () => {
+    it('ranks products and staff by margin, with a margin percentage', async () => {
+      reportsApi.topProductsByProfit.mockReturnValue(ok([{ id: 1, name: 'Serum', sku: 'SRM-1', units_sold: 4, revenue: 400000, cost: 100000, profit: 300000 }]));
+      reportsApi.topStaffByProfit.mockReturnValue(ok([{ staff_id: 9, name: 'Grace', orders_count: 3, revenue: 200000, cost: 150000, margin: 50000 }]));
+      mount();
+      await screen.findByText('Forecast vs actual');
+      fireEvent.click(screen.getByText('Profit leaders'));
+      expect(await screen.findByText('Serum')).toBeInTheDocument();
+      expect(screen.getByText('75%')).toBeInTheDocument();     // 3,000 profit on 4,000 revenue
+      expect(screen.getByText('Grace')).toBeInTheDocument();
+      expect(screen.getByText('25%')).toBeInTheDocument();     // 500 margin on 2,000 revenue
+      expect(reportsApi.topProductsByProfit).toHaveBeenCalledWith(expect.objectContaining({ from: expect.any(String), to: expect.any(String) }));
+      expect(screen.queryByText('Download Excel')).not.toBeInTheDocument();
+    });
+
+    it('shows empty states when nothing sold in the period', async () => {
+      reportsApi.topProductsByProfit.mockReturnValue(ok([]));
+      reportsApi.topStaffByProfit.mockReturnValue(ok([]));
+      mount();
+      await screen.findByText('Forecast vs actual');
+      fireEvent.click(screen.getByText('Profit leaders'));
+      expect(await screen.findAllByText('No data for this period.')).toHaveLength(2);
+    });
+
+    it('shows the server message when a report fails', async () => {
+      reportsApi.topProductsByProfit.mockRejectedValue({ response: { data: { error: { message: 'Not allowed.' } } } });
+      reportsApi.topStaffByProfit.mockReturnValue(ok([]));
+      mount();
+      await screen.findByText('Forecast vs actual');
+      fireEvent.click(screen.getByText('Profit leaders'));
+      expect(await screen.findByText('Not allowed.')).toBeInTheDocument();
+    });
   });
 });

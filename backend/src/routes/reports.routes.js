@@ -18,7 +18,6 @@ router.get('/top-products-by-channel', ctrl.topProductsByChannel);
 // Phase 9 — the inventory-management "home screen" reports, combining POS + online orders.
 router.get('/dashboard-overview', ctrl.dashboardOverview);
 router.get('/unpaid-parcels', ctrl.unpaidParcels);
-router.get('/profit-summary', ctrl.profitSummary);
 router.get('/top-products-by-profit', ctrl.topProductsByProfit);
 router.get('/top-staff-by-profit', ctrl.topStaffByProfit);
 

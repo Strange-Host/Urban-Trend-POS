@@ -59,7 +59,7 @@ describe('store role', () => {
     expect((await request(app).get('/api/expenses').set(auth(storeKeeper.token))).status).toBe(403);
     expect((await request(app).get('/api/petty-cash').set(auth(storeKeeper.token))).status).toBe(403);
     expect((await request(app).get('/api/staff').set(auth(storeKeeper.token))).status).toBe(403);
-    expect((await request(app).get('/api/reports/profit-summary').set(auth(storeKeeper.token))).status).toBe(403);
+    expect((await request(app).get('/api/reports/pnl').set(auth(storeKeeper.token))).status).toBe(403);
   });
 
   it('an admin can create a storekeeper through the staff API', async () => {
@@ -213,7 +213,7 @@ describe('expense approval', () => {
   const create = (token, amount = 10000, extra = {}) =>
     request(app).post('/api/expenses').set(auth(token)).send({ category_id: categoryId, amount, description: 'p1 test', expense_date: today, ...extra });
   const summary = async () => (await request(app).get(`/api/expenses/summary?from=${today}&to=${today}`).set(auth(adminToken))).body.data;
-  const profitExpenses = async () => (await request(app).get(`/api/reports/profit-summary?from=${today}&to=${today}`).set(auth(adminToken))).body.data.businessExpenses;
+  const profitExpenses = async () => (await request(app).get(`/api/reports/pnl?from=${today}&to=${today}`).set(auth(adminToken))).body.data.summary.businessExpenses;
 
   it('a manager\'s expense is pending and does not count until approved', async () => {
     const before = await summary();

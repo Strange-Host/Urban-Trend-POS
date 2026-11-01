@@ -182,7 +182,7 @@ describe('revenue is never counted twice', () => {
     const src = await newSource('Report Shop');
     fetchSpy.mockResolvedValue([sOrder(9901, { line_items: [{ title: product.name, sku: product.sku, quantity: 1, price: '1500.00', total_discount: '0.00', tax_lines: [] }] })]);
     const range = `from=${new Date(Date.now() - 86400000).toISOString().slice(0, 10)}&to=${new Date(Date.now() + 86400000).toISOString().slice(0, 10)}`;
-    const profit = async () => (await request(app).get(`/api/reports/profit-summary?${range}`).set(a)).body.data;
+    const profit = async () => (await request(app).get(`/api/reports/pnl?${range}`).set(a)).body.data.summary;
     const before = await profit();
     await pull(src.id);
     const order = orderBy(src.id, 9901);
