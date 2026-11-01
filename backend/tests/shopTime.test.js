@@ -94,10 +94,10 @@ describe('profit summary', () => {
     // 2 x 5000 = 10000 on the lines, 1000 sale-level discount => the customer paid 9000
     const id = sale('2031-04-10 09:00:00', 9000, { discount: 1000 });
     db.prepare('INSERT INTO sale_items (sale_id, product_id, quantity, unit_price, tax_rate, discount, line_total) VALUES (?, ?, 2, 5000, 0, 0, 10000)').run(id, productId);
-    const res = await request(app).get('/api/reports/profit-summary?from=2031-04-10&to=2031-04-10').set(auth(token));
+    const res = await request(app).get('/api/reports/pnl?from=2031-04-10&to=2031-04-10').set(auth(token));
     expect(res.status).toBe(200);
-    expect(res.body.data.revenue).toBe(9000);          // was 10000
-    expect(res.body.data.costOfGoodsSold).toBe(6000);  // 2 x 3000
+    expect(res.body.data.summary.revenue).toBe(9000);          // was 10000
+    expect(res.body.data.summary.costOfGoodsSold).toBe(6000);  // 2 x 3000
   });
 
   it('counts only the collected share of a part-paid online order', async () => {
@@ -108,10 +108,10 @@ describe('profit summary', () => {
     // order worth 10000 (2 x 5000), 4000 collected, dispatched on the 20th (shop time)
     db.prepare(`UPDATE orders SET status = 'dispatched_partial', total = 10000, amount_paid = 4000, dispatched_at = '2031-04-20 09:00:00' WHERE id = ?`).run(oid);
     db.prepare('UPDATE order_items SET unit_price = 5000, quantity = 2, line_total = 10000 WHERE order_id = ?').run(oid);
-    const res = await request(app).get('/api/reports/profit-summary?from=2031-04-20&to=2031-04-20').set(auth(token));
+    const res = await request(app).get('/api/reports/pnl?from=2031-04-20&to=2031-04-20').set(auth(token));
     expect(res.status).toBe(200);
-    expect(res.body.data.revenue).toBe(4000);            // 40% of 10000 (was the full 10000)
-    expect(res.body.data.costOfGoodsSold).toBe(2400);    // 40% of 2 x 3000
+    expect(res.body.data.summary.revenue).toBe(4000);            // 40% of 10000 (was the full 10000)
+    expect(res.body.data.summary.costOfGoodsSold).toBe(2400);    // 40% of 2 x 3000
   });
 });
 describe('late arrival is measured on the shop clock', () => {
