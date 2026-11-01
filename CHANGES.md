@@ -1,3 +1,25 @@
+# Shop catalogue and online catalogue kept apart
+
+The shop and the online store hold separate physical stock, so the two catalogues no longer share one set of numbers.
+`products.catalogue` is `shop` (the default for every existing product, so nothing moves on upgrade) or `online`.
+**Shop** products are what the till sells and the only stock the shop tracks. **Online** products are the Shopify/WooCommerce
+listings: no stock rows, never at the till (`GET /api/products` and the barcode lookup return shop products unless asked for
+`?catalogue=online`), and no stock counts.
+
+What changed in behaviour: pulling products from Shopify/WooCommerce **no longer overwrites shop stock** (it used to copy the
+online count onto any product with a matching variant or SKU, and approving seeded stock from it); the online count stays on the
+staged row for reference only. Approving a new staged product creates it as `online`; approving one that matches an existing shop
+product links it and leaves it in the shop with its stock. **Dispatching or return-inspecting an order imported from
+Shopify/WooCommerce never checks, takes or returns shop stock**; its line cost is the product's buying price (0 if none), since there are no
+shop stock layers for it. Orders made in the shop are unchanged. Two tests in `onlineOrdersPull.test.js` that asserted the old
+shared-stock behaviour were updated to the new rule.
+
+`POST /api/products/:id/catalogue` (`products.manage`) is the only way a product changes catalogue: to `shop` with an optional
+`opening_stock` (a normal ledger movement), or to `online`, refused with `STOCK_ON_HAND` while the shop's records still show units unless
+`clear_stock: true` writes them off through the ledger first. Catalog gains an **Online products** tab (no stock column, "Add to shop"), and
+shop products linked to an online store get "Move to online". Existing products linked to Shopify keep their current (Shopify-overwritten)
+counts until someone moves or recounts them; do a stocktake on those.
+
 # Reports: unpaid parcels and profit leaders; `profit-summary` removed
 
 Two new Reports tabs. **Unpaid parcels** lists dispatched orders a courier has not fully paid for (`GET /api/reports/unpaid-parcels`,

@@ -131,7 +131,7 @@ describe('what gets imported', () => {
 });
 
 describe('already-paid orders and dispatch', () => {
-  it('a prepaid online order dispatches straight to "paid" and deducts stock', async () => {
+  it('a prepaid online order dispatches straight to "paid" and leaves the shop\'s stock alone (online stock is separate)', async () => {
     const src = await newSource('Paid Shop');
     fetchSpy.mockResolvedValue([sOrder(9601, { line_items: [{ title: product.name, sku: product.sku, quantity: 1, price: '1500.00', total_discount: '0.00', tax_lines: [] }] })]);
     await pull(src.id);
@@ -140,7 +140,8 @@ describe('already-paid orders and dispatch', () => {
     const res = await request(app).post(`/api/orders/${order.id}/dispatch`).set(a);
     expect(res.status).toBe(200);
     expect(res.body.data.status).toBe('dispatched_paid');
-    expect(db.prepare('SELECT quantity FROM inventory WHERE product_id = ?').get(product.id).quantity).toBe(before - 1);
+    expect(db.prepare('SELECT quantity FROM inventory WHERE product_id = ?').get(product.id).quantity).toBe(before);
+    expect(db.prepare("SELECT COUNT(*) n FROM inventory_movements WHERE reference_type = 'order' AND reference_id = ?").get(order.id).n).toBe(0);
     const hist = db.prepare('SELECT to_status FROM order_status_history WHERE order_id = ? ORDER BY id').all(order.id).map((h) => h.to_status);
     expect(hist).toEqual(['awaiting_dispatch', 'dispatched_unpaid', 'dispatched_paid']);
     expect(db.prepare('SELECT method, amount FROM payment_records WHERE order_id = ?').get(order.id)).toMatchObject({ method: 'card', amount: 150000 });
@@ -152,13 +153,13 @@ describe('already-paid orders and dispatch', () => {
     expect(res.body.data.status).toBe('dispatched_unpaid');
   });
 
-  it('an item with no matching SKU imports, but dispatching it says exactly what is wrong (no stock)', async () => {
+  it('an item with no matching SKU imports and still dispatches: online orders never need shop stock', async () => {
     const src = await newSource('Unknown SKU Shop');
     fetchSpy.mockResolvedValue([sOrder(9701, { line_items: [{ title: 'Mystery Gadget', sku: 'NOPE-1', quantity: 1, price: '500.00', total_discount: '0.00', tax_lines: [] }] })]);
     expect((await pull(src.id)).body.data.imported).toBe(1);
     const res = await request(app).post(`/api/orders/${orderBy(src.id, 9701).id}/dispatch`).set(a);
-    expect(res.status).toBe(409);
-    expect(res.body.error.message).toContain('Insufficient stock');
+    expect(res.status).toBe(200);
+    expect(res.body.data.status).toBe('dispatched_paid');
   });
 });
 
