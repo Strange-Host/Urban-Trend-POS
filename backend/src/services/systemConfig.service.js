@@ -3,6 +3,7 @@ const db = require('../config/db');
 const ApiError = require('../utils/ApiError');
 const { encrypt, decrypt } = require('../utils/crypto');
 const { logStaffAction } = require('../utils/auditLog');
+const { guardedAxiosOptions } = require('../utils/outboundGuard');
 
 // Server-level settings that used to be editable ONLY in backend/.env - the public web
 // address, outgoing email, allowed website origins, KCB's connection details. They live in
@@ -199,7 +200,8 @@ async function checkPublicUrl(candidate) {
   const url = candidate ? normalizeUrl(candidate, 'The public web address') : publicBaseUrl();
   if (!url) throw new ApiError(400, 'Enter your public web address first.');
   try {
-    const res = await axios.get(`${url}/api/health`, { timeout: 8000, maxRedirects: 2, validateStatus: () => true });
+    // 'metadata' policy: the shop's own LAN address or a tunnel is a legitimate thing to probe, cloud-metadata / link-local is not.
+    const res = await axios.get(`${url}/api/health`, { timeout: 8000, maxRedirects: 2, validateStatus: () => true, ...guardedAxiosOptions(url, 'metadata') });
     const looksLikePos = res.status === 200 && res.data && res.data.status === 'ok';
     if (looksLikePos) {
       return { reachable: true, looks_like_pos: true, http_status: res.status, message: `Reached your POS at ${url}. This server can open that address. (To be sure Safaricom/KCB can too, also try it from a phone on mobile data.)` };

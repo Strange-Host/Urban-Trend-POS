@@ -15,6 +15,12 @@ const { scheduleNightlyIntegrity } = require('./integrity/job');
 
 validateEnv();
 
+// A hosted deploy (Railway) that forgot NODE_ENV=production still works - cookies are marked Secure whenever the request
+// arrived over HTTPS - but other production-only behaviour keys off this variable, so say so loudly rather than silently.
+if (process.env.NODE_ENV !== 'production' && (process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_PROJECT_ID)) {
+  logger.warn('[config] This looks like a Railway deploy but NODE_ENV is not "production". Set NODE_ENV=production in the service variables.');
+}
+
 const PORT = process.env.PORT || 4000;
 const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
 const FIFTEEN_MINUTES_MS = 15 * 60 * 1000;

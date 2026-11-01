@@ -10,6 +10,16 @@ function errorHandler(err, req, res, next) { // eslint-disable-line no-unused-va
     });
   }
 
+  // Errors raised by body-parser itself - a body over the limit (413) or malformed JSON (400) - are the CALLER's
+  // mistake, not a server fault. They used to fall through to the 500 below, which both misreported them and wrote a
+  // stack trace to the log for every oversized or garbled request.
+  if (err.type === 'entity.too.large') {
+    return res.status(413).json({ error: { code: 'PAYLOAD_TOO_LARGE', message: 'That request is too large.' } });
+  }
+  if (err.type === 'entity.parse.failed' || err.type === 'encoding.unsupported' || err.type === 'charset.unsupported') {
+    return res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'The request body could not be read.' } });
+  }
+
   // SQLite constraint violations (e.g. duplicate SKU, duplicate phone)
   if (err.code && typeof err.code === 'string' && err.code.startsWith('SQLITE_CONSTRAINT')) {
     return res.status(409).json({
