@@ -142,6 +142,9 @@ export const reportsApi = {
   agentPerformance: (params) => client.get('/reports/agent-performance', { params }),
   setForecast: (month, data) => client.put(`/reports/forecasts/${month}`, data),
   dashboardOverview: (params) => client.get('/reports/dashboard-overview', { params }),
+  unpaidParcels: (params) => client.get('/reports/unpaid-parcels', { params }),
+  topProductsByProfit: (params) => client.get('/reports/top-products-by-profit', { params }),
+  topStaffByProfit: (params) => client.get('/reports/top-staff-by-profit', { params }),
 };
 
 export const leadsApi = {

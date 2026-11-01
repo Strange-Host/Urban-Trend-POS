@@ -64,9 +64,9 @@ describe('pay cycle (item 7)', () => {
 
   it('still reports profit over a range that spans months (labor cost is costed month by month)', async () => {
     await makeRep('Report Rep');
-    const res = await request(app).get('/api/reports/profit-summary?from=2026-01-20&to=2026-03-05').set(auth());
+    const res = await request(app).get('/api/reports/pnl?from=2026-01-20&to=2026-03-05').set(auth());
     expect(res.status).toBe(200);
-    expect(res.body.data).toHaveProperty('laborCost');
+    expect(res.body.data.summary).toHaveProperty('laborCost');
   });
 
   it('generates a whole month from { month } and stamps the fixed pay date', async () => {
