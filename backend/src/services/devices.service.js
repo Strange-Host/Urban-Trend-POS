@@ -33,7 +33,8 @@ function isKnownDevice(userId, deviceId) {
 /** Tells the admins that someone signed in from a phone they have not used before. Never throws. */
 function alertNewDevice({ user, device, ip }) {
   return securityAlerts.raise({
-    storeId: user.store_id, type: 'new_device_login', severity: 'info', actorId: user.id, subjectId: user.id, ip,
+    // 'warning' so it is also pushed to the admins' phones (push.service shouldPush): the spec lists a new device login as a push trigger.
+    storeId: user.store_id, type: 'new_device_login', severity: 'warning', actorId: user.id, subjectId: user.id, ip,
     title: `${user.name} signed in on a new phone`,
     detail: `${device.name || 'An unnamed device'}${device.platform ? ` (${device.platform})` : ''}${device.appVersion ? `, app ${device.appVersion}` : ''}. If this was not ${user.name}, revoke the device under Staff, then change their password.`,
   });
