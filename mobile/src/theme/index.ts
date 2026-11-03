@@ -9,6 +9,9 @@ export const colors = {
   mono: "#C9C3B6",
   amber: "#E8A317",
   amberSoft: "#F3E3B8",
+  success: "#2F7D4F",
+  successSoft: "#DCEBDD",
+  scrim: "rgba(0,0,0,0.4)",
   redSoft: "#F6D5D0",
   redText: "#7A1F14",
 } as const;
