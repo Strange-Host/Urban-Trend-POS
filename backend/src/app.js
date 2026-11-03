@@ -124,6 +124,7 @@ const generalApiLimiter = rateLimit({ ...RATE_LIMITS.GENERAL_API, standardHeader
 app.use('/api', generalApiLimiter);
 
 app.use('/api/auth', authRoutes);
+app.use('/api/v1', require('./routes/v1'));   // the mobile app's API (additive-only contract, see routes/v1/index.js)
 
 app.use('/api/products', productRoutes);
 app.use('/api/categories', categoryRoutes);

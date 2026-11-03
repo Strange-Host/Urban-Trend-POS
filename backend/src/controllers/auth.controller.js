@@ -157,7 +157,7 @@ const pinLogin = asyncHandler(async (req, res) => {
 // and rotates the refresh token itself (old one revoked, new one issued
 // and re-set as the cookie). No request body — the cookie IS the input.
 const refresh = asyncHandler(async (req, res) => {
-  const { user, refreshToken, session } = authTokens.rotate(req.cookies[REFRESH_COOKIE_NAME], { ip: req.ip });
+  const { user, refreshToken, session } = authTokens.rotate(req.cookies[REFRESH_COOKIE_NAME], { ip: req.ip, client: 'web' });
   res.cookie(REFRESH_COOKIE_NAME, refreshToken, refreshCookieOptions(session, req));
   res.json({ token: signAccessToken(user, session), user: toPublicUser(user), session: sessionsService.clientPolicy(user, session) });
 });
@@ -268,4 +268,4 @@ const endOtherSessions = asyncHandler(async (req, res) => {
   res.json({ ok: true, ended });
 });
 
-module.exports = { login, verifyOtp, resendOtp, pinLogin, refresh, logout, me, changePassword, confirmIdentity, activity, listSessions, endSession, endOtherSessions, refreshCookieOptions, toPublicUser };
+module.exports = { login, verifyOtp, resendOtp, pinLogin, refresh, logout, me, changePassword, confirmIdentity, activity, listSessions, endSession, endOtherSessions, refreshCookieOptions, toPublicUser, signAccessToken };
