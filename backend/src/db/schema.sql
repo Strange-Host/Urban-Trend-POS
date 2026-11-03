@@ -108,9 +108,20 @@ CREATE TABLE IF NOT EXISTS auth_sessions (
   reauth_at           TEXT NOT NULL,                   -- last time the password/PIN was typed: sensitive actions need this to be recent
   absolute_expires_at TEXT NOT NULL,
   revoked_at          TEXT,
-  revoked_reason      TEXT
+  revoked_reason      TEXT,
+  -- Mobile app installs are sessions too (client = 'mobile'): one row per install, so revoking it signs the phone out
+  -- on its very next request and kills its refresh tokens. last_activity_at doubles as the device's "last seen".
+  client              TEXT NOT NULL DEFAULT 'web' CHECK (client IN ('web','mobile')),
+  device_id           TEXT,                            -- the app's own install id (stable across logins on one phone)
+  device_name         TEXT,
+  platform            TEXT,
+  app_version         TEXT,
+  push_token          TEXT,                            -- FCM registration token; cleared when the session ends
+  push_token_updated_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_auth_sessions_user ON auth_sessions(user_id, revoked_at);
+CREATE INDEX IF NOT EXISTS idx_auth_sessions_push ON auth_sessions(push_token) WHERE push_token IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_auth_sessions_device ON auth_sessions(user_id, device_id);
 
 -- ---------------------------------------------------------------------
 -- SECURITY EVENTS  (what the Security page shows: lockouts, resets, erasures, large refunds...)
