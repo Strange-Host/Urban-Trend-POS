@@ -69,6 +69,7 @@ const PINNED_BOTTOM = [
 ];
 
 const COLLAPSE_KEY = 'ut_nav_collapsed';
+const HIDDEN_KEY = 'ut_sidebar_hidden';
 
 function NavItem({ item, onNavigate, nested = false }) {
   return (
@@ -130,12 +131,47 @@ export default function Layout() {
     });
   }
 
+  // Desktop only: whether the sidebar is tucked away. When hidden it behaves exactly like the
+  // phone layout (top bar with a ☰ button, sidebar slides in over the page), so the content
+  // gets the full width. Persisted so the choice survives reloads.
+  const [sidebarHidden, setSidebarHidden] = useState(() => {
+    try {
+      return localStorage.getItem(HIDDEN_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem(HIDDEN_KEY, sidebarHidden ? '1' : '0');
+    } catch { /* storage unavailable — the toggle still works for this session */ }
+  }, [sidebarHidden]);
+
   const closeNav = () => setNavOpen(false);
+
+  // Hide the sidebar and make sure no stale "open" drawer state carries over.
+  function hideSidebar() {
+    setNavOpen(false);
+    setSidebarHidden(true);
+  }
+  function pinSidebar() {
+    setNavOpen(false);
+    setSidebarHidden(false);
+  }
+
+  // Esc closes the slide-in drawer.
+  useEffect(() => {
+    if (!navOpen) return undefined;
+    const onKey = (e) => { if (e.key === 'Escape') setNavOpen(false); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [navOpen]);
 
   return (
     <div className="flex h-dvh bg-paper text-text">
-      {/* Top bar for phones and tablets — hidden lg+, where the persistent sidebar takes over */}
-      <div className="lg:hidden fixed top-0 inset-x-0 z-30 h-[calc(3.5rem+env(safe-area-inset-top))] pt-[env(safe-area-inset-top)] bg-ink text-white flex items-center justify-between px-4">
+      {/* Top bar for phones and tablets — hidden lg+ while the sidebar is docked; shown at every
+          size once the sidebar has been hidden */}
+      <div className={`${sidebarHidden ? '' : 'lg:hidden'} fixed top-0 inset-x-0 z-30 h-[calc(3.5rem+env(safe-area-inset-top))] pt-[env(safe-area-inset-top)] bg-ink text-white flex items-center justify-between px-4`}>
         <button
           onClick={() => setNavOpen(true)}
           aria-label="Open navigation menu"
@@ -151,7 +187,7 @@ export default function Layout() {
         <button
           aria-label="Close navigation menu"
           onClick={closeNav}
-          className="lg:hidden fixed inset-0 z-40 bg-black/40"
+          className={`${sidebarHidden ? '' : 'lg:hidden'} fixed inset-0 z-40 bg-black/40`}
         />
       )}
 
@@ -159,7 +195,7 @@ export default function Layout() {
         className={`
           fixed inset-y-0 left-0 z-50 w-64 shrink-0 bg-ink text-white flex flex-col
           transform transition-transform duration-200 ease-out
-          lg:static lg:z-auto lg:w-60 lg:translate-x-0
+          ${sidebarHidden ? '' : 'lg:static lg:z-auto lg:w-60 lg:translate-x-0'}
           ${navOpen ? 'translate-x-0' : '-translate-x-full'}
         `}
       >
@@ -168,14 +204,38 @@ export default function Layout() {
             <div className="font-display font-700 text-lg tracking-tight text-white">Urban Trends</div>
             <div className="text-xs text-white/50 font-mono mt-0.5">Main Branch</div>
           </div>
-          <button
-            onClick={closeNav}
-            aria-label="Close navigation menu"
-            className="lg:hidden p-2 -mr-2 text-white/60 hover:text-white"
-          >
-            ✕
-          </button>
-          <NotificationBell className="hidden lg:block -mr-2" />
+          <div className="flex items-center gap-1 -mr-2">
+            {/* Docked desktop sidebar: bell + a button that tucks the sidebar away */}
+            {!sidebarHidden && <NotificationBell className="hidden lg:block" />}
+            {!sidebarHidden && (
+              <button
+                onClick={hideSidebar}
+                aria-label="Hide sidebar"
+                title="Hide sidebar"
+                className="hidden lg:block p-2 text-white/60 hover:text-white"
+              >
+                «
+              </button>
+            )}
+            {/* Slide-in drawer (phones, or desktop with the sidebar hidden): pin it back, or close it */}
+            {sidebarHidden && (
+              <button
+                onClick={pinSidebar}
+                aria-label="Pin sidebar"
+                title="Pin sidebar"
+                className="hidden lg:block p-2 text-white/60 hover:text-white"
+              >
+                »
+              </button>
+            )}
+            <button
+              onClick={closeNav}
+              aria-label="Close navigation menu"
+              className={`${sidebarHidden ? '' : 'lg:hidden'} p-2 text-white/60 hover:text-white`}
+            >
+              ✕
+            </button>
+          </div>
         </div>
 
         <nav className="flex-1 px-3 py-4 overflow-y-auto">
@@ -253,7 +313,7 @@ export default function Layout() {
         </div>
       </aside>
 
-      <main ref={mainRef} className="flex-1 min-w-0 overflow-y-auto pt-[calc(3.5rem+env(safe-area-inset-top))] lg:pt-0">
+      <main ref={mainRef} className={`flex-1 min-w-0 overflow-y-auto pt-[calc(3.5rem+env(safe-area-inset-top))] ${sidebarHidden ? '' : 'lg:pt-0'}`}>
         <Outlet />
       </main>
     </div>
