@@ -2,9 +2,11 @@ import { createBottomTabNavigator, type BottomTabBarProps } from "@react-navigat
 import React from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import ApprovalsScreen from "../screens/ApprovalsScreen";
 import HomeScreen from "../screens/HomeScreen";
 import MoreScreen from "../screens/MoreScreen";
-import PlaceholderScreen from "../screens/PlaceholderScreen";
+import OrdersScreen from "../screens/OrdersScreen";
+import StockScreen from "../screens/StockScreen";
 import { colors } from "../theme";
 
 const Tab = createBottomTabNavigator();
@@ -35,19 +37,13 @@ function TabBar({ state, navigation }: BottomTabBarProps) {
   );
 }
 
-const Approvals = () => (
-  <PlaceholderScreen title="Approvals" note="Voids, refunds, requisitions and expenses arrive in the next step." />
-);
-const Stock = () => (
-  <PlaceholderScreen title="Stock" note="Barcode scan, lookup and adjust arrive after approvals." />
-);
-
 export default function RootTabs() {
   return (
     <Tab.Navigator tabBar={(p) => <TabBar {...p} />} screenOptions={{ headerShown: false }}>
       <Tab.Screen name="Home" component={HomeScreen} />
-      <Tab.Screen name="Approvals" component={Approvals} />
-      <Tab.Screen name="Stock" component={Stock} />
+      <Tab.Screen name="Approvals" component={ApprovalsScreen} />
+      <Tab.Screen name="Stock" component={StockScreen} />
+      <Tab.Screen name="Orders" component={OrdersScreen} />
       <Tab.Screen name="More" component={MoreScreen} />
     </Tab.Navigator>
   );

@@ -7,6 +7,7 @@ import type { AttentionItem, HomeAttention, HomeSummary } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 import { Header } from "../components/Header";
 import { Banner, Card, Pill, row, text } from "../components/ui";
+import { openDeepLink } from "../navigation/linking";
 import { formatAmount, timeAgo } from "../lib/format";
 import { homeCache } from "../lib/storage";
 import { colors } from "../theme";
@@ -65,10 +66,7 @@ export default function HomeScreen() {
   );
 
   function open(item: AttentionItem) {
-    const target = item.deepLink.split("?")[0] ?? "";
-    if (target === "approvals") nav.navigate("Approvals");
-    else if (target === "stock") nav.navigate("Stock");
-    else Alert.alert(item.title, "This screen is built in a later step.");
+    if (!openDeepLink(nav, item.deepLink)) Alert.alert(item.title, "This screen is built in a later release.");
   }
 
   const total = data?.attention.total ?? 0;
@@ -77,6 +75,7 @@ export default function HomeScreen() {
     <View style={{ flex: 1, backgroundColor: colors.paper }}>
       <Header
         eyebrow="Urban Trends · Today"
+        action={{ label: "Alerts", onPress: () => nav.navigate("Alerts") }}
         title={data ? (total > 0 ? `Needs you · ${total}` : "All clear") : "Needs you"}
         right={data ? <Pill text={`Synced ${timeAgo(data.savedAt)}`} /> : undefined}
       />

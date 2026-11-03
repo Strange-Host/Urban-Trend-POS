@@ -4,3 +4,4 @@ dist/
 *.apk
 *.aab
 *.keystore
+google-services.json

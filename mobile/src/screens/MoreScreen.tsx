@@ -10,7 +10,7 @@ import { Card, PrimaryButton, row, text } from "../components/ui";
 import { colors } from "../theme";
 
 export default function MoreScreen() {
-  const { user, signOut, lockNow, autoLockSeconds } = useAuth();
+  const { user, signOut, lockNow, autoLockSeconds, approvalBiometricAboveCents } = useAuth();
   const [busy, setBusy] = useState(false);
   const [, force] = useState(0);
 
@@ -37,12 +37,22 @@ export default function MoreScreen() {
           </Text>
         </Card>
 
+        <Card>
+          <Text style={text.title}>Security</Text>
+          <Text style={text.sub}>Unlocks with fingerprint, face or screen lock. Locks after {Math.round(autoLockSeconds / 60)} min in the background.</Text>
+          <Text style={text.sub}>
+            Approvals above {approvalBiometricAboveCents > 0 ? `KES ${Math.round(approvalBiometricAboveCents / 100).toLocaleString("en-US")}` : "KES 0"} ask for biometric confirmation.
+          </Text>
+          <Text style={text.sub}>Approvals, cost and payment screens block screenshots. The owner can revoke this device from the web app.</Text>
+        </Card>
+
         {apiMode === "mock" ? (
           <Card>
             <Text style={text.title}>Mock controls</Text>
             <Toggle label="Offline" value={mockControls.offline} onChange={toggle("offline")} />
             <Toggle label="Expire access token (next call)" value={mockControls.expireAccessToken} onChange={toggle("expireAccessToken")} />
             <Toggle label="Revoke this device" value={mockControls.revokeDevice} onChange={toggle("revokeDevice")} />
+            <Toggle label="Next approval already decided by someone else" value={mockControls.alreadyDecided} onChange={(v) => { mockControls.alreadyDecided = v; force((n) => n + 1); }} />
             <Toggle label="Force update (applies on next launch)" value={mockControls.forceUpdate} onChange={toggle("forceUpdate")} />
           </Card>
         ) : null}

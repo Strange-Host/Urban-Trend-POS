@@ -16,7 +16,7 @@ import type { AppVersionInfo, SessionUser } from "../api/types";
 import { authenticate, isAuthenticating } from "../lib/biometric";
 import { compareVersions } from "../lib/format";
 import { shouldLock } from "../lib/lock";
-import { homeCache, secure } from "../lib/storage";
+import { clearAllCaches, secure } from "../lib/storage";
 
 export type AuthStatus = "booting" | "signedOut" | "locked" | "unlocked" | "updateRequired";
 
@@ -30,6 +30,8 @@ interface AuthCtx {
   notice: string | null;
   update: AppVersionInfo | null;
   autoLockSeconds: number;
+  /** Approvals above this amount need biometric confirmation (0 = always). */
+  approvalBiometricAboveCents: number;
   signIn(username: string, password: string): Promise<void>;
   unlock(): Promise<boolean>;
   lockNow(): void;
@@ -55,6 +57,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [notice, setNotice] = useState<string | null>(null);
   const [update, setUpdate] = useState<AppVersionInfo | null>(null);
   const [autoLockSeconds, setAutoLockSeconds] = useState(DEFAULT_AUTO_LOCK_SECONDS);
+  const [approvalBiometricAboveCents, setApprovalThreshold] = useState(0);
 
   const statusRef = useRef<AuthStatus>("booting");
   const setStatus = useCallback((s: AuthStatus) => {
@@ -73,7 +76,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       tokens.current = {};
       refreshing.current = null;
       await secure.clear().catch(() => {});
-      await homeCache.clear().catch(() => {});
+      await clearAllCaches().catch(() => {});
       setUser(null);
       setOffline(false);
       setNotice(message);
@@ -147,7 +150,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const res = await api.login({ username, password, device });
       tokens.current = { access: res.accessToken, refresh: res.refreshToken };
       await secure.saveRefresh(res.refreshToken);
-      await secure.saveProfile({ user: res.user, autoLockSeconds: res.settings.autoLockSeconds });
+      const threshold = res.settings.biometricApprovalAboveCents ?? 0;
+      await secure.saveProfile({
+        user: res.user,
+        autoLockSeconds: res.settings.autoLockSeconds,
+        biometricApprovalAboveCents: threshold,
+      });
+      setApprovalThreshold(threshold);
       lockLimit.current = res.settings.autoLockSeconds;
       setAutoLockSeconds(res.settings.autoLockSeconds);
       setUser(res.user);
@@ -207,6 +216,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         tokens.current = { refresh: rt };
         lockLimit.current = profile.autoLockSeconds;
         setAutoLockSeconds(profile.autoLockSeconds);
+        setApprovalThreshold(profile.biometricApprovalAboveCents ?? 0);
         setUser(profile.user);
         setStatus("locked");
       } else {
@@ -240,13 +250,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       notice,
       update,
       autoLockSeconds,
+      approvalBiometricAboveCents,
       signIn,
       unlock,
       lockNow,
       signOut,
       request,
     }),
-    [status, user, offline, notice, update, autoLockSeconds, signIn, unlock, lockNow, signOut, request],
+    [status, user, offline, notice, update, autoLockSeconds, approvalBiometricAboveCents, signIn, unlock, lockNow, signOut, request],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

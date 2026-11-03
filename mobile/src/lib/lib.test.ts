@@ -28,3 +28,25 @@ test("shouldLock", () => {
   assert.equal(shouldLock(0, 119_000, 120), false);
   assert.equal(shouldLock(0, 120_000, 120), true);
 });
+
+import { parseDeepLink } from "./deeplink";
+import { toInternational, whatsappUrl, telUrl } from "./phone";
+
+test("parseDeepLink", () => {
+  assert.deepEqual(parseDeepLink("approvals"), { kind: "tab", tab: "Approvals" });
+  assert.deepEqual(parseDeepLink("approvals/3"), { kind: "approval", id: 3 });
+  assert.deepEqual(parseDeepLink("orders/1004"), { kind: "order", id: 1004 });
+  const o = parseDeepLink("orders?unpaid=1");
+  assert.equal(o?.kind === "tab" && o.tab, "Orders");
+  assert.deepEqual(parseDeepLink("stock?alerts=1"), { kind: "tab", tab: "Stock" });
+  assert.equal(parseDeepLink("payments/unmatched"), null);
+});
+
+test("phone helpers", () => {
+  assert.equal(toInternational("0712 345 678"), "254712345678");
+  assert.equal(toInternational("+254 712 345 678"), "254712345678");
+  assert.equal(toInternational("712345678"), "254712345678");
+  assert.equal(toInternational("123"), null);
+  assert.equal(whatsappUrl("0712345678"), "https://wa.me/254712345678");
+  assert.equal(telUrl("0712 345 678"), "tel:0712345678");
+});
