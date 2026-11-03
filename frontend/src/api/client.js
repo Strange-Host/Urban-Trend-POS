@@ -1,4 +1,5 @@
 import axios from 'axios';
+import useConnectionStatus from '../hooks/useConnectionStatus';
 
 // Zero-config default: the API is on the same machine that served this page,
 // port 4000. Opening the app from a phone at http://192.168.1.42:5173 therefore
@@ -125,6 +126,21 @@ client.interceptors.response.use(
     }
     return Promise.reject(err);
   }
+);
+
+// Feed the connection indicator in the navigation: any reply from the server (even an error status)
+// means it is reachable; a request that failed without a reply means it is not. Registered after the
+// handler above, so a request that gets retried there is judged by its final outcome.
+client.interceptors.response.use(
+  (res) => {
+    useConnectionStatus.getState().setApiReachable(true);
+    return res;
+  },
+  (err) => {
+    // Cancelled requests say nothing about the connection.
+    if (!axios.isCancel(err)) useConnectionStatus.getState().setApiReachable(Boolean(err.response));
+    return Promise.reject(err);
+  },
 );
 
 export default client;
