@@ -1,0 +1,25 @@
+# Urban Trends mobile (v1 skeleton)
+
+Expo (React Native, TypeScript) Android app. This step: login, biometric unlock, home screen, running against a mock of /api/v1.
+
+## Run
+    npm install
+    npx expo start        # then open in Expo Go on the phone, or: npm run android
+    npm run typecheck && npm test
+
+Mock sign-in: `owner / owner123` (sees unmatched payments), `manager / manager123`.
+More tab -> "Mock controls": offline, expire token, revoke device, force update.
+
+## Point at the real backend
+In `app.json` set `expo.extra.apiMode` to `"http"` and add `expo.extra.apiBaseUrl`.
+Contract lives in `src/api/types.ts`; the HTTP client is `src/api/http.ts`.
+Reconcile `types.ts` with the real responses first (field names were taken from the spec, not the server).
+
+## Layout
+- `src/api/` types, mock (`mock/mockApi.ts`), real client (`http.ts`), switch (`index.ts`)
+- `src/auth/AuthContext.tsx` session state machine: booting -> signedOut | locked | unlocked | updateRequired; refresh single-flight with rotation, revoke handling, 2-minute background auto-lock
+- `src/lib/storage.ts` refresh token in Android Keystore (SecureStore); access token memory only; home cache for read-only offline
+- `src/screens/` Login, Lock, Update, Home, More, placeholders for Approvals and Stock
+
+## Not in this step
+Approvals, stock, orders, FCM push (device registers without a push token), screenshot blocking (to be added on approvals/cost/payment screens), OTA updates and release pipeline.
