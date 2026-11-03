@@ -78,3 +78,18 @@ test("orders: filter and paginate", async () => {
   const d = await api.order(o.accessToken, 1002);
   assert.ok(d.items.length > 0);
 });
+
+test("analytics: shape, ranges and permission", async () => {
+  const api = createMockApi();
+  const o = await api.login({ username: "owner", password: "owner123", device: dev });
+  const a30 = await api.analytics(o.accessToken, "30");
+  assert.equal(a30.range, "30");
+  assert.equal(a30.trend.length, 31); // today plus the 30 days before it
+  assert.ok(a30.summary.revenueCents > 0 && a30.previous && a30.previous.revenueCents > 0);
+  assert.ok(a30.channels.length === 3 && a30.overview && a30.stockAlerts);
+  const channelSum = a30.channels.reduce((s, c) => s + c.revenueCents, 0);
+  assert.equal(channelSum, a30.summary.revenueCents); // the cards agree with the headline number
+  const all = await api.analytics(o.accessToken, "all");
+  assert.equal(all.previous, null);
+  assert.ok(all.summary.revenueCents > a30.summary.revenueCents);
+});

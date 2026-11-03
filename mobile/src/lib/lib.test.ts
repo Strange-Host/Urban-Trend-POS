@@ -50,3 +50,69 @@ test("phone helpers", () => {
   assert.equal(whatsappUrl("0712345678"), "https://wa.me/254712345678");
   assert.equal(telUrl("0712 345 678"), "tel:0712345678");
 });
+
+import { buildBars, channelTotals, compact, deltaPct, isoDay, niceMax, rangeWindow } from "./analytics";
+import { can } from "./permissions";
+
+test("compact", () => {
+  assert.equal(compact(0), "0");
+  assert.equal(compact(999), "999");
+  assert.equal(compact(1000), "1K");
+  assert.equal(compact(45_300), "45.3K");
+  assert.equal(compact(1_234_567), "1.2M");
+  assert.equal(compact(-2_500), "-2.5K");
+});
+
+test("deltaPct and niceMax", () => {
+  assert.equal(deltaPct(120, 100), 20);
+  assert.equal(deltaPct(80, 100), -20);
+  assert.equal(deltaPct(50, 0), null); // nothing to compare against
+  assert.equal(deltaPct(50, null), null);
+  assert.equal(niceMax(0), 1);
+  assert.equal(niceMax(730), 1000);
+  assert.equal(niceMax(2_100), 2_500);
+  assert.equal(niceMax(4_000), 5_000);
+});
+
+test("rangeWindow", () => {
+  const now = new Date(2026, 10, 4); // 4 Nov 2026, local
+  assert.deepEqual(rangeWindow("30", now), { from: "2026-10-05", prevFrom: "2026-09-05", prevTo: "2026-10-04" });
+  assert.deepEqual(rangeWindow("all", now), { from: "1970-01-01", prevFrom: null, prevTo: null });
+});
+
+test("buildBars: daily fills empty days, weekly and monthly group", () => {
+  const now = new Date(2026, 10, 4);
+  const daily = buildBars([{ day: "2026-11-03", bySource: { local: 100, shopify: 50 } }], "7", now);
+  assert.equal(daily.length, 8);
+  assert.equal(daily[daily.length - 2]?.total, 150);
+  assert.equal(daily[daily.length - 1]?.total, 0);
+
+  const trend = [
+    { day: "2026-10-26", bySource: { local: 10 } }, // Monday
+    { day: "2026-11-01", bySource: { local: 5 } }, // Sunday, same ISO week
+    { day: "2026-11-02", bySource: { local: 7 } }, // next Monday
+  ];
+  const weekly = buildBars(trend, "90", now);
+  assert.deepEqual(weekly.map((b) => b.total), [15, 7]);
+  const monthly = buildBars(trend, "all", now);
+  assert.deepEqual(monthly.map((b) => b.total), [10, 12]); // Oct, Nov
+  assert.equal(isoDay(new Date(2026, 0, 5)), "2026-01-05");
+});
+
+test("channelTotals drops empty channels", () => {
+  const rows = [
+    { sourceType: "local", channelName: "a", platform: null, transactions: 1, revenueCents: 100, avgBasketCents: 100 },
+    { sourceType: "local", channelName: "b", platform: null, transactions: 1, revenueCents: 50, avgBasketCents: 50 },
+    { sourceType: "shopify", channelName: "c", platform: "shopify", transactions: 0, revenueCents: 0, avgBasketCents: 0 },
+  ];
+  assert.deepEqual(channelTotals(rows), [{ sourceType: "local", revenueCents: 150 }]);
+});
+
+test("can: owner always, others by key", () => {
+  const u = (role: "owner" | "manager", permissions: string[]) => ({ id: 1, name: "x", username: "x", role, permissions });
+  assert.equal(can(u("owner", []), "reports.view"), true);
+  assert.equal(can(u("manager", ["reports.view"]), "reports.view"), true);
+  assert.equal(can(u("manager", ["orders.view"]), "reports.view"), false);
+  assert.equal(can(u("manager", ["a"]), ["b", "a"]), true);
+  assert.equal(can(null, "reports.view"), false);
+});
