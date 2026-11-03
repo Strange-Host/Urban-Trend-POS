@@ -207,6 +207,86 @@ export interface OrdersPage extends Paginated<OrderSummary> {
   couriers: string[]; // facet for the courier filter
 }
 
+// ---- analytics dashboard (mirrors the web Dashboard; all money is integer cents)
+export type AnalyticsRange = "7" | "30" | "90" | "all";
+
+export interface AnalyticsSummary {
+  revenueCents: number;
+  transactions: number;
+  avgBasketCents: number;
+}
+
+export interface ChannelRow {
+  sourceType: string; // "local" | "shopify" | "woocommerce"
+  channelName: string;
+  platform: string | null;
+  transactions: number;
+  revenueCents: number;
+  avgBasketCents: number;
+}
+
+export interface TrendPoint {
+  day: string; // YYYY-MM-DD
+  bySource: Record<string, number>; // source_type -> revenue cents
+}
+
+export interface PaymentMethodRow {
+  method: string;
+  totalCents: number;
+  count: number;
+}
+
+export interface TopProduct {
+  id: number;
+  name: string;
+  unitsSold: number;
+  revenueCents: number;
+}
+
+export interface StockAlertCounts {
+  expiring: number;
+  expired: number;
+  recalled: number;
+  damaged: number; // written off in 30 days + damaged returns awaiting a decision
+  damagedDetail: string;
+  expiryAlertDays: number;
+}
+
+export interface OrderStatusRow {
+  status: string;
+  count: number;
+  outstandingCents: number;
+}
+
+export interface TodayOverview {
+  date: string;
+  posRevenueCents: number;
+  onlineRevenueCents: number;
+  combinedRevenueCents: number;
+  posTransactions: number;
+  onlineOrders: number;
+  cashCollectedCents: number;
+  lowStockCount: number;
+  unpaidParcels: { courier: string; count: number; owedCents: number }[];
+  orderStatus: OrderStatusRow[];
+  stockCostValueCents: number;
+  stockUnits: number;
+}
+
+export interface Analytics {
+  range: AnalyticsRange;
+  generatedAt: string;
+  summary: AnalyticsSummary;
+  previous: AnalyticsSummary | null; // same-length period just before; null for "all"
+  inventoryRetailValueCents: number | null;
+  channels: ChannelRow[];
+  trend: TrendPoint[];
+  paymentMethods: PaymentMethodRow[];
+  topByChannel: Record<string, TopProduct[]>;
+  overview: TodayOverview | null; // null when the caller may not see it
+  stockAlerts: StockAlertCounts | null; // null when the caller may not see stock
+}
+
 // The surface the app depends on. Mock and HTTP both implement this.
 export interface Api {
   login(req: MobileLoginRequest): Promise<MobileLoginResponse>;
@@ -231,4 +311,6 @@ export interface Api {
 
   orders(accessToken: string, f: OrderFilter): Promise<OrdersPage>;
   order(accessToken: string, id: number): Promise<OrderDetail>;
+
+  analytics(accessToken: string, range: AnalyticsRange): Promise<Analytics>;
 }
