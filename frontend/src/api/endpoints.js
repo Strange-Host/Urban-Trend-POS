@@ -294,12 +294,24 @@ export const ordersApi = {
   get: (id) => client.get(`/orders/${id}`),
   create: (data) => client.post('/orders', data),
   mergeItems: (id, items) => client.post(`/orders/${id}/merge-items`, { items }),
+  // The full list the order should end up with (add, change quantity, remove). Only while awaiting dispatch.
+  replaceItems: (id, items) => client.put(`/orders/${id}/items`, { items }),
+  // Customers with more than one order awaiting dispatch (optionally just the one a given order belongs to).
+  mergeGroups: (orderId) => client.get('/orders/merge-groups', { params: orderId ? { order_id: orderId } : {} }),
+  // Needs confirm: true, which the screen sends only after the person has agreed.
+  mergeOrders: (keepOrderId, mergeOrderIds) => client.post('/orders/merge', { keep_order_id: keepOrderId, merge_order_ids: mergeOrderIds, confirm: true }),
   confirmCod: (id) => client.post(`/orders/${id}/confirm-cod`),
   setCourier: (id, courierType) => client.post(`/orders/${id}/courier`, { courier_type: courierType }),
   assignCourier: (id, courierId) => client.post(`/orders/${id}/courier`, { courier_id: courierId }),
   onlineSources: () => client.get('/orders/online-sources'),
   pullOnline: (incomeSourceId, days) => client.post('/orders/pull-online', { income_source_id: incomeSourceId, ...(days ? { days } : {}) }),
-  dispatch: (id) => client.post(`/orders/${id}/dispatch`),
+  // body: { delivery_fee_paid, delivery_fee_collected (cents), delivery_fee_method, delivery_fee_reference, package_fee (cents), package_fee_zero_reason }
+  dispatch: (id, body = {}) => client.post(`/orders/${id}/dispatch`, body),
+  delivery: (id) => client.get(`/orders/${id}/delivery`),
+  addFeeReceipt: (id, data) => client.post(`/orders/${id}/delivery/fee-receipts`, data),
+  addDeliveryCost: (id, data) => client.post(`/orders/${id}/delivery/costs`, data),
+  closeDelivery: (id, note) => client.post(`/orders/${id}/delivery/close`, { note }),
+  reopenDelivery: (id, reason) => client.post(`/orders/${id}/delivery/reopen`, { reason }),
   recordPayment: (id, data) => client.post(`/orders/${id}/payments`, data),
   returnedInTransit: (id, data) => client.post(`/orders/${id}/returned-in-transit`, data),
   returnedAwaitingInspection: (id) => client.post(`/orders/${id}/returned-awaiting-inspection`),
@@ -362,6 +374,14 @@ export const employeesApi = {
 
 export const telesalesApi = {
   rebalance: () => client.post('/telesales/rebalance'),
+};
+
+export const deliveryApi = {
+  settlements: (params) => client.get('/delivery/settlements', { params }),
+  pendingCosts: () => client.get('/delivery/costs/pending'),
+  approveCost: (id) => client.post(`/delivery/costs/${id}/approve`),
+  rejectCost: (id, reason) => client.post(`/delivery/costs/${id}/reject`, { reason }),
+  reverseCost: (id, data) => client.post(`/delivery/costs/${id}/reverse`, data),
 };
 
 export const couriersApi = {

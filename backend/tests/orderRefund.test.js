@@ -18,7 +18,7 @@ async function dispatchedOrder() {
     .send({ payment_type: 'prepaid', name: 'Refund Customer', phone: `07660000${String(n).padStart(2, '0')}`, items: [{ product_id: pid, quantity: 2 }] });
   expect(created.status).toBe(201);
   const id = created.body.data.id;
-  expect((await request(app).post(`/api/orders/${id}/dispatch`).set(auth(token))).status).toBe(200);
+  expect((await request(app).post(`/api/orders/${id}/dispatch`).set(auth(token)).send({ delivery_fee_paid: false })).status).toBe(200);
   return { id, total: created.body.data.total };
 }
 const pay = (id, amount) => request(app).post(`/api/orders/${id}/payments`).set(auth(token)).send({ method: 'mobile_money', amount, reference: `R${Date.now()}${Math.random()}` });

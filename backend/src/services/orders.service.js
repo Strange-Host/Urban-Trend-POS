@@ -7,6 +7,7 @@ const settingsService = require('./settings.service');
 const smsService = require('./sms.service');
 const couriersService = require('./couriers.service');
 const courierOrganizations = require('./courierOrganizations.service');
+const deliverySettlement = require('./deliverySettlement.service');
 const courierPayablesService = require('./courierPayables.service');
 const notificationsService = require('./notifications.service');
 const { determineDeliveryZone, suggestCourier } = require('../utils/delivery');
@@ -243,6 +244,7 @@ function mergeItems({ orderId, storeId, staffId, items }) {
     // merge that moves the total across the threshold must move the fee too. Same rule create() applies.
     const mergeCity = db.prepare('SELECT city FROM customers WHERE id = ?').get(order.customer_id)?.city;
     const newDeliveryFee = deliveryAreas.resolveFee({ town: mergeCity, totalCents: newTotal, settings: settingsService.getAll() }).fee;
+    withdrawCodConfirmationIfTotalChanged(order, newTotal);
     db.prepare(`UPDATE orders SET subtotal = ?, total = ?, delivery_fee = ?, updated_at = datetime('now') WHERE id = ?`)
       .run(newSubtotal, newTotal, newDeliveryFee, orderId);
 
@@ -256,6 +258,177 @@ function mergeItems({ orderId, storeId, staffId, items }) {
     return db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId);
   });
 
+  return txn();
+}
+
+// A COD order the customer already confirmed was confirmed for a specific basket and price. If the items change the
+// total, that confirmation no longer describes what is being sold, so it is withdrawn and the confirmation window
+// starts again: nobody can dispatch a different basket on the strength of the old yes.
+function withdrawCodConfirmationIfTotalChanged(order, newTotal) {
+  if (order.payment_type !== 'cod' || !order.cod_confirmed_at || newTotal === order.total) return false;
+  const minutes = parseInt(settingsService.getAll().cod_confirmation_window_minutes, 10) || 120;
+  db.prepare(`
+    UPDATE orders SET cod_confirmed_at = NULL, cod_confirmed_by = NULL,
+           cod_confirmation_expires_at = datetime('now', '+' || ? || ' minutes') WHERE id = ?
+  `).run(minutes, order.id);
+  return true;
+}
+
+const ITEMS_LOCKED_MESSAGE = 'Items cannot be changed once an order has been dispatched: the parcel is already packed and the stock has left the shelf.';
+
+// Replaces the whole item list of an order that is still awaiting dispatch (add, change quantity or discount, remove).
+// The caller sends the list the order should end up with. Totals and the delivery fee are worked out again, and the
+// before/after lists go to the staff log. Blocked once dispatched, for imported online orders (their items belong to
+// the online store), and when the new total would fall below money already paid.
+function replaceItems({ orderId, storeId, staffId, items, discountMaxPercent = 0 }) {
+  if (!items || items.length === 0) throw new ApiError(400, 'An order must keep at least one item. Cancel the order instead.');
+  const seen = new Set();
+  for (const item of items) {
+    if (seen.has(item.product_id)) throw new ApiError(422, 'List each product once; change its quantity instead of repeating it.');
+    seen.add(item.product_id);
+  }
+  const txn = db.transaction(() => {
+    const order = db.prepare('SELECT * FROM orders WHERE id = ? AND store_id = ? AND deleted_at IS NULL').get(orderId, storeId);
+    if (!order) throw new ApiError(404, 'Order not found.');
+    if (order.status !== 'awaiting_dispatch') throw new ApiError(409, ITEMS_LOCKED_MESSAGE, null, 'ITEMS_LOCKED');
+    if (order.channel && order.channel !== 'manual') {
+      throw new ApiError(409, 'This order was imported from an online store; change its items there.', null, 'ITEMS_FROM_ONLINE_STORE');
+    }
+
+    const { subtotal, total, lineItems } = computeTotals(items, order.discount_total, discountMaxPercent);
+    if (total < order.amount_paid) {
+      throw new ApiError(409, 'The new total is below what the customer has already paid. Refund first, or keep the total at or above the amount paid.', null, 'TOTAL_BELOW_PAID');
+    }
+
+    const before = db.prepare(`
+      SELECT oi.product_id, oi.quantity, oi.unit_price, oi.discount, oi.line_total FROM order_items oi WHERE oi.order_id = ?
+    `).all(orderId);
+    db.prepare('DELETE FROM order_items WHERE order_id = ?').run(orderId);
+    const insertItem = db.prepare(`
+      INSERT INTO order_items (order_id, product_id, quantity, unit_price, discount, line_total)
+      VALUES (@order_id, @product_id, @quantity, @unit_price, @discount, @line_total)
+    `);
+    for (const li of lineItems) insertItem.run({ ...li, order_id: orderId });
+
+    const city = db.prepare('SELECT city FROM customers WHERE id = ?').get(order.customer_id)?.city;
+    const newDeliveryFee = deliveryAreas.resolveFee({ town: city, totalCents: total, settings: settingsService.getAll() }).fee;
+    const codReset = withdrawCodConfirmationIfTotalChanged(order, total);
+    db.prepare(`UPDATE orders SET subtotal = ?, total = ?, delivery_fee = ?, updated_at = datetime('now') WHERE id = ?`)
+      .run(subtotal, total, newDeliveryFee, orderId);
+
+    if (order.lead_id) {
+      db.prepare(`INSERT INTO lead_activities (lead_id, type, content, staff_id) VALUES (?, 'note', ?, ?)`)
+        .run(order.lead_id, `Changed the items on order #${orderId}`, staffId);
+    }
+    logStaffAction({
+      staffId, action: 'update', entityType: 'order', entityId: orderId,
+      before: { subtotal: order.subtotal, total: order.total, delivery_fee: order.delivery_fee, items: JSON.stringify(before) },
+      after: { subtotal, total, delivery_fee: newDeliveryFee, items: JSON.stringify(lineItems), cod_confirmation_withdrawn: codReset ? 1 : 0 },
+    });
+    return db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId);
+  });
+  return txn();
+}
+
+// What can be merged: orders still awaiting dispatch, nothing paid on them yet, from the same customer, channel and
+// payment type. Returned as groups of two or more, oldest order first (the suggested one to keep).
+function findMergeGroups({ storeId, customerId, orderId }) {
+  const rows = db.prepare(`
+    SELECT o.id, o.customer_id, o.channel, o.payment_type, o.subtotal, o.discount_total, o.total, o.delivery_fee,
+           o.created_at, o.product_code, c.name AS customer_name, c.phone AS customer_phone
+      FROM orders o JOIN customers c ON c.id = o.customer_id
+     WHERE o.store_id = ? AND o.status = 'awaiting_dispatch' AND o.deleted_at IS NULL AND o.amount_paid = 0
+       ${customerId ? 'AND o.customer_id = ?' : ''}
+     ORDER BY o.customer_id, o.created_at, o.id
+  `).all(...(customerId ? [storeId, customerId] : [storeId]));
+  const itemsOf = db.prepare(`
+    SELECT oi.product_id, p.name AS product_name, oi.quantity, oi.unit_price, oi.discount, oi.line_total
+      FROM order_items oi JOIN products p ON p.id = oi.product_id WHERE oi.order_id = ? ORDER BY oi.id
+  `);
+  const groups = new Map();
+  for (const r of rows) {
+    const key = `${r.customer_id}|${r.channel}|${r.payment_type}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push({ ...r, items: itemsOf.all(r.id) });
+  }
+  const result = [...groups.values()]
+    .filter((g) => g.length >= 2)
+    .map((g) => ({
+      customer_id: g[0].customer_id, customer_name: g[0].customer_name, customer_phone: g[0].customer_phone,
+      channel: g[0].channel, payment_type: g[0].payment_type,
+      suggested_keep_order_id: g[0].id,
+      combined_subtotal: g.reduce((t, o) => t + o.subtotal, 0),
+      orders: g,
+    }));
+  return orderId ? result.filter((g) => g.orders.some((o) => o.id === orderId)) : result;
+}
+
+// Merges several of one customer's orders into one, ONLY with explicit permission (confirm: true) and only while
+// every one of them is still awaiting dispatch with nothing paid. The items move to the order being kept, totals and
+// the delivery fee are worked out again (one delivery fee for one parcel), and each merged-away order is cancelled
+// with a pointer to the survivor and its own figures zeroed so every order's lines still add up to its total.
+function mergeOrders({ keepOrderId, mergeOrderIds, storeId, staffId, confirm }) {
+  if (confirm !== true) {
+    throw new ApiError(422, 'Merging changes the customer\'s orders, so it needs explicit permission: send confirm: true after the customer or the manager has agreed.', null, 'MERGE_CONFIRMATION_REQUIRED');
+  }
+  const ids = [...new Set((mergeOrderIds || []).map(Number))].filter((id) => id !== Number(keepOrderId));
+  if (ids.length === 0) throw new ApiError(422, 'Pick at least one other order to merge into the one being kept.');
+
+  const txn = db.transaction(() => {
+    const fetch = (id) => db.prepare('SELECT * FROM orders WHERE id = ? AND store_id = ? AND deleted_at IS NULL').get(id, storeId);
+    const keep = fetch(keepOrderId);
+    if (!keep) throw new ApiError(404, `Order ${keepOrderId} not found.`);
+    const others = ids.map((id) => {
+      const o = fetch(id);
+      if (!o) throw new ApiError(404, `Order ${id} not found.`);
+      return o;
+    });
+    for (const o of [keep, ...others]) {
+      if (o.status !== 'awaiting_dispatch') {
+        throw new ApiError(409, `Order #${o.id} is "${o.status}". Only orders still awaiting dispatch can be merged.`, null, 'MERGE_NOT_AWAITING_DISPATCH');
+      }
+      if (o.amount_paid > 0) {
+        throw new ApiError(409, `Order #${o.id} already has a payment recorded, so it cannot be merged.`, null, 'MERGE_HAS_PAYMENT');
+      }
+      if (o.customer_id !== keep.customer_id) throw new ApiError(409, `Order #${o.id} belongs to a different customer.`, null, 'MERGE_DIFFERENT_CUSTOMER');
+      if ((o.channel || 'manual') !== (keep.channel || 'manual')) throw new ApiError(409, `Order #${o.id} came in through a different channel.`, null, 'MERGE_DIFFERENT_CHANNEL');
+      if (o.payment_type !== keep.payment_type) throw new ApiError(409, `Order #${o.id} has a different payment type (${o.payment_type}).`, null, 'MERGE_DIFFERENT_PAYMENT_TYPE');
+    }
+
+    const moveItems = db.prepare('UPDATE order_items SET order_id = ? WHERE order_id = ?');
+    for (const o of others) moveItems.run(keep.id, o.id);
+
+    const subtotal = db.prepare('SELECT COALESCE(SUM(line_total), 0) AS t FROM order_items WHERE order_id = ?').get(keep.id).t;
+    const discountTotal = keep.discount_total + others.reduce((t, o) => t + o.discount_total, 0);
+    const total = subtotal - discountTotal;
+    const city = db.prepare('SELECT city FROM customers WHERE id = ?').get(keep.customer_id)?.city;
+    const deliveryFee = deliveryAreas.resolveFee({ town: city, totalCents: total, settings: settingsService.getAll() }).fee;
+    const codReset = withdrawCodConfirmationIfTotalChanged(keep, total);
+    db.prepare(`UPDATE orders SET subtotal = ?, discount_total = ?, total = ?, delivery_fee = ?, updated_at = datetime('now') WHERE id = ?`)
+      .run(subtotal, discountTotal, total, deliveryFee, keep.id);
+
+    for (const o of others) {
+      transitionTo(o.id, o, 'cancelled', staffId, `Merged into order #${keep.id}`);
+      db.prepare(`
+        UPDATE orders SET cancelled_at = datetime('now'), merged_into_order_id = ?, subtotal = 0, discount_total = 0, total = 0, delivery_fee = 0 WHERE id = ?
+      `).run(keep.id, o.id);
+      if (o.lead_id) {
+        db.prepare(`INSERT INTO lead_activities (lead_id, type, content, staff_id) VALUES (?, 'note', ?, ?)`)
+          .run(o.lead_id, `Order #${o.id} was merged into order #${keep.id}`, staffId);
+      }
+      logStaffAction({
+        staffId, action: 'update', entityType: 'order', entityId: o.id,
+        before: { status: o.status, subtotal: o.subtotal, discount_total: o.discount_total, total: o.total, delivery_fee: o.delivery_fee },
+        after: { status: 'cancelled', subtotal: 0, discount_total: 0, total: 0, delivery_fee: 0, merged_into_order_id: keep.id },
+      });
+    }
+    logStaffAction({
+      staffId, action: 'update', entityType: 'order', entityId: keep.id,
+      before: { subtotal: keep.subtotal, discount_total: keep.discount_total, total: keep.total, delivery_fee: keep.delivery_fee },
+      after: { subtotal, discount_total: discountTotal, total, delivery_fee: deliveryFee, merged_orders: others.map((o) => o.id).join(','), cod_confirmation_withdrawn: codReset ? 1 : 0 },
+    });
+    return db.prepare('SELECT * FROM orders WHERE id = ?').get(keep.id);
+  });
   return txn();
 }
 
@@ -354,11 +527,15 @@ function setCourier({ orderId, storeId, staffId, courierType, courierId }) {
 // happens ONLY when Dispatched is ticked"). COD orders must be confirmed
 // first (§1 Confirmation Gate) — an unconfirmed COD order that's also past
 // its expiry window is auto-cancelled right here rather than dispatched.
-function dispatch({ orderId, storeId, staffId, packageFee, packageFeeZeroReason }) {
+function dispatch({ orderId, storeId, staffId, packageFee, packageFeeZeroReason, deliveryFeePaid, deliveryFeeCollected, deliveryFeeMethod, deliveryFeeReference }) {
   const txn = db.transaction(() => {
     const order = db.prepare('SELECT * FROM orders WHERE id = ? AND store_id = ? AND deleted_at IS NULL').get(orderId, storeId);
     if (!order) throw new ApiError(404, 'Order not found.');
     assertValidTransition(order.status, 'dispatched_unpaid');
+
+    // Every dispatch must say whether the customer has paid the delivery fee, and how much. What they paid offsets
+    // the delivery's costs; what they did not pay is the shop's to carry. Checked first so no answer changes nothing.
+    const feeAnswer = deliverySettlement.validateFeeAnswer({ order, deliveryFeePaid, deliveryFeeCollected, deliveryFeeMethod, deliveryFeeReference });
 
     if (order.payment_type === 'cod' && !order.cod_confirmed_at) {
       const expired = order.cod_confirmation_expires_at
@@ -420,6 +597,9 @@ function dispatch({ orderId, storeId, staffId, packageFee, packageFeeZeroReason 
 
     transitionTo(orderId, order, 'dispatched_unpaid', staffId);
     db.prepare(`UPDATE orders SET dispatched_at = datetime('now') WHERE id = ?`).run(orderId);
+
+    // Opens the delivery settlement (it stays open until the outcome is confirmed) and records the fee collected.
+    deliverySettlement.openAtDispatch({ order, staffId, answer: feeAnswer });
 
     // What the named courier earns for this parcel (cents), entered by staff now and owed whether or not the
     // customer collects. Same transaction as the dispatch: no fee without a dispatch, no dispatch with a refused fee.
@@ -705,7 +885,7 @@ function getOrderWithItems(id, storeId) {
   `).all(id);
   const customer = customersService.getById(order.customer_id);
   const courier = order.courier_id
-    ? db.prepare('SELECT id, name, phone, vehicle, courier_type FROM couriers WHERE id = ?').get(order.courier_id)
+    ? db.prepare('SELECT id, name, phone, vehicle, courier_type, kind FROM couriers WHERE id = ?').get(order.courier_id)
     : null;
 
   return { ...order, items, payments, status_history: statusHistory, customer, courier };
@@ -760,7 +940,7 @@ function list({ storeId, status, channel, assignedStaffId, search, limit, offset
 
 module.exports = {
   TRANSITIONS, ACTIVE_STATUSES, assertValidTransition, transitionTo, findDuplicateActiveOrder, findByProductCode,
-  create, mergeItems, confirmCod, expireUnconfirmedOrders, setCourier, dispatch, recordPayment, refundPayment,
+  create, mergeItems, replaceItems, mergeOrders, findMergeGroups, confirmCod, expireUnconfirmedOrders, setCourier, dispatch, recordPayment, refundPayment,
   markReturnedInTransit, markReturnedAwaitingInspection, inspectReturn, decideOwnerAction, listPendingOwnerDecisions,
   openDispute, resolveDispute, cancel,
   getOrderWithItems, list,

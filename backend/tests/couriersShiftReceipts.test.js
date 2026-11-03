@@ -100,7 +100,7 @@ describe('couriers', () => {
   it('the courier list shows each rider\'s unpaid parcels', async () => {
     const order = await makeOrder({ phone: '0711555004' });
     await request(app).post(`/api/orders/${order.id}/courier`).set(auth(adminToken)).send({ courier_id: courierId });
-    await request(app).post(`/api/orders/${order.id}/dispatch`).set(auth(adminToken));
+    await request(app).post(`/api/orders/${order.id}/dispatch`).set(auth(adminToken)).send({ delivery_fee_paid: false });
     const row = (await request(app).get('/api/couriers').set(auth(adminToken))).body.data.find((c) => c.id === courierId);
     expect(row.unpaid_parcels).toBeGreaterThanOrEqual(1);
     expect(row.unpaid_amount).toBeGreaterThan(0);
@@ -125,7 +125,7 @@ describe('receipts', () => {
 
   it('hides payment instructions once fully paid, and passes customer text through untouched (the browser renders it as text)', async () => {
     const order = await makeOrder({ phone: '0711555006', name: 'Eve <script>alert(1)</script>' });
-    await request(app).post(`/api/orders/${order.id}/dispatch`).set(auth(adminToken));
+    await request(app).post(`/api/orders/${order.id}/dispatch`).set(auth(adminToken)).send({ delivery_fee_paid: false });
     await request(app).post('/api/integrations/payments/webhook').set('X-Webhook-Secret', 'x').send({}); // ignored; payment below is via the recorded-payment route
     const pay = await request(app).post(`/api/orders/${order.id}/payments`).set(auth(adminToken)).send({ amount: order.total, method: 'cash' });
     expect([200, 201]).toContain(pay.status);

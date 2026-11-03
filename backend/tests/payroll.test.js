@@ -30,7 +30,7 @@ async function createPaidOrderForRep(phone, quantity) {
   const createRes = await request(app).post('/api/orders').set('Authorization', `Bearer ${adminToken}`)
     .send({ name: 'Payroll Order', phone, payment_type: 'prepaid', assigned_staff_id: repId, items: [{ product_id: product.id, quantity }] });
   const orderId = createRes.body.data.id;
-  await request(app).post(`/api/orders/${orderId}/dispatch`).set('Authorization', `Bearer ${adminToken}`);
+  await request(app).post(`/api/orders/${orderId}/dispatch`).set('Authorization', `Bearer ${adminToken}`).send({ delivery_fee_paid: false });
   const total = createRes.body.data.total;
   await request(app).post(`/api/orders/${orderId}/payments`).set('Authorization', `Bearer ${adminToken}`)
     .send({ method: 'mobile_money', amount: total, reference: 'TXN1' });

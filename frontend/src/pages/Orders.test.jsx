@@ -5,7 +5,7 @@ import Orders from './Orders';
 import { ordersApi } from '../api/endpoints';
 
 vi.mock('../api/endpoints', () => ({
-  ordersApi: { list: vi.fn(), get: vi.fn(), pendingOwnerDecision: vi.fn(), integrity: vi.fn(), ownerDecision: vi.fn(), shopCash: vi.fn() },
+  ordersApi: { list: vi.fn(), get: vi.fn(), pendingOwnerDecision: vi.fn(), integrity: vi.fn(), ownerDecision: vi.fn(), shopCash: vi.fn(), mergeGroups: vi.fn() },
   couriersApi: { list: vi.fn(() => Promise.resolve({ data: { data: [] } })) },
 }));
 let role = 'cashier';
@@ -19,7 +19,10 @@ vi.mock('../components/PullOnlineOrders', () => ({ default: () => null }));
 vi.mock('../components/PrintReceipt', () => ({ default: () => null }));
 vi.mock('../components/InvoiceButton', () => ({ default: () => null }));
 vi.mock('../components/PrintWaybill', () => ({ default: () => null }));
-vi.mock('../components/AddItemsSheet', () => ({ default: () => null }));
+vi.mock('../components/EditItemsSheet', () => ({ default: () => null }));
+vi.mock('../components/DispatchSheet', () => ({ default: () => null }));
+vi.mock('../components/MergeOrdersNotice', () => ({ default: () => null }));
+vi.mock('../components/DeliverySettlementPanel', () => ({ default: () => null }));
 vi.mock('../components/NewOrderSheet', () => ({ default: ({ onCreated, onClose }) => <div>new order sheet<button onClick={() => { onCreated({ id: 9 }); onClose(); }}>finish</button></div> }));
 vi.mock('../components/CustomerOrderHistory', () => ({ default: () => null }));
 
