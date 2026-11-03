@@ -32,7 +32,7 @@ async function newOrder({ courierId, fee, assign = true } = {}) {
     await auth(request(app).post(`/api/orders/${id}/courier`)).send({ courier_id: courierId });
     await auth(request(app).post(`/api/orders/${id}/confirm-cod`));
   }
-  const res = await auth(request(app).post(`/api/orders/${id}/dispatch`)).send(fee === undefined ? {} : { package_fee: fee });
+  const res = await auth(request(app).post(`/api/orders/${id}/dispatch`)).send(fee === undefined ? { delivery_fee_paid: false } : { package_fee: fee, delivery_fee_paid: false });
   expect(res.status).toBe(200);
   return { id, total: created.body.data.total, code: db.prepare('SELECT product_code FROM orders WHERE id = ?').get(id).product_code };
 }

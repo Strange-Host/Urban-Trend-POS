@@ -122,12 +122,12 @@ describe('dispatching orders', () => {
   it('a shop order still takes shop stock, and still refuses when there is not enough', async () => {
     const pid = shopProduct(3);
     const orderId = await placeOrder(pid, 2);
-    const res = await request(app).post(`/api/orders/${orderId}/dispatch`).set(auth(token));
+    const res = await request(app).post(`/api/orders/${orderId}/dispatch`).set(auth(token)).send({ delivery_fee_paid: false });
     expect(res.status).toBe(200);
     expect(stockOf(pid)).toBe(1);
 
     const tooMany = await placeOrder(pid, 5);
-    const refused = await request(app).post(`/api/orders/${tooMany}/dispatch`).set(auth(token));
+    const refused = await request(app).post(`/api/orders/${tooMany}/dispatch`).set(auth(token)).send({ delivery_fee_paid: false });
     expect(refused.status).toBe(409);
     expect(refused.body.error.message).toMatch(/Insufficient stock/);
   });
@@ -138,7 +138,7 @@ describe('dispatching orders', () => {
     const orderId = await placeOrder(pid, 3);
     db.prepare(`UPDATE orders SET channel = 'shopify' WHERE id = ?`).run(orderId);
 
-    const res = await request(app).post(`/api/orders/${orderId}/dispatch`).set(auth(token));
+    const res = await request(app).post(`/api/orders/${orderId}/dispatch`).set(auth(token)).send({ delivery_fee_paid: false });
     expect(res.status).toBe(200);
     expect(stockOf(pid)).toBe(0);
     expect(movements(pid)).toHaveLength(0);
@@ -150,7 +150,7 @@ describe('dispatching orders', () => {
     const pid = shopProduct(6);
     const orderId = await placeOrder(pid, 2);
     db.prepare(`UPDATE orders SET channel = 'shopify' WHERE id = ?`).run(orderId);
-    expect((await request(app).post(`/api/orders/${orderId}/dispatch`).set(auth(token))).status).toBe(200);
+    expect((await request(app).post(`/api/orders/${orderId}/dispatch`).set(auth(token)).send({ delivery_fee_paid: false })).status).toBe(200);
     expect(stockOf(pid)).toBe(6);
   });
 });

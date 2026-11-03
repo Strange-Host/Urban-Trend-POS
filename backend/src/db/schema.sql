@@ -1751,3 +1751,71 @@ CREATE TABLE IF NOT EXISTS sales_forecasts (
   updated_at      TEXT NOT NULL DEFAULT (datetime('now')),
   UNIQUE (store_id, month)
 );
+
+-- ---------------------------------------------------------------------
+-- Delivery settlement: what a delivery earned against what it cost, per order.
+--   delivery_fee_receipts  the part of the delivery fee the customer actually paid (asked at every dispatch).
+--                          Only what was collected offsets delivery cost; an unpaid fee is the shop's loss.
+--   delivery_costs         costs paid by the shop beyond the courier's package fee and a rider's approved costs:
+--                          outpost-to-destination legs, handling, storage and so on. Each carries a mandatory
+--                          reason. Never edited or deleted: a mistake is fixed by a reversal row (reverses_cost_id).
+--                          Another person must approve it before it counts.
+--   delivery_settlements   one per dispatched order. 'open' until someone confirms the outcome, then 'closed' with
+--                          the figures frozen. Package fees and courier costs stay in their own tables and are
+--                          read, not copied, so nothing is entered twice.
+-- All amounts are integer cents.
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS delivery_fee_receipts (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  store_id     INTEGER NOT NULL REFERENCES stores(id),
+  order_id     INTEGER NOT NULL REFERENCES orders(id),
+  amount       INTEGER NOT NULL CHECK (amount > 0),
+  method       TEXT NOT NULL CHECK (method IN ('cash','mobile_money','bank_transfer')),
+  reference    TEXT,
+  note         TEXT,
+  recorded_by  INTEGER NOT NULL REFERENCES users(id),
+  recorded_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_delivery_fee_receipts_order ON delivery_fee_receipts(order_id);
+CREATE TRIGGER IF NOT EXISTS delivery_fee_receipts_no_update BEFORE UPDATE ON delivery_fee_receipts BEGIN SELECT RAISE(ABORT, 'delivery_fee_receipts are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS delivery_fee_receipts_no_delete BEFORE DELETE ON delivery_fee_receipts BEGIN SELECT RAISE(ABORT, 'delivery_fee_receipts are immutable'); END;
+
+CREATE TABLE IF NOT EXISTS delivery_costs (
+  id               INTEGER PRIMARY KEY AUTOINCREMENT,
+  store_id         INTEGER NOT NULL REFERENCES stores(id),
+  order_id         INTEGER NOT NULL REFERENCES orders(id),
+  kind             TEXT NOT NULL CHECK (kind IN ('outpost_leg','onward_transport','handling','storage','fuel','return_trip','packaging','other')),
+  amount           INTEGER NOT NULL CHECK (amount > 0),
+  reason           TEXT NOT NULL CHECK (length(trim(reason)) > 0),
+  paid_via         TEXT NOT NULL CHECK (paid_via IN ('cash','mobile_money','bank_transfer')),
+  reference        TEXT,
+  reverses_cost_id INTEGER REFERENCES delivery_costs(id),   -- set on a reversal: this row cancels (part of) that cost
+  recorded_by      INTEGER NOT NULL REFERENCES users(id),
+  status           TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected')),
+  decided_by       INTEGER REFERENCES users(id),
+  decided_at       TEXT,
+  decision_reason  TEXT,
+  created_at       TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_delivery_costs_order ON delivery_costs(order_id);
+CREATE INDEX IF NOT EXISTS idx_delivery_costs_reverses ON delivery_costs(reverses_cost_id);
+-- Only the decision columns may change, once.
+CREATE TRIGGER IF NOT EXISTS delivery_costs_no_edit BEFORE UPDATE OF store_id, order_id, kind, amount, reason, paid_via, reference, reverses_cost_id, recorded_by, created_at ON delivery_costs BEGIN SELECT RAISE(ABORT, 'delivery_costs cannot be edited: add a reversal instead'); END;
+CREATE TRIGGER IF NOT EXISTS delivery_costs_no_delete BEFORE DELETE ON delivery_costs BEGIN SELECT RAISE(ABORT, 'delivery_costs cannot be deleted: add a reversal instead'); END;
+
+CREATE TABLE IF NOT EXISTS delivery_settlements (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  store_id      INTEGER NOT NULL REFERENCES stores(id),
+  order_id      INTEGER NOT NULL UNIQUE REFERENCES orders(id),
+  status        TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','closed')),
+  outcome       TEXT CHECK (outcome IS NULL OR outcome IN ('delivered','returned')),
+  fee_charged   INTEGER,        -- the figures below are frozen when the settlement is closed
+  fee_collected INTEGER,
+  costs_total   INTEGER,
+  result        INTEGER,        -- fee_collected - costs_total: positive = the delivery earned money, negative = it cost the shop
+  closed_by     INTEGER REFERENCES users(id),
+  closed_at     TEXT,
+  close_note    TEXT,
+  opened_at     TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_delivery_settlements_status ON delivery_settlements(store_id, status);

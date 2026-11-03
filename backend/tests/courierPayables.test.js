@@ -35,7 +35,7 @@ async function makeOrder({ withCourier = true } = {}) {
   return order;
 }
 
-const dispatch = (orderId, body = {}) => request(app).post(`/api/orders/${orderId}/dispatch`).set(auth(adminToken)).send(body);
+const dispatch = (orderId, body = {}) => request(app).post(`/api/orders/${orderId}/dispatch`).set(auth(adminToken)).send({ delivery_fee_paid: false, ...body });
 const balance = async () => (await request(app).get(`/api/couriers/${courier.id}/payables`).set(auth(adminToken))).body.data;
 
 async function approvedCost(amount, kind = 'fuel') {

@@ -4,7 +4,7 @@ const ctrl = require('../controllers/orders.controller');
 const { authenticate, requireRole, requirePermission } = require('../middleware/auth');
 const validate = require('../middleware/validate');
 const {
-  createOrderSchema, mergeItemsSchema, setCourierSchema, recordPaymentSchema, shopCashSchema, inspectReturnSchema,
+  createOrderSchema, mergeItemsSchema, replaceItemsSchema, mergeOrdersSchema, setCourierSchema, recordPaymentSchema, shopCashSchema, inspectReturnSchema,
   notesOnlySchema, returnedInTransitSchema, ownerDecisionSchema, openDisputeSchema, resolveDisputeSchema,
 } = require('../validation/orders.schema');
 
@@ -27,9 +27,22 @@ router.get('/pending-owner-decision', requireRole('admin', 'manager'), ctrl.list
 router.get('/integrity', requireRole('admin', 'manager'), ctrl.checkIntegrity);
 // Also before '/:id'. The manager's money-at-risk list (see services/atRisk.service.js).
 router.get('/at-risk', requirePermission('atrisk.view'), ctrl.atRisk);
+// Also before '/:id'. Customers who have more than one order still awaiting dispatch, and the permissioned merge.
+router.get('/merge-groups', ctrl.mergeGroups);
+router.post('/merge', validate(mergeOrdersSchema), ctrl.mergeOrders);
 router.post('/', validate(createOrderSchema), ctrl.create);
 router.get('/:id', ctrl.getById);
 router.post('/:id/merge-items', validate(mergeItemsSchema), ctrl.mergeItems);
+router.put('/:id/items', validate(replaceItemsSchema), ctrl.replaceItems);
+
+// Delivery settlement: what this delivery earned against what it cost. See services/deliverySettlement.service.js.
+const delivery = require('../controllers/delivery.controller');
+const { feeReceiptSchema, recordDeliveryCostSchema, closeSettlementSchema, reopenSettlementSchema } = require('../validation/delivery.schema');
+router.get('/:id/delivery', delivery.get);
+router.post('/:id/delivery/fee-receipts', requirePermission('delivery.costs.record'), validate(feeReceiptSchema), delivery.recordFeeReceipt);
+router.post('/:id/delivery/costs', requirePermission('delivery.costs.record'), validate(recordDeliveryCostSchema), delivery.recordCost);
+router.post('/:id/delivery/close', requirePermission('delivery.settlement.close'), validate(closeSettlementSchema), delivery.close);
+router.post('/:id/delivery/reopen', requireRole('admin'), validate(reopenSettlementSchema), delivery.reopen);
 router.post('/:id/confirm-cod', ctrl.confirmCod);
 router.get('/:id/receipt.escpos', require('../controllers/receipts.controller').orderEscPos);
 router.get('/:id/receipt', require('../controllers/receipts.controller').orderReceipt);

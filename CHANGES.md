@@ -1,3 +1,29 @@
+# Delivery settlement: every delivery's fee against its costs; item edits and merges
+
+**Dispatch now asks about the delivery fee.** Customers pay the fee on top of the goods total, and some refuse. `POST /api/orders/:id/dispatch`
+requires `delivery_fee_paid` (true/false) whenever the order carries a fee; when true it also needs `delivery_fee_collected` (cents, at most the fee),
+`delivery_fee_method` (`cash`, `mobile_money`, `bank_transfer`) and optionally `delivery_fee_reference`. No answer, no dispatch. The dispatch screen is
+a new `DispatchSheet`, which also takes the courier's package fee (it was never entered from the screen before, and an organization's is mandatory).
+
+**One settlement per dispatched order** (`delivery_settlements`), open until a manager confirms the parcel was delivered (or came back), then frozen.
+Earned = fee actually collected (`delivery_fee_receipts`). Cost = the courier's package fee + a rider's approved extra costs + approved extra delivery costs
+(`delivery_costs`: outpost legs, onward transport, handling, storage...; each with a mandatory reason). Result = earned - cost, so a customer who paid nothing
+leaves the whole cost with the shop, and a fee larger than the costs shows as extra income. Extra costs and reversals need approval by a different person;
+nothing is edited or deleted (database triggers enforce it), a mistake is fixed by a reversal row with its own reason. A settlement cannot close while a
+cost is pending. Closed settlements refuse new costs and fee payments (including rider costs against the order) until an administrator reopens them with a reason.
+Endpoints: `GET /api/orders/:id/delivery`, `POST .../delivery/fee-receipts|costs|close|reopen`, `GET /api/delivery/settlements`, `GET /api/delivery/costs/pending`,
+`POST /api/delivery/costs/:id/approve|reject|reverse`. New permissions: `delivery.costs.record`, `delivery.costs.approve`, `delivery.settlement.close`.
+
+**Profit and loss changed.** `deliveryFees` used to be the fee CHARGED, subtracted as if it were a cost, while fee income never appeared. It is now the net delivery
+cost: package fees + approved rider costs + approved extra delivery costs, minus fees collected (`deliveryEarned` and `deliveryCost` are returned too). Rider payouts
+are mirrored into `expenses` when paid; those mirror rows are now excluded from `businessExpenses` because the same costs are already counted as delivery costs.
+Courier-organization package fees were not in any expense or profit figure before; they are now. Historic periods will re-state: past deliveries have no fee receipts.
+
+**Orders.** `PUT /api/orders/:id/items` replaces the item list (add, change quantity, remove) while the order is awaiting dispatch; blocked entirely afterwards, and for
+orders imported from an online store. A total change withdraws a COD confirmation (merge-items too). `GET /api/orders/merge-groups` lists customers with several orders
+awaiting dispatch; `POST /api/orders/merge` merges them only with `confirm: true` (orders must be awaiting dispatch, unpaid, same customer/channel/payment type). The
+merged-away orders are cancelled and zeroed with `merged_into_order_id` pointing at the survivor. The Orders screen shows the notice and asks before merging.
+
 # Shop catalogue and online catalogue kept apart
 
 The shop and the online store hold separate physical stock, so the two catalogues no longer share one set of numbers.

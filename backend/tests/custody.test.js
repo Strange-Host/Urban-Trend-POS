@@ -34,7 +34,7 @@ async function dispatched() {
   const phone = `07770${String(++phoneSeq).padStart(5, '0')}`;
   const create = await request(app).post('/api/orders').set(auth()).send({ name: 'Custody Test', phone, payment_type: 'prepaid', items: [{ product_id: product.id, quantity: 1 }] });
   const id = create.body.data.id;
-  await request(app).post(`/api/orders/${id}/dispatch`).set(auth());
+  await request(app).post(`/api/orders/${id}/dispatch`).set(auth()).send({ delivery_fee_paid: false });
   return db.prepare('SELECT * FROM orders WHERE id = ?').get(id);
 }
 const shopCash = (orderId, body, t = token) => request(app).post(`/api/orders/${orderId}/shop-cash`).set(auth(t)).send(body);

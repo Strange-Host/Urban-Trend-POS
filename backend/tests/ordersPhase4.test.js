@@ -15,7 +15,7 @@ async function createDispatchedOrder(phone) {
   const createRes = await request(app).post('/api/orders').set('Authorization', `Bearer ${token}`)
     .send({ name: 'RMA Test', phone, payment_type: 'prepaid', items: [{ product_id: product.id, quantity: 1 }] });
   const orderId = createRes.body.data.id;
-  await request(app).post(`/api/orders/${orderId}/dispatch`).set('Authorization', `Bearer ${token}`);
+  await request(app).post(`/api/orders/${orderId}/dispatch`).set('Authorization', `Bearer ${token}`).send({ delivery_fee_paid: false });
   return orderId;
 }
 
