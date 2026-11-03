@@ -5,6 +5,11 @@ import NotificationBell from './NotificationBell';
 import useStackedTableLabels from './useStackedTableLabels';
 import useModules from '../hooks/useModules';
 import useSlidingPill from '../hooks/useSlidingPill';
+import {
+  Banknote, ChartColumn, ChevronDown, ChevronRight, ChevronsLeft, ChevronsRight, ClipboardCheck, Clock,
+  GitCompareArrows, History, LayoutDashboard, Menu, Package, ReceiptText, RefreshCw, ScrollText, Settings,
+  ShoppingCart, Tags, TriangleAlert, UserCog, UserPlus, Users, Wallet, Warehouse, X,
+} from 'lucide-react';
 
 // Grouped by "what am I doing right now", not by which backend module a
 // page belongs to — that's why Attendance sits under Team next to Payroll
@@ -16,9 +21,9 @@ import useSlidingPill from '../hooks/useSlidingPill';
 // they're where a shift starts, and burying either one behind a disclosure
 // triangle to save two lines would be a bad trade.
 const PINNED_TOP = [
-  { to: '/terminal', label: 'Terminal', icon: '⌸', roles: ['admin', 'manager', 'cashier'] },
-  { to: '/dashboard', label: 'Dashboard', icon: '▲', roles: ['admin', 'manager'], perm: 'reports.view' },
-  { to: '/reports', label: 'Reports', icon: '☰', roles: ['admin', 'manager'], perm: 'reports.view' },
+  { to: '/terminal', label: 'Terminal', icon: ShoppingCart, roles: ['admin', 'manager', 'cashier'] },
+  { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: ['admin', 'manager'], perm: 'reports.view' },
+  { to: '/reports', label: 'Reports', icon: ChartColumn, roles: ['admin', 'manager'], perm: 'reports.view' },
 ];
 
 const GROUPS = [
@@ -26,46 +31,46 @@ const GROUPS = [
     id: 'sell',
     label: 'Sell',
     items: [
-      { to: '/orders', label: 'Orders', icon: '⊞', roles: ['admin', 'manager', 'cashier'] },
-      { to: '/leads', label: 'Leads', icon: '☍', roles: ['admin', 'manager', 'cashier'] },
-      { to: '/sales', label: 'Sales history', icon: '𝍖', roles: ['admin', 'manager', 'cashier'] },
-      { to: '/approvals', label: 'Approvals', icon: '✓', roles: ['admin', 'manager', 'cashier'], perm: ['approvals.review', 'sales.void_request', 'payments.refund_request'] },
+      { to: '/orders', label: 'Orders', icon: Package, roles: ['admin', 'manager', 'cashier'] },
+      { to: '/leads', label: 'Leads', icon: Users, roles: ['admin', 'manager', 'cashier'] },
+      { to: '/sales', label: 'Sales history', icon: History, roles: ['admin', 'manager', 'cashier'] },
+      { to: '/approvals', label: 'Approvals', icon: ClipboardCheck, roles: ['admin', 'manager', 'cashier'], perm: ['approvals.review', 'sales.void_request', 'payments.refund_request'] },
     ],
   },
   {
     id: 'stock',
     label: 'Stock',
     items: [
-      { to: '/catalog', label: 'Catalog', icon: '▤', roles: ['admin', 'manager', 'store'], perm: ['products.manage', 'products.propose'] },
-      { to: '/stock', label: 'Stock control', icon: '⇅', roles: ['admin', 'manager', 'store'], perm: ['stock.receive', 'stock.transfer', 'stock.count'] },
-      { to: '/shopify-sync', label: 'Shopify sync', icon: '⇄', roles: ['admin', 'manager'], perm: 'shopify.sync' },
+      { to: '/catalog', label: 'Catalog', icon: Tags, roles: ['admin', 'manager', 'store'], perm: ['products.manage', 'products.propose'] },
+      { to: '/stock', label: 'Stock control', icon: Warehouse, roles: ['admin', 'manager', 'store'], perm: ['stock.receive', 'stock.transfer', 'stock.count'] },
+      { to: '/shopify-sync', label: 'Shopify sync', icon: RefreshCw, roles: ['admin', 'manager'], perm: 'shopify.sync' },
     ],
   },
   {
     id: 'money',
     label: 'Money',
     items: [
-      { to: '/money-at-risk', label: 'Money at risk', icon: '⚑', roles: ['admin', 'manager'], perm: 'atrisk.view' },
-      { to: '/finance', label: 'Finance', icon: '◈', roles: ['admin', 'manager'] },
-      { to: '/reconciliation', label: 'Reconciliation', icon: '⇌', roles: ['admin', 'manager'], perm: 'payments.reconcile' },
-      { to: '/requisitions', label: 'Requisitions', icon: '⇵', roles: ['admin', 'manager', 'cashier'], module: 'hr' },
+      { to: '/money-at-risk', label: 'Money at risk', icon: TriangleAlert, roles: ['admin', 'manager'], perm: 'atrisk.view' },
+      { to: '/finance', label: 'Finance', icon: Wallet, roles: ['admin', 'manager'] },
+      { to: '/reconciliation', label: 'Reconciliation', icon: GitCompareArrows, roles: ['admin', 'manager'], perm: 'payments.reconcile' },
+      { to: '/requisitions', label: 'Requisitions', icon: ReceiptText, roles: ['admin', 'manager', 'cashier'], module: 'hr' },
     ],
   },
   {
     id: 'team',
     label: 'Team',
     items: [
-      { to: '/attendance', label: 'Attendance', icon: '◷', roles: ['admin', 'manager', 'cashier'], module: 'hr' },
-      { to: '/payroll', label: 'Payroll', icon: '⊟', roles: ['admin', 'manager'], perm: 'payroll.view', module: 'hr' },
-      { to: '/staff', label: 'Staff', icon: '☺', roles: ['admin'] },
-      { to: '/employees', label: 'Onboarding', icon: '✎', roles: ['admin'], module: 'hr' },
-      { to: '/staff-logs', label: 'Activity log', icon: '☰', roles: ['admin'] },
+      { to: '/attendance', label: 'Attendance', icon: Clock, roles: ['admin', 'manager', 'cashier'], module: 'hr' },
+      { to: '/payroll', label: 'Payroll', icon: Banknote, roles: ['admin', 'manager'], perm: 'payroll.view', module: 'hr' },
+      { to: '/staff', label: 'Staff', icon: UserCog, roles: ['admin'] },
+      { to: '/employees', label: 'Onboarding', icon: UserPlus, roles: ['admin'], module: 'hr' },
+      { to: '/staff-logs', label: 'Activity log', icon: ScrollText, roles: ['admin'] },
     ],
   },
 ];
 
 const PINNED_BOTTOM = [
-  { to: '/settings', label: 'Settings', icon: '⚙', roles: ['admin'] },
+  { to: '/settings', label: 'Settings', icon: Settings, roles: ['admin'] },
 ];
 
 const COLLAPSE_KEY = 'ut_nav_collapsed';
@@ -87,7 +92,7 @@ function NavItem({ item, onNavigate, nested = false }) {
         }`
       }
     >
-      <span className="text-base leading-none w-4 shrink-0">{item.icon}</span>
+      <item.icon size={18} strokeWidth={1.75} className="shrink-0" aria-hidden="true" />
       {item.label}
     </NavLink>
   );
@@ -177,7 +182,7 @@ export default function Layout() {
           aria-label="Open navigation menu"
           className="p-2 -ml-2 text-white/80 hover:text-white"
         >
-          <span className="text-xl leading-none">☰</span>
+          <Menu size={22} strokeWidth={1.75} aria-hidden="true" />
         </button>
         <div className="font-display font-700 text-sm tracking-tight">Urban Trends</div>
         <NotificationBell className="-mr-2" />
@@ -214,7 +219,7 @@ export default function Layout() {
                 title="Hide sidebar"
                 className="hidden lg:block p-2 text-white/60 hover:text-white"
               >
-                «
+                <ChevronsLeft size={18} strokeWidth={1.75} aria-hidden="true" />
               </button>
             )}
             {/* Slide-in drawer (phones, or desktop with the sidebar hidden): pin it back, or close it */}
@@ -225,7 +230,7 @@ export default function Layout() {
                 title="Pin sidebar"
                 className="hidden lg:block p-2 text-white/60 hover:text-white"
               >
-                »
+                <ChevronsRight size={18} strokeWidth={1.75} aria-hidden="true" />
               </button>
             )}
             <button
@@ -233,7 +238,7 @@ export default function Layout() {
               aria-label="Close navigation menu"
               className={`${sidebarHidden ? '' : 'lg:hidden'} p-2 text-white/60 hover:text-white`}
             >
-              ✕
+              <X size={18} strokeWidth={1.75} aria-hidden="true" />
             </button>
           </div>
         </div>
@@ -264,7 +269,7 @@ export default function Layout() {
                   aria-expanded={isOpen}
                 >
                   {group.label}
-                  <span className="text-[9px] leading-none">{isOpen ? '▾' : '▸'}</span>
+                  {isOpen ? <ChevronDown size={12} aria-hidden="true" /> : <ChevronRight size={12} aria-hidden="true" />}
                 </button>
                 {isOpen && (
                   <div className="mt-1 space-y-0.5">
