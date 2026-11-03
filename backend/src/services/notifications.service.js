@@ -43,8 +43,17 @@ function notify({ storeId, userIds = [], roles = [], type, title, body = null, s
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     let created = 0;
+    const fresh = [];                                  // only people who got a NEW row: a de-duplicated repeat must not buzz a phone again
     for (const userId of recipients) {
-      created += insert.run(storeId, userId, type, title, body, severity, entityType, entityId, dedupeKey).changes;
+      const n = insert.run(storeId, userId, type, title, body, severity, entityType, entityId, dedupeKey).changes;
+      created += n;
+      if (n) fresh.push(userId);
+    }
+    // The bell rows above are the source of truth. A push (mobile app, see push.service.js) is only a nudge on top, so it
+    // is fired and forgotten: it can never fail or slow the action that caused this notification. Loaded here, not at the top
+    // of the file, because push -> devices -> securityAlerts -> this file would otherwise be a require cycle.
+    if (fresh.length) {
+      try { require('./push.service').pushForNotification({ userIds: fresh, type, severity, title, body, entityType, entityId }); } catch (err) { logger.error('[notifications] push hand-off failed', { type, error: err.message }); }
     }
     return created;
   } catch (err) {
