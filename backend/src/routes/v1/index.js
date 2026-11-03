@@ -27,6 +27,7 @@ router.post('/auth/mobile/logout', validate(schema.refreshBody), mobileAuth.logo
 
 // Public: the app asks this before anyone is signed in (and an app too old to sign in must still be able to read it).
 router.get('/app/version', appVersion.get);
+router.get('/openapi.json', require('../../controllers/openapi.controller').get);
 
 router.get('/home/attention', authenticate, home.attention);
 router.get('/home/summary', authenticate, home.summary);
