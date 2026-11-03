@@ -47,15 +47,18 @@ function parseTs(v) {
 
 const get = (id) => (id ? db.prepare('SELECT * FROM auth_sessions WHERE id = ?').get(id) : undefined);
 
-function create(user, { remember = false, ip = null, userAgent = null } = {}) {
+// `device` is only passed by the mobile app (services/devices.service.js): { id, name, platform, appVersion }.
+function create(user, { remember = false, ip = null, userAgent = null, client = 'web', device = null } = {}) {
   const p = policyFor(user.role);
   const now = Date.now();
   const hours = remember ? p.maxHours : Math.min(p.maxHours, p.unrememberedMaxHours);
   const iso = new Date(now).toISOString();
   const id = db.prepare(`
-    INSERT INTO auth_sessions (user_id, remember, user_agent, ip, created_at, last_activity_at, reauth_at, absolute_expires_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(user.id, remember ? 1 : 0, userAgent ? String(userAgent).slice(0, 300) : null, ip, iso, iso, iso, new Date(now + hours * HOUR).toISOString()).lastInsertRowid;
+    INSERT INTO auth_sessions (user_id, remember, user_agent, ip, created_at, last_activity_at, reauth_at, absolute_expires_at,
+                               client, device_id, device_name, platform, app_version)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(user.id, remember ? 1 : 0, userAgent ? String(userAgent).slice(0, 300) : null, ip, iso, iso, iso, new Date(now + hours * HOUR).toISOString(),
+    client === 'mobile' ? 'mobile' : 'web', device?.id || null, device?.name || null, device?.platform || null, device?.appVersion || null).lastInsertRowid;
   prune();
   return get(id);
 }
@@ -64,6 +67,10 @@ function create(user, { remember = false, ip = null, userAgent = null } = {}) {
 function evaluate(session, role, nowMs = Date.now()) {
   if (!session || session.revoked_at) return { state: 'revoked' };
   if (nowMs >= parseTs(session.absolute_expires_at)) return { state: 'expired', reason: 'max' };
+  // The phone locks itself (biometric unlock, after the owner's chosen time in the background), so the server never
+  // puts a mobile session into 'locked': that state could only be cleared by typing the password again, which would
+  // make the biometric unlock pointless. A mobile session still ends at its hard maximum or when it is revoked.
+  if (session.client === 'mobile') return { state: 'active' };
   const p = policyFor(role);
   const idle = nowMs - parseTs(session.last_activity_at);
   if (!session.remember && idle >= p.idleSignOutMinutes * 60000) return { state: 'expired', reason: 'idle' };
@@ -91,7 +98,8 @@ function recentlyConfirmed(session, role, nowMs = Date.now()) {
 
 function revoke(sessionId, reason = 'signed_out') {
   if (!sessionId) return;
-  db.prepare(`UPDATE auth_sessions SET revoked_at = ?, revoked_reason = ? WHERE id = ? AND revoked_at IS NULL`).run(new Date().toISOString(), reason, sessionId);
+  // push_token is dropped with the session so a signed-out phone never receives another notification.
+  db.prepare(`UPDATE auth_sessions SET revoked_at = ?, revoked_reason = ?, push_token = NULL WHERE id = ? AND revoked_at IS NULL`).run(new Date().toISOString(), reason, sessionId);
   db.prepare(`UPDATE refresh_tokens SET revoked_at = datetime('now') WHERE session_id = ? AND revoked_at IS NULL`).run(sessionId);
 }
 
@@ -113,7 +121,8 @@ function deviceLabel(ua) {
 
 /** Live sessions for one person (what the 'signed-in devices' screen shows). */
 function listForUser(user, currentSessionId) {
-  const rows = db.prepare('SELECT * FROM auth_sessions WHERE user_id = ? AND revoked_at IS NULL ORDER BY last_activity_at DESC').all(user.id);
+  // The web "signed-in devices" screen lists browsers; phones have their own list (services/devices.service.js).
+  const rows = db.prepare(`SELECT * FROM auth_sessions WHERE user_id = ? AND revoked_at IS NULL AND client = 'web' ORDER BY last_activity_at DESC`).all(user.id);
   return rows
     .map((r) => ({ r, ev: evaluate(r, user.role) }))
     .filter(({ ev }) => ev.state === 'active' || ev.state === 'locked')

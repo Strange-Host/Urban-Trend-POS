@@ -40,7 +40,10 @@ const INVALID = () => new ApiError(401, 'Invalid or expired refresh token.');
  * has ended (idle too long, past its maximum, or signed out elsewhere) - code SESSION_EXPIRED.
  * A locked session may still refresh: the new access token is useless until the password/PIN unlocks it.
  */
-function rotate(rawToken, { ip } = {}) {
+// `client` ('web' | 'mobile'), when given, must match the kind of session the token belongs to: a browser cookie can't be
+// traded for body tokens on the mobile endpoint, nor a phone's token used on the web one. Checked BEFORE rotating, so a
+// wrong-door attempt leaves the real token untouched.
+function rotate(rawToken, { ip, client } = {}) {
   if (!rawToken) throw new ApiError(401, 'Refresh token required.');
   const row = db.prepare('SELECT * FROM refresh_tokens WHERE token_hash = ?').get(hashToken(rawToken));
   if (!row) throw INVALID();
@@ -63,6 +66,7 @@ function rotate(rawToken, { ip } = {}) {
   if (!user) throw INVALID();
 
   const session = sessions.get(row.session_id);
+  if (client && session && session.client !== client) throw INVALID();
   const ev = sessions.evaluate(session, user.role);
   if (ev.state === 'revoked' || ev.state === 'expired') {
     if (session && !session.revoked_at) sessions.revoke(session.id, ev.reason === 'idle' ? 'idle' : 'expired');
