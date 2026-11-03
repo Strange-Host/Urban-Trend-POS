@@ -40,7 +40,7 @@ async function dispatched(courierId, opts = {}) {
   const body = {};
   if (fee !== undefined) body.package_fee = fee;
   if (zeroReason) body.package_fee_zero_reason = zeroReason;
-  const res = await auth(request(app).post(`/api/orders/${id}/dispatch`)).send(body);
+  const res = await auth(request(app).post(`/api/orders/${id}/dispatch`)).send({ delivery_fee_paid: false, ...body });
   return { res, id, total: created.body.data.total };
 }
 const order = (id) => db.prepare('SELECT * FROM orders WHERE id = ?').get(id);

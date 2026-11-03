@@ -30,7 +30,7 @@ async function dispatchedOrder(phone, quantity = 1) {
   const res = await request(app).post('/api/orders').set(auth())
     .send({ name: 'Runs Order', phone, payment_type: 'prepaid', assigned_staff_id: repId, items: [{ product_id: product.id, quantity }] });
   const orderId = res.body.data.id;
-  await request(app).post(`/api/orders/${orderId}/dispatch`).set(auth());
+  await request(app).post(`/api/orders/${orderId}/dispatch`).set(auth()).send({ delivery_fee_paid: false });
   return { orderId, total: res.body.data.total };
 }
 const pay = (orderId, amount, method = 'mobile_money') =>

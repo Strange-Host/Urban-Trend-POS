@@ -35,7 +35,7 @@ async function securedOrder(rep, { unitPrice = 5000, quantity = 2 } = {}) {
     .send({ name: 'P3 Customer', phone: `07330009${String(n).padStart(2, '0')}`, city: 'Nairobi', payment_type: 'prepaid', assigned_staff_id: rep.id, items: [{ product_id: pid, quantity }] });
   expect(created.status).toBe(201);
   const id = created.body.data.id;
-  expect((await request(app).post(`/api/orders/${id}/dispatch`).set(auth())).status).toBe(200);
+  expect((await request(app).post(`/api/orders/${id}/dispatch`).set(auth()).send({ delivery_fee_paid: false })).status).toBe(200);
   const total = created.body.data.total;
   expect((await request(app).post(`/api/orders/${id}/payments`).set(auth()).send({ method: 'mobile_money', amount: total, reference: `P3${id}${Date.now()}` })).status).toBe(201);
   return { id, total, units: quantity };
@@ -302,7 +302,7 @@ describe('clock-out check coverage (item 9)', () => {
     const pid = db.prepare(`INSERT INTO products (sku, name, cost_price, sell_price, is_active) VALUES (?, 'CO Product', 100, 3000, 1)`).run(`CO-${n}-${Date.now()}`).lastInsertRowid;
     db.prepare('INSERT INTO inventory (product_id, store_id, quantity) VALUES (?, 1, 50)').run(pid);
     const created = await request(app).post('/api/orders').set(auth()).send({ name: 'CO Customer', phone: `07440009${String(n).padStart(2, '0')}`, city: 'Nairobi', payment_type: 'prepaid', assigned_staff_id: rep.id, items: [{ product_id: pid, quantity: 1 }] });
-    await request(app).post(`/api/orders/${created.body.data.id}/dispatch`).set(auth());
+    await request(app).post(`/api/orders/${created.body.data.id}/dispatch`).set(auth()).send({ delivery_fee_paid: false });
     // open shop cash held by the rep
     const cashOrder = await securedOrderUnpaid(rep);
     const cash = await request(app).post(`/api/orders/${cashOrder}/shop-cash`).set(auth(rep.token)).send({ amount: 1000, reason: 'Walked in' });
@@ -347,6 +347,6 @@ async function securedOrderUnpaid(rep) {
   const pid = db.prepare(`INSERT INTO products (sku, name, cost_price, sell_price, is_active) VALUES (?, 'CS Product', 100, 3000, 1)`).run(`CS-${n}-${Date.now()}`).lastInsertRowid;
   db.prepare('INSERT INTO inventory (product_id, store_id, quantity) VALUES (?, 1, 50)').run(pid);
   const created = await request(app).post('/api/orders').set(auth()).send({ name: 'CS Customer', phone: `07550009${String(n).padStart(2, '0')}`, city: 'Thika', payment_type: 'prepaid', assigned_staff_id: rep.id, items: [{ product_id: pid, quantity: 1 }] });
-  await request(app).post(`/api/orders/${created.body.data.id}/dispatch`).set(auth());
+  await request(app).post(`/api/orders/${created.body.data.id}/dispatch`).set(auth()).send({ delivery_fee_paid: false });
   return created.body.data.id;
 }

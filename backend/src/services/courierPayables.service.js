@@ -2,6 +2,7 @@ const db = require('../config/db');
 const ApiError = require('../utils/ApiError');
 const { logStaffAction } = require('../utils/auditLog');
 const { todaySql } = require('../utils/storeTime');
+const deliverySettlement = require('./deliverySettlement.service');
 
 // What the business owes couriers, kept strictly apart from customer money. Ported from the update
 // branch's couriers/payables.ts; the ledger there becomes plain tables here (see schema.sql).
@@ -75,6 +76,7 @@ function recordCost({ storeId, staffId, courierId, kind, amount, description, or
   if (orderId !== undefined && orderId !== null) {
     const order = db.prepare('SELECT id, courier_id FROM orders WHERE id = ? AND store_id = ? AND deleted_at IS NULL').get(orderId, storeId);
     if (!order) throw new ApiError(404, 'Order not found.');
+    deliverySettlement.assertOrderSettlementOpen(orderId);
   }
   const result = db.prepare(`
     INSERT INTO courier_costs (store_id, courier_id, order_id, kind, amount, description, receipt_ref, recorded_by)

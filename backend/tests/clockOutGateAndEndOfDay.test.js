@@ -39,7 +39,7 @@ async function assignedOrder(rep, { city = 'Nairobi', dispatch = false } = {}) {
   });
   expect(created.status).toBe(201);
   if (dispatch) {
-    const d = await request(app).post(`/api/orders/${created.body.data.id}/dispatch`).set(auth());
+    const d = await request(app).post(`/api/orders/${created.body.data.id}/dispatch`).set(auth()).send({ delivery_fee_paid: false });
     expect(d.status).toBeLessThan(300);
   }
   return created.body.data;

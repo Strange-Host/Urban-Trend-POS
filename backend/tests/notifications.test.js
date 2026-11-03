@@ -197,7 +197,7 @@ describe('notifications — damaged return and unmatched payment', () => {
     const created = await request(app).post('/api/orders').set(auth(adminToken))
       .send({ name: 'Damaged Return', phone: '0700300001', payment_type: 'prepaid', items: [{ product_id: product.id, quantity: 1 }] });
     const order = created.body.data;
-    await request(app).post(`/api/orders/${order.id}/dispatch`).set(auth(adminToken));
+    await request(app).post(`/api/orders/${order.id}/dispatch`).set(auth(adminToken)).send({ delivery_fee_paid: false });
     await request(app).post(`/api/orders/${order.id}/returned-in-transit`).set(auth(adminToken)).send({});
     await request(app).post(`/api/orders/${order.id}/returned-awaiting-inspection`).set(auth(adminToken));
     const inspect = await request(app).post(`/api/orders/${order.id}/inspect`).set(auth(adminToken)).send({ result: 'damaged' });
@@ -214,7 +214,7 @@ describe('notifications — damaged return and unmatched payment', () => {
     const created = await request(app).post('/api/orders').set(auth(adminToken))
       .send({ name: 'Good Return', phone: '0700300002', payment_type: 'prepaid', items: [{ product_id: product.id, quantity: 1 }] });
     const order = created.body.data;
-    await request(app).post(`/api/orders/${order.id}/dispatch`).set(auth(adminToken));
+    await request(app).post(`/api/orders/${order.id}/dispatch`).set(auth(adminToken)).send({ delivery_fee_paid: false });
     await request(app).post(`/api/orders/${order.id}/returned-in-transit`).set(auth(adminToken)).send({});
     await request(app).post(`/api/orders/${order.id}/returned-awaiting-inspection`).set(auth(adminToken));
     await request(app).post(`/api/orders/${order.id}/inspect`).set(auth(adminToken)).send({ result: 'good' });
@@ -242,7 +242,7 @@ describe('notifications — damaged return and unmatched payment', () => {
     const created = await request(app).post('/api/orders').set(auth(adminToken))
       .send({ name: 'Matched Payer', phone: '0700300003', payment_type: 'prepaid', items: [{ product_id: product.id, quantity: 1 }] });
     const order = created.body.data;
-    await request(app).post(`/api/orders/${order.id}/dispatch`).set(auth(adminToken));
+    await request(app).post(`/api/orders/${order.id}/dispatch`).set(auth(adminToken)).send({ delivery_fee_paid: false });
     const before = rowsFor(adminId, 'unmatched_payment').length;
     await request(app).post('/api/integrations/payments/callbacks/kcb/test-webhook-secret/callback')
       .send({ amount: (order.total / 100).toFixed(2), transactionId: 'NOTIF-TX-2', accountNumber: order.product_code });

@@ -200,7 +200,7 @@ describe('receiving Shopify deliveries', () => {
 
   it('an order already dispatched is NOT cancelled by the store\'s cancellation (a person must handle it)', async () => {
     await shopifyDelivery(src, 'orders/create', sOrder(5006));
-    await request(app).post(`/api/orders/${order(src, 5006).id}/dispatch`).set(a);
+    await request(app).post(`/api/orders/${order(src, 5006).id}/dispatch`).set(a).send({ delivery_fee_paid: false });
     await shopifyDelivery(src, 'orders/cancelled', sOrder(5006, { cancelled_at: iso(0), updated_at: new Date(Date.now() + 5000).toISOString() }));
     expect(sale(src, 5006).status).toBe('voided');
     expect(order(src, 5006).status).toBe('dispatched_paid');

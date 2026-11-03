@@ -54,7 +54,7 @@ describe('orders list pages through EVERYTHING', () => {
   });
 
   it('filters and pagination combine: the total reflects the filter', async () => {
-    await request(app).post(`/api/orders/${(await get('/api/orders?page=1&limit=1')).body.data[0].id}/dispatch`).set(a);
+    await request(app).post(`/api/orders/${(await get('/api/orders?page=1&limit=1')).body.data[0].id}/dispatch`).set(a).send({ delivery_fee_paid: false });
     const filtered = (await get('/api/orders?status=awaiting_dispatch&limit=25')).body;
     expect(filtered.total).toBe(59);
     expect(filtered.totalPages).toBe(3);

@@ -22,7 +22,7 @@ beforeAll(async () => {
   const orderRes = await request(app).post('/api/orders').set('Authorization', `Bearer ${token}`)
     .send({ name: 'Report Customer', phone: '0733300001', payment_type: 'prepaid', assigned_staff_id: repId, items: [{ product_id: product.id, quantity: 2 }] });
   const orderId = orderRes.body.data.id;
-  await request(app).post(`/api/orders/${orderId}/dispatch`).set('Authorization', `Bearer ${token}`);
+  await request(app).post(`/api/orders/${orderId}/dispatch`).set('Authorization', `Bearer ${token}`).send({ delivery_fee_paid: false });
   await request(app).post(`/api/orders/${orderId}/payments`).set('Authorization', `Bearer ${token}`)
     .send({ method: 'mobile_money', amount: orderRes.body.data.total, reference: 'TXN-REPORT-1' });
 
@@ -30,7 +30,7 @@ beforeAll(async () => {
   const unpaidRes = await request(app).post('/api/orders').set('Authorization', `Bearer ${token}`)
     .send({ name: 'Unpaid Customer', phone: '0733300002', city: 'Nairobi', items: [{ product_id: product.id, quantity: 1 }] });
   await request(app).post(`/api/orders/${unpaidRes.body.data.id}/confirm-cod`).set('Authorization', `Bearer ${token}`);
-  await request(app).post(`/api/orders/${unpaidRes.body.data.id}/dispatch`).set('Authorization', `Bearer ${token}`);
+  await request(app).post(`/api/orders/${unpaidRes.body.data.id}/dispatch`).set('Authorization', `Bearer ${token}`).send({ delivery_fee_paid: false });
 });
 
 afterAll(() => cleanupTestDb());

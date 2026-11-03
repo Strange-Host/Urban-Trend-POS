@@ -4,7 +4,10 @@ import { ordersApi, couriersApi } from '../api/endpoints';
 import PrintReceiptButton from '../components/PrintReceipt';
 import InvoiceButton from '../components/InvoiceButton';
 import PrintWaybillButton from '../components/PrintWaybill';
-import AddItemsSheet from '../components/AddItemsSheet';
+import EditItemsSheet from '../components/EditItemsSheet';
+import DispatchSheet from '../components/DispatchSheet';
+import MergeOrdersNotice from '../components/MergeOrdersNotice';
+import DeliverySettlementPanel from '../components/DeliverySettlementPanel';
 import NewOrderSheet from '../components/NewOrderSheet';
 import CustomerOrderHistory from '../components/CustomerOrderHistory';
 import { getErrorMessage } from '../api/client';
@@ -90,7 +93,8 @@ export default function Orders() {
   const [selectedId, setSelectedId] = useState(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const [addingItems, setAddingItems] = useState(false);
+  const [editingItems, setEditingItems] = useState(false);
+  const [dispatching, setDispatching] = useState(false);
   const [newOrder, setNewOrder] = useState(false);
   const [paymentForm, setPaymentForm] = useState({ method: 'mobile_money', amount: '', reference: '' });
 
@@ -106,6 +110,13 @@ export default function Orders() {
     queryKey: ['orders', selectedId],
     queryFn: () => ordersApi.get(selectedId).then((r) => r.data.data),
     enabled: !!selectedId,
+  });
+
+  // Customers who have more than one order waiting for dispatch (several forms, several orders): flagged so they can be merged.
+  const { data: mergeGroups = [] } = useQuery({
+    queryKey: ['orders', 'merge-groups', 'all'],
+    queryFn: () => ordersApi.mergeGroups().then((r) => r.data.data),
+    refetchInterval: 30_000,
   });
 
   function invalidate() {
@@ -190,6 +201,17 @@ export default function Orders() {
       {view === 'orders' && <TabBar tabs={CHANNELS} active={channel} onChange={(k) => { setChannel(k); pager.reset(); setSelectedId(null); }} variant="filter" className="mb-4" />}
 
       {error && <div className="mb-4 px-3.5 py-2.5 rounded-lg bg-danger-soft text-danger text-sm">{error}</div>}
+
+      {view === 'orders' && mergeGroups.length > 0 && (
+        <div role="status" className="mb-4 px-3.5 py-2.5 rounded-lg border border-accent/40 bg-accent/10 text-sm">
+          <span className="font-medium">{mergeGroups.length === 1 ? '1 customer has' : `${mergeGroups.length} customers have`} more than one order waiting for dispatch.</span>{' '}
+          {mergeGroups.slice(0, 5).map((g) => (
+            <button key={g.customer_id} type="button" onClick={() => setSelectedId(g.suggested_keep_order_id)} className="mr-2 underline text-xs">
+              {g.customer_name} ({g.orders.length})
+            </button>
+          ))}
+        </div>
+      )}
 
       {view === 'orders' && <div className="flex flex-col sm:flex-row gap-3 mb-5">
         <input
@@ -319,6 +341,8 @@ export default function Orders() {
                 statusLabels={STATUS_LABELS} statusTones={STATUS_TONES}
               />
 
+              <MergeOrdersNotice order={order} onSelect={setSelectedId} onMerged={setSelectedId} />
+
               {modules.control && order.customer?.prepay_required === 1 && (
                 <div className="mb-4 px-3 py-2 rounded-lg bg-danger-soft text-danger text-xs">
                   This customer has repeatedly failed to collect COD parcels — they should prepay.
@@ -334,7 +358,7 @@ export default function Orders() {
                 ))}
                 {order.delivery_fee > 0 && (
                   <div className="flex justify-between text-text-muted">
-                    <span>Delivery ({order.courier?.name || order.courier_type || 'courier'})</span><span>{money(order.delivery_fee)}</span>
+                    <span>Delivery fee, billed separately ({order.courier?.name || order.courier_type || 'courier'})</span><span>{money(order.delivery_fee)}</span>
                   </div>
                 )}
                 <div className="flex justify-between font-600 pt-1 border-t border-dashed border-line">
@@ -365,11 +389,12 @@ export default function Orders() {
                 {order.status === 'awaiting_dispatch' && (
                   <>
                     <button
-                      onClick={() => setAddingItems(true)}
-                      disabled={busy}
+                      onClick={() => setEditingItems(true)}
+                      disabled={busy || (order.channel && order.channel !== 'manual')}
+                      title={order.channel && order.channel !== 'manual' ? 'Imported from an online store: change the items there.' : undefined}
                       className="w-full py-2 rounded-lg border border-line text-sm font-medium hover:border-text-muted disabled:opacity-50"
                     >
-                      Add items to this order
+                      Change items on this order
                     </button>
                     <div className="flex gap-2">
                       {['boda', 'g4s'].map((c) => (
@@ -387,10 +412,7 @@ export default function Orders() {
                     </div>
                     <CourierPicker order={order} disabled={busy} onPick={(id) => act(() => ordersApi.assignCourier(order.id, id))} />
                     <button
-                      onClick={() => act(
-                        () => ordersApi.dispatch(order.id),
-                        'Dispatch this order? Stock will be deducted now.'
-                      )}
+                      onClick={() => setDispatching(true)}
                       disabled={busy || (order.payment_type === 'cod' && !order.cod_confirmed_at)}
                       className="w-full py-2.5 rounded-lg bg-ink text-white text-sm font-medium hover:bg-ink-soft disabled:opacity-40"
                     >
@@ -543,6 +565,10 @@ export default function Orders() {
                 ))}
               </div>
 
+              {(order.status.startsWith('dispatched') || order.status.startsWith('returned')) && (
+                <DeliverySettlementPanel key={order.id} order={order} />
+              )}
+
               {order.status_history?.length > 0 && (
                 <div className="mt-5 pt-4 border-t border-dashed border-line">
                   <div className="text-xs font-medium mb-2">History</div>
@@ -565,8 +591,12 @@ export default function Orders() {
         </div>
       </div>
 
-      {addingItems && order && order.status === 'awaiting_dispatch' && (
-        <AddItemsSheet order={order} onClose={() => setAddingItems(false)} onAdded={invalidate} />
+      {editingItems && order && order.status === 'awaiting_dispatch' && (
+        <EditItemsSheet order={order} onClose={() => setEditingItems(false)} onSaved={invalidate} />
+      )}
+
+      {dispatching && order && order.status === 'awaiting_dispatch' && (
+        <DispatchSheet order={order} onClose={() => setDispatching(false)} onDispatched={invalidate} />
       )}
 
       {newOrder && (
