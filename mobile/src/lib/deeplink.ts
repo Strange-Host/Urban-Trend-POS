@@ -1,4 +1,4 @@
-export type TabName = "Home" | "Approvals" | "Stock" | "Orders" | "More";
+export type TabName = "Home" | "Dashboard" | "Approvals" | "Stock" | "Orders" | "More";
 
 export type DeepTarget =
   | { kind: "tab"; tab: TabName; params?: Record<string, unknown> }
@@ -24,6 +24,9 @@ export function parseDeepLink(link: string): DeepTarget | null {
       };
     case "stock":
       return { kind: "tab", tab: "Stock" };
+    case "dashboard":
+    case "analytics":
+      return { kind: "tab", tab: "Dashboard" };
     case "alerts":
       return { kind: "alerts" };
     case "more":

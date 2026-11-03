@@ -1,6 +1,9 @@
+import { addDays, isoDay } from "../../lib/analytics";
 import { ApiError } from "../errors";
 import type {
   AdjustResult,
+  Analytics,
+  AnalyticsRange,
   Api,
   AppNotification,
   AppVersionInfo,
@@ -36,7 +39,7 @@ const USERS: Record<string, { password: string; user: SessionUser }> = {
       name: "Jon",
       username: "owner",
       role: "owner",
-      permissions: ["approvals.decide", "stock.adjust", "stock.view", "cost.view", "orders.view"],
+      permissions: ["approvals.decide", "stock.adjust", "stock.view", "cost.view", "orders.view", "reports.view"],
     },
   },
   manager: {
@@ -46,7 +49,7 @@ const USERS: Record<string, { password: string; user: SessionUser }> = {
       name: "Wanjiru",
       username: "manager",
       role: "manager",
-      permissions: ["approvals.decide", "orders.view", "stock.view"],
+      permissions: ["approvals.decide", "orders.view", "stock.view", "reports.view"],
     },
   },
 };
@@ -202,6 +205,123 @@ function decide(id: number, who: string, status: "approved" | "rejected", note?:
 }
 
 const ago = (mins: number) => new Date(Date.now() - mins * 60_000).toISOString();
+
+// ---- analytics: deterministic sample data so the charts look the same on every launch
+function seeded(seed: number) {
+  let x = seed % 2147483647;
+  if (x <= 0) x += 2147483646;
+  return () => (x = (x * 16807) % 2147483647) / 2147483647;
+}
+
+function buildAnalytics(range: AnalyticsRange): Analytics {
+  const now = new Date();
+  const days = range === "all" ? 365 : Number(range);
+  const weekday = [0.8, 0.9, 0.95, 1, 1.15, 1.4, 1.2]; // Sun..Sat shape
+  const rnd = seeded(7);
+  const makeDays = (n: number, offset: number) => {
+    const out: { day: string; bySource: Record<string, number> }[] = [];
+    for (let i = n; i >= 0; i--) {
+      const d = addDays(now, -(i + offset));
+      const f = weekday[d.getDay()] as number;
+      const growth = 0.75 + 0.25 * (1 - (i + offset) / 400);
+      const local = Math.round((38_000 + rnd() * 26_000) * f * growth) * 100;
+      const shopify = Math.round((16_000 + rnd() * 22_000) * f * growth) * 100;
+      const woo = rnd() > 0.35 ? Math.round((5_000 + rnd() * 9_000) * f * growth) * 100 : 0;
+      out.push({ day: isoDay(d), bySource: woo ? { local, shopify, woocommerce: woo } : { local, shopify } });
+    }
+    return out;
+  };
+  const trend = makeDays(days, 0);
+  const sum = (rows: typeof trend) => rows.reduce((s, r) => s + Object.values(r.bySource).reduce((a, b) => a + b, 0), 0);
+  const by = (src: string) => trend.reduce((s, r) => s + (r.bySource[src] ?? 0), 0);
+  const revenue = sum(trend);
+  const txns = Math.round(revenue / 100 / 2_150);
+  const prevRevenue = range === "all" ? null : sum(makeDays(days, days + 1));
+
+  const channels = (
+    [
+      ["local", "Main shop", null, 0.34],
+      ["shopify", "Urban Trends Shopify", "shopify", 0.17],
+      ["woocommerce", "Urban Trends WordPress", "woocommerce", 0.12],
+    ] as const
+  ).map(([sourceType, channelName, platform, price]) => {
+    const rev = by(sourceType);
+    const t = Math.max(1, Math.round((rev / 100) * price * 0.0035));
+    return { sourceType, channelName, platform, transactions: t, revenueCents: rev, avgBasketCents: Math.round(rev / t) };
+  });
+
+  const prod = (id: number, name: string, units: number, unit: number) => ({
+    id,
+    name,
+    unitsSold: units,
+    revenueCents: units * unit * 100,
+  });
+  const k = days / 30;
+  const methodsTotal = revenue;
+  return {
+    range,
+    generatedAt: new Date().toISOString(),
+    summary: { revenueCents: revenue, transactions: txns, avgBasketCents: Math.round(revenue / Math.max(1, txns)) },
+    previous:
+      prevRevenue === null
+        ? null
+        : { revenueCents: prevRevenue, transactions: Math.round(prevRevenue / 100 / 2_150), avgBasketCents: 215_000 },
+    inventoryRetailValueCents: 48_650_000,
+    channels,
+    trend,
+    paymentMethods: [
+      { method: "mpesa", totalCents: Math.round(methodsTotal * 0.58), count: Math.round(txns * 0.6) },
+      { method: "cash", totalCents: Math.round(methodsTotal * 0.27), count: Math.round(txns * 0.25) },
+      { method: "card", totalCents: Math.round(methodsTotal * 0.1), count: Math.round(txns * 0.1) },
+      { method: "bank_transfer", totalCents: Math.round(methodsTotal * 0.05), count: Math.round(txns * 0.05) },
+    ],
+    topByChannel: {
+      local: [
+        prod(1, "Crew Sock 3-pack", Math.round(64 * k), 650),
+        prod(2, "Oversized Tee, Black", Math.round(41 * k), 1800),
+        prod(3, "Canvas Cap", Math.round(37 * k), 950),
+        prod(4, "Zip Hoodie", Math.round(22 * k), 3400),
+      ],
+      shopify: [
+        prod(2, "Oversized Tee, Black", Math.round(52 * k), 1800),
+        prod(5, "Cargo Joggers", Math.round(30 * k), 2900),
+        prod(4, "Zip Hoodie", Math.round(18 * k), 3400),
+      ],
+      woocommerce: [prod(3, "Canvas Cap", Math.round(14 * k), 950), prod(1, "Crew Sock 3-pack", Math.round(11 * k), 650)],
+    },
+    overview: {
+      date: isoDay(now),
+      posRevenueCents: 3_840_000,
+      onlineRevenueCents: 2_150_000,
+      combinedRevenueCents: 5_990_000,
+      posTransactions: 17,
+      onlineOrders: 9,
+      cashCollectedCents: 4_720_000,
+      lowStockCount: 6,
+      unpaidParcels: [
+        { courier: "boda", count: 5, owedCents: 1_240_000 },
+        { courier: "g4s", count: 3, owedCents: 860_000 },
+      ],
+      orderStatus: [
+        { status: "pending_confirmation", count: 7, outstandingCents: 1_450_000 },
+        { status: "awaiting_dispatch", count: 11, outstandingCents: 2_310_000 },
+        { status: "dispatched_unpaid", count: 8, outstandingCents: 2_100_000 },
+        { status: "dispatched_paid", count: 34, outstandingCents: 0 },
+        { status: "returned", count: 2, outstandingCents: 0 },
+      ],
+      stockCostValueCents: 21_300_000,
+      stockUnits: 1_284,
+    },
+    stockAlerts: {
+      expiring: 2,
+      expired: 0,
+      recalled: 0,
+      damaged: 3,
+      damagedDetail: "2 unit(s) written off, 1 return(s) awaiting a decision",
+      expiryAlertDays: 30,
+    },
+  };
+}
 
 export function createMockApi(): Api {
   return {
@@ -405,6 +525,13 @@ export function createMockApi(): Api {
       const o = orders.find((x) => x.id === id);
       if (!o) throw new ApiError("UNKNOWN", "Order not found", 404);
       return { ...o };
+    },
+
+    async analytics(token, range) {
+      await gate();
+      const u = authed(token);
+      requirePerm(u, "reports.view");
+      return buildAnalytics(range);
     },
   };
 }
