@@ -58,7 +58,10 @@ function authenticate(req, res, next) {
   }
   // Only deliberate actions keep a session alive: any change (POST/PUT/PATCH/DELETE) or the app's own "someone is
   // using this" ping. Reading pages and background polling (the notification bell) deliberately do not.
-  if (standing.state === 'active' && !['GET', 'HEAD', 'OPTIONS'].includes(req.method) && !req.headers['x-background']) {
+  // A phone's session has no idle lock to keep alive, and its last_activity_at is the "last seen" the owner sees in the
+  // devices list, so any authenticated request counts there (still written at most every few seconds by touch()).
+  const isMobile = session.client === 'mobile';
+  if (standing.state === 'active' && (isMobile || (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && !req.headers['x-background']))) {
     sessions.touch(session);
   }
 

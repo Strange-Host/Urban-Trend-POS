@@ -59,6 +59,16 @@ const ADDITIVE_COLUMNS = {
   refresh_tokens: [
     `session_id INTEGER REFERENCES auth_sessions(id)`,
   ],
+  // Mobile app device sessions (services/devices.service.js). Every existing session stays a 'web' one.
+  auth_sessions: [
+    `client TEXT NOT NULL DEFAULT 'web' CHECK (client IN ('web','mobile'))`,
+    `device_id TEXT`,
+    `device_name TEXT`,
+    `platform TEXT`,
+    `app_version TEXT`,
+    `push_token TEXT`,
+    `push_token_updated_at TEXT`,
+  ],
   leads: [
     // Web-form intake (services/leadIntake.service.js): the form's own entry
     // id makes a re-delivered webhook idempotent; the raw payload is kept so
