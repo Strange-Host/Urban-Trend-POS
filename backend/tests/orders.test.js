@@ -57,7 +57,7 @@ describe('orders (online/COD lifecycle)', () => {
     const beforeRes = await request(app).get('/api/products?pageSize=1').set('Authorization', `Bearer ${token}`);
     const stockBefore = beforeRes.body.data[0].total_stock;
 
-    const dispatchRes = await request(app).post(`/api/orders/${orderId}/dispatch`).set('Authorization', `Bearer ${token}`);
+    const dispatchRes = await request(app).post(`/api/orders/${orderId}/dispatch`).set('Authorization', `Bearer ${token}`).send({ delivery_fee_paid: false });
     expect(dispatchRes.status).toBe(200);
     expect(dispatchRes.body.data.status).toBe('dispatched_unpaid');
 
@@ -65,13 +65,13 @@ describe('orders (online/COD lifecycle)', () => {
     expect(afterRes.body.data[0].total_stock).toBe(stockBefore - 2);
 
     // Can't dispatch twice — already past awaiting_dispatch.
-    const secondDispatchRes = await request(app).post(`/api/orders/${orderId}/dispatch`).set('Authorization', `Bearer ${token}`);
+    const secondDispatchRes = await request(app).post(`/api/orders/${orderId}/dispatch`).set('Authorization', `Bearer ${token}`).send({ delivery_fee_paid: false });
     expect(secondDispatchRes.status).toBe(409);
 
     // A fresh order for way more than available stock is rejected before dispatch touches anything.
     const bigOrderRes = await request(app).post('/api/orders').set('Authorization', `Bearer ${token}`)
       .send({ name: 'Too Big Test', phone: '0733000005', items: [{ product_id: product.id, quantity: 999999 }] });
-    const bigDispatchRes = await request(app).post(`/api/orders/${bigOrderRes.body.data.id}/dispatch`).set('Authorization', `Bearer ${token}`);
+    const bigDispatchRes = await request(app).post(`/api/orders/${bigOrderRes.body.data.id}/dispatch`).set('Authorization', `Bearer ${token}`).send({ delivery_fee_paid: false });
     expect(bigDispatchRes.status).toBe(409);
   });
 
@@ -80,7 +80,7 @@ describe('orders (online/COD lifecycle)', () => {
       .send({ payment_type: 'prepaid', name: 'Payment Test', phone: '0733000006', items: [{ product_id: product.id, quantity: 1 }] });
     const orderId = createRes.body.data.id;
     const total = createRes.body.data.total;
-    await request(app).post(`/api/orders/${orderId}/dispatch`).set('Authorization', `Bearer ${token}`);
+    await request(app).post(`/api/orders/${orderId}/dispatch`).set('Authorization', `Bearer ${token}`).send({ delivery_fee_paid: false });
 
     const partialRes = await request(app).post(`/api/orders/${orderId}/payments`).set('Authorization', `Bearer ${token}`)
       .send({ method: 'mobile_money', amount: Math.floor(total / 2), reference: 'MPESA123' });
@@ -97,7 +97,7 @@ describe('orders (online/COD lifecycle)', () => {
     const createRes = await request(app).post('/api/orders').set('Authorization', `Bearer ${token}`)
       .send({ payment_type: 'prepaid', name: 'Return Good Test', phone: '0733000007', items: [{ product_id: product.id, quantity: 1 }] });
     const orderId = createRes.body.data.id;
-    await request(app).post(`/api/orders/${orderId}/dispatch`).set('Authorization', `Bearer ${token}`);
+    await request(app).post(`/api/orders/${orderId}/dispatch`).set('Authorization', `Bearer ${token}`).send({ delivery_fee_paid: false });
 
     const beforeReturnRes = await request(app).get('/api/products?pageSize=1').set('Authorization', `Bearer ${token}`);
     const stockAfterDispatch = beforeReturnRes.body.data[0].total_stock;
@@ -122,7 +122,7 @@ describe('orders (online/COD lifecycle)', () => {
     const createRes = await request(app).post('/api/orders').set('Authorization', `Bearer ${token}`)
       .send({ payment_type: 'prepaid', name: 'Return Damaged Test', phone: '0733000008', items: [{ product_id: product.id, quantity: 1 }] });
     const orderId = createRes.body.data.id;
-    await request(app).post(`/api/orders/${orderId}/dispatch`).set('Authorization', `Bearer ${token}`);
+    await request(app).post(`/api/orders/${orderId}/dispatch`).set('Authorization', `Bearer ${token}`).send({ delivery_fee_paid: false });
     await request(app).post(`/api/orders/${orderId}/returned-in-transit`).set('Authorization', `Bearer ${token}`).send({});
     await request(app).post(`/api/orders/${orderId}/returned-awaiting-inspection`).set('Authorization', `Bearer ${token}`);
 
@@ -146,7 +146,7 @@ describe('orders (online/COD lifecycle)', () => {
         .send({ payment_type: 'prepaid', name: 'Repeat Rejecter', phone, items: [{ product_id: product.id, quantity: 1 }] });
       expect(createRes.status).toBe(201); // a returned_in_transit order from a prior loop iteration never blocks the next one
       lastOrderId = createRes.body.data.id;
-      await request(app).post(`/api/orders/${lastOrderId}/dispatch`).set('Authorization', `Bearer ${token}`);
+      await request(app).post(`/api/orders/${lastOrderId}/dispatch`).set('Authorization', `Bearer ${token}`).send({ delivery_fee_paid: false });
       await request(app).post(`/api/orders/${lastOrderId}/returned-in-transit`).set('Authorization', `Bearer ${token}`).send({});
     }
 
