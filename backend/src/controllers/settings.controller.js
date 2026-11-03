@@ -2,6 +2,7 @@ const asyncHandler = require('../utils/asyncHandler');
 const ApiError = require('../utils/ApiError');
 const settingsService = require('../services/settings.service');
 const systemConfig = require('../services/systemConfig.service');
+const { compare, isVersion } = require('../utils/appVersion');
 
 // The mail password (smtp_pass_enc) must never leave the server, even encrypted.
 function publicView(all) {
@@ -38,6 +39,26 @@ const update = asyncHandler(async (req, res) => {
     const n = Number(req.body.expiry_alert_days);
     if (String(req.body.expiry_alert_days).trim() === '' || !Number.isInteger(n) || n < 0 || n > 365) {
       throw new ApiError(400, 'Expiry alert days must be a whole number from 0 to 365.');
+    }
+  }
+  // The mobile app compares these as version numbers, so a typo here would quietly block or free every phone.
+  for (const key of ['app_min_version', 'app_latest_version']) {
+    if (req.body?.[key] !== undefined && !isVersion(req.body[key])) {
+      throw new ApiError(400, `${key} must be a version number such as 1.2.0.`);
+    }
+  }
+  const nextMin = req.body?.app_min_version ?? settingsService.getAll().app_min_version;
+  const nextLatest = req.body?.app_latest_version ?? settingsService.getAll().app_latest_version;
+  if ((req.body?.app_min_version !== undefined || req.body?.app_latest_version !== undefined) && compare(nextMin, nextLatest) === 1) {
+    throw new ApiError(400, 'The minimum app version cannot be higher than the latest one.');
+  }
+  if (req.body?.app_download_url !== undefined && req.body.app_download_url !== '' && !/^https:\/\/\S+$/i.test(String(req.body.app_download_url))) {
+    throw new ApiError(400, 'app_download_url must be an https:// link.');
+  }
+  if (req.body?.attention_cash_variance_kes !== undefined) {
+    const n = Number(req.body.attention_cash_variance_kes);
+    if (String(req.body.attention_cash_variance_kes).trim() === '' || !Number.isFinite(n) || n < 0) {
+      throw new ApiError(400, 'attention_cash_variance_kes must be a number of shillings, 0 or more.');
     }
   }
   if (req.body?.delivery_use_area_rates !== undefined && !['0', '1'].includes(String(req.body.delivery_use_area_rates))) {

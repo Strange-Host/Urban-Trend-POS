@@ -107,6 +107,14 @@ const DEFAULTS = {
   security_alert_refund_kes: '3000',             // refunds and voids at or above this alert the admins
   security_alert_stock_units: '25',              // stock adjustments of this many units or more alert the admins
   security_alert_price_percent: '15',            // price changes of this percent or more alert the admins
+  // Mobile app release gate (GET /api/v1/app/version). Below the minimum the app shows a blocking update screen with the
+  // download link; below the latest it only offers the update. Keep the minimum low and raise it rarely.
+  app_min_version: '1.0.0',
+  app_latest_version: '1.0.0',
+  app_download_url: '',
+  // Mobile home screen (services/homeFeed.service.js): a closed till whose count differs from what it should hold by at
+  // least this much (whole KES) shows up on the owner's "needs attention" list.
+  attention_cash_variance_kes: '500',
 };
 
 function getAll() {
