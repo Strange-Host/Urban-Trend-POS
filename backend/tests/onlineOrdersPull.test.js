@@ -94,7 +94,7 @@ describe('what gets imported', () => {
     const order = orderBy(src.id, 9201);
     expect(order).toMatchObject({ payment_type: 'cod', amount_paid: 0, cod_confirmed_at: null });
     expect(order.cod_confirmation_expires_at).toBeTruthy();
-    const dispatch = await request(app).post(`/api/orders/${order.id}/dispatch`).set(a);
+    const dispatch = await request(app).post(`/api/orders/${order.id}/dispatch`).set(a).send({ delivery_fee_paid: false });
     expect(dispatch.status).toBe(409);
     expect(dispatch.body.error.message).toContain('must be confirmed');
   });
@@ -137,7 +137,7 @@ describe('already-paid orders and dispatch', () => {
     await pull(src.id);
     const order = orderBy(src.id, 9601);
     const before = db.prepare('SELECT quantity FROM inventory WHERE product_id = ?').get(product.id).quantity;
-    const res = await request(app).post(`/api/orders/${order.id}/dispatch`).set(a);
+    const res = await request(app).post(`/api/orders/${order.id}/dispatch`).set(a).send({ delivery_fee_paid: false });
     expect(res.status).toBe(200);
     expect(res.body.data.status).toBe('dispatched_paid');
     expect(db.prepare('SELECT quantity FROM inventory WHERE product_id = ?').get(product.id).quantity).toBe(before);
@@ -149,7 +149,7 @@ describe('already-paid orders and dispatch', () => {
 
   it('a normal (unpaid) order still dispatches as unpaid - the new rule only affects already-paid ones', async () => {
     const created = await request(app).post('/api/orders').set(a).send({ name: 'Walk In', phone: '0722777001', payment_type: 'prepaid', items: [{ product_id: product.id, quantity: 1 }] });
-    const res = await request(app).post(`/api/orders/${created.body.data.id}/dispatch`).set(a);
+    const res = await request(app).post(`/api/orders/${created.body.data.id}/dispatch`).set(a).send({ delivery_fee_paid: false });
     expect(res.body.data.status).toBe('dispatched_unpaid');
   });
 
@@ -157,7 +157,7 @@ describe('already-paid orders and dispatch', () => {
     const src = await newSource('Unknown SKU Shop');
     fetchSpy.mockResolvedValue([sOrder(9701, { line_items: [{ title: 'Mystery Gadget', sku: 'NOPE-1', quantity: 1, price: '500.00', total_discount: '0.00', tax_lines: [] }] })]);
     expect((await pull(src.id)).body.data.imported).toBe(1);
-    const res = await request(app).post(`/api/orders/${orderBy(src.id, 9701).id}/dispatch`).set(a);
+    const res = await request(app).post(`/api/orders/${orderBy(src.id, 9701).id}/dispatch`).set(a).send({ delivery_fee_paid: false });
     expect(res.status).toBe(200);
     expect(res.body.data.status).toBe('dispatched_paid');
   });
@@ -168,7 +168,7 @@ describe('cancellations on the store', () => {
     const src = await newSource('Cancel Shop');
     fetchSpy.mockResolvedValue([sOrder(9801), sOrder(9802)]);
     await pull(src.id);
-    await request(app).post(`/api/orders/${orderBy(src.id, 9802).id}/dispatch`).set(a);
+    await request(app).post(`/api/orders/${orderBy(src.id, 9802).id}/dispatch`).set(a).send({ delivery_fee_paid: false });
 
     fetchSpy.mockResolvedValue([sOrder(9801, { cancelled_at: iso(0) }), sOrder(9802, { cancelled_at: iso(0) })]);
     const res = await pull(src.id);
@@ -188,7 +188,7 @@ describe('revenue is never counted twice', () => {
     await pull(src.id);
     const order = orderBy(src.id, 9901);
     const afterPull = await profit();                       // sale counted (completed), order not yet dispatched
-    await request(app).post(`/api/orders/${order.id}/dispatch`).set(a);
+    await request(app).post(`/api/orders/${order.id}/dispatch`).set(a).send({ delivery_fee_paid: false });
     const afterDispatch = await profit();                   // dispatching the linked order must NOT add revenue again
     expect(JSON.stringify(afterDispatch.revenue ?? afterDispatch)).toBe(JSON.stringify(afterPull.revenue ?? afterPull));
     expect(before).toBeTruthy();
@@ -202,14 +202,14 @@ describe('revenue is never counted twice', () => {
     // a LINKED Shopify order, paid and dispatched today
     fetchSpy.mockResolvedValue([sOrder(9951, { line_items: [{ title: product.name, sku: product.sku, quantity: 1, price: '1500.00', total_discount: '0.00', tax_lines: [] }] })]);
     await pull(src.id);
-    await request(app).post(`/api/orders/${orderBy(src.id, 9951).id}/dispatch`).set(a);
+    await request(app).post(`/api/orders/${orderBy(src.id, 9951).id}/dispatch`).set(a).send({ delivery_fee_paid: false });
     const afterLinked = await dash();
     expect(afterLinked.onlineRevenue).toBe(baseline.onlineRevenue);      // not counted a second time
     expect(afterLinked.onlineOrderCount).toBe(baseline.onlineOrderCount);
 
     // a plain POS-created online order, paid and dispatched today, counts as before
     const created = (await request(app).post('/api/orders').set(a).send({ name: 'Plain', phone: '0722888001', payment_type: 'prepaid', items: [{ product_id: product.id, quantity: 1 }] })).body.data;
-    await request(app).post(`/api/orders/${created.id}/dispatch`).set(a);
+    await request(app).post(`/api/orders/${created.id}/dispatch`).set(a).send({ delivery_fee_paid: false });
     await request(app).post(`/api/orders/${created.id}/payments`).set(a).send({ amount: created.total, method: 'cash' });
     const afterPlain = await dash();
     expect(afterPlain.onlineOrderCount).toBe(baseline.onlineOrderCount + 1);

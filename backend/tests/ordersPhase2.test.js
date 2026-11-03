@@ -58,7 +58,7 @@ describe('orders — Phase 2 (courier, delivery zone/fee, COD confirmation gate)
       .send({ name: 'Confirmation Gate Test', phone: '0744000006', city: 'Nairobi', items: [{ product_id: product.id, quantity: 1 }] });
     const orderId = createRes.body.data.id;
 
-    const blockedDispatchRes = await request(app).post(`/api/orders/${orderId}/dispatch`).set('Authorization', `Bearer ${token}`);
+    const blockedDispatchRes = await request(app).post(`/api/orders/${orderId}/dispatch`).set('Authorization', `Bearer ${token}`).send({ delivery_fee_paid: false });
     expect(blockedDispatchRes.status).toBe(409);
 
     const confirmRes = await request(app).post(`/api/orders/${orderId}/confirm-cod`).set('Authorization', `Bearer ${token}`);
@@ -69,7 +69,7 @@ describe('orders — Phase 2 (courier, delivery zone/fee, COD confirmation gate)
     const doubleConfirmRes = await request(app).post(`/api/orders/${orderId}/confirm-cod`).set('Authorization', `Bearer ${token}`);
     expect(doubleConfirmRes.status).toBe(409);
 
-    const dispatchRes = await request(app).post(`/api/orders/${orderId}/dispatch`).set('Authorization', `Bearer ${token}`);
+    const dispatchRes = await request(app).post(`/api/orders/${orderId}/dispatch`).set('Authorization', `Bearer ${token}`).send({ delivery_fee_paid: false });
     expect(dispatchRes.status).toBe(200);
     expect(dispatchRes.body.data.status).toBe('dispatched_unpaid');
   });
@@ -80,7 +80,7 @@ describe('orders — Phase 2 (courier, delivery zone/fee, COD confirmation gate)
     expect(createRes.body.data.payment_type).toBe('prepaid');
     expect(createRes.body.data.cod_confirmation_expires_at).toBeNull();
 
-    const dispatchRes = await request(app).post(`/api/orders/${createRes.body.data.id}/dispatch`).set('Authorization', `Bearer ${token}`);
+    const dispatchRes = await request(app).post(`/api/orders/${createRes.body.data.id}/dispatch`).set('Authorization', `Bearer ${token}`).send({ delivery_fee_paid: false });
     expect(dispatchRes.status).toBe(200); // no confirmation needed — dispatches straight away
   });
 

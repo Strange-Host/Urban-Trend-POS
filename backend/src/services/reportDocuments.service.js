@@ -30,7 +30,7 @@ function pnlDocument({ user, from, to }) {
           { line: 'Revenue (goods collected, net of discounts)', amount: s.revenue },
           { line: 'Less: cost of goods sold', amount: -s.costOfGoodsSold },
           { line: 'Gross margin', amount: s.grossMargin },
-          { line: 'Less: delivery fees', amount: -s.deliveryFees },
+          { line: 'Less: net delivery cost (costs minus fees collected)', amount: -s.deliveryFees },
           { line: 'Less: telesales pay (retainer + commission)', amount: -s.laborCost },
           { line: 'Less: business expenses (approved)', amount: -s.businessExpenses },
         ],

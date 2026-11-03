@@ -8,6 +8,7 @@ import { StatusPill } from '../components/DataUI';
 import TabBar from '../components/TabBar';
 import CourierSheet, { availableTabs } from '../components/couriers/CourierSheet';
 import PayablesOverview from '../components/couriers/PayablesOverview';
+import DeliveryResultsTab from '../components/couriers/DeliveryResultsTab';
 
 import Sheet from '../components/Sheet';
 const empty = { name: '', phone: '', vehicle: '', courier_type: 'boda', notes: '' };
@@ -30,6 +31,7 @@ export default function Couriers() {
   const [view, setView] = useState('couriers');
   const [opened, setOpened] = useState(null);   // { id, tab } for the payables sheet
   const showPayables = can('couriers.pay') || can('couriers.costs.approve');
+  const showResults = can('delivery.costs.approve');
 
   const { data: couriers = [], isLoading } = useQuery({
     queryKey: ['couriers', 'all'],
@@ -90,11 +92,13 @@ export default function Couriers() {
         {manage && <button onClick={openNew} className="px-4 py-2.5 rounded-lg bg-ink text-white text-sm font-medium hover:bg-ink-soft whitespace-nowrap">+ Add courier</button>}
       </div>
 
-      {showPayables && <TabBar tabs={[{ key: 'couriers', label: 'Couriers' }, { key: 'payables', label: 'Payables & costs' }]} active={view} onChange={setView} className="mb-4" />}
+      {(showPayables || showResults) && <TabBar tabs={[{ key: 'couriers', label: 'Couriers' }, ...(showPayables ? [{ key: 'payables', label: 'Payables & costs' }] : []), ...(showResults ? [{ key: 'results', label: 'Delivery results' }] : [])]} active={view} onChange={setView} className="mb-4" />}
+
+      {view === 'results' && showResults && <DeliveryResultsTab />}
 
       {view === 'payables' && showPayables && <PayablesOverview onOpenCourier={(id, tab) => setOpened({ id, tab })} />}
 
-      {(view === 'couriers' || !showPayables) && <div className="bg-surface border border-line rounded-xl overflow-hidden scroll-x">
+      {(view === 'couriers' || (!showPayables && !showResults)) && <div className="bg-surface border border-line rounded-xl overflow-hidden scroll-x">
         <table className="stack-sm w-full text-sm min-w-[640px]">
           <thead>
             <tr className="border-b border-line text-left text-text-muted">

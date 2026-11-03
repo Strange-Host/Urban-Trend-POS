@@ -60,7 +60,7 @@ describe('dispatching an online order never takes stock below zero', () => {
     // an order pulled from a store can carry the same product on two lines
     db.prepare('INSERT INTO order_items (order_id, product_id, quantity, unit_price, line_total) VALUES (?, ?, 3, 10000, 30000)').run(orderId, pid);
 
-    const res = await request(app).post(`/api/orders/${orderId}/dispatch`).set(auth(token));
+    const res = await request(app).post(`/api/orders/${orderId}/dispatch`).set(auth(token)).send({ delivery_fee_paid: false });
     expect(res.status).toBe(409);
     expect(res.body.error.message).toMatch(/Available: 4, requested: 6/);
     expect(stockOf(pid)).toBe(4);

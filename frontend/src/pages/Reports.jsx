@@ -133,7 +133,7 @@ function PnlTab({ params }) {
       <Panel title="Summary" className="mb-4">
         <Table columns={[T('label', 'Line'), M('amount', 'Amount (KES)')]} rows={[
           line('Revenue (goods collected, net of discounts)', s.revenue), line('Less: cost of goods sold', -s.costOfGoodsSold), line('Gross margin', s.grossMargin),
-          line('Less: delivery fees', -s.deliveryFees), line('Less: telesales pay (retainer + commission)', -s.laborCost), line('Less: business expenses (approved)', -s.businessExpenses),
+          line('Less: net delivery cost (costs minus fees collected)', -s.deliveryFees), line('Less: telesales pay (retainer + commission)', -s.laborCost), line('Less: business expenses (approved)', -s.businessExpenses),
         ]} totals={{ label: 'Net profit', amount: s.netProfit }} />
       </Panel>
       <Panel title="By category" description="Till and online sales together. Sale-level discounts cannot be split by category, so they show as their own row." className="mb-4">

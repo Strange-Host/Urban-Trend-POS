@@ -81,13 +81,48 @@ const mergeItems = asyncHandler(async (req, res) => {
   res.json({ data: order });
 });
 
+// PUT /api/orders/:id/items — the list of items the order should end up with (add, change, remove).
+// Only while the order is awaiting dispatch; blocked entirely afterwards.
+const replaceItems = asyncHandler(async (req, res) => {
+  const order = ordersService.replaceItems({
+    orderId: req.params.id, storeId: req.user.storeId, staffId: req.user.id, items: req.body.items,
+    discountMaxPercent: maxPercentFor(req.user.role, settingsService.getAll()),
+  });
+  res.json({ data: ordersService.getOrderWithItems(order.id, req.user.storeId) });
+});
+
+// GET /api/orders/merge-groups[?order_id=] — customers with more than one order still awaiting dispatch.
+const mergeGroups = asyncHandler(async (req, res) => {
+  const orderId = req.query.order_id ? Number(req.query.order_id) : undefined;
+  let customerId;
+  if (orderId) {
+    const o = ordersService.getOrderWithItems(orderId, req.user.storeId);
+    if (!o) throw new ApiError(404, 'Order not found.');
+    customerId = o.customer_id;
+  }
+  res.json({ data: ordersService.findMergeGroups({ storeId: req.user.storeId, customerId, orderId }) });
+});
+
+// POST /api/orders/merge — { keep_order_id, merge_order_ids: [], confirm: true }. Needs explicit permission.
+const mergeOrders = asyncHandler(async (req, res) => {
+  const { keep_order_id, merge_order_ids, confirm } = req.body;
+  const order = ordersService.mergeOrders({
+    keepOrderId: keep_order_id, mergeOrderIds: merge_order_ids, storeId: req.user.storeId, staffId: req.user.id, confirm,
+  });
+  res.json({ data: ordersService.getOrderWithItems(order.id, req.user.storeId) });
+});
+
 // POST /api/orders/:id/dispatch  — body (optional): { package_fee } in cents, what the order's named courier earns
 const dispatch = asyncHandler(async (req, res) => {
   // package_fee (cents) and package_fee_zero_reason: required only when the order's courier is an organization.
-  const { package_fee, package_fee_zero_reason } = req.body || {};
+  const { package_fee, package_fee_zero_reason, delivery_fee_paid, delivery_fee_collected, delivery_fee_method, delivery_fee_reference } = req.body || {};
+  // delivery_fee_paid (boolean) is required whenever the order carries a delivery fee; when true, delivery_fee_collected
+  // (cents) and delivery_fee_method say how much the customer paid and how.
   const order = ordersService.dispatch({
     orderId: req.params.id, storeId: req.user.storeId, staffId: req.user.id,
     packageFee: package_fee, packageFeeZeroReason: package_fee_zero_reason,
+    deliveryFeePaid: delivery_fee_paid, deliveryFeeCollected: delivery_fee_collected,
+    deliveryFeeMethod: delivery_fee_method, deliveryFeeReference: delivery_fee_reference,
   });
   res.json({ data: order });
 });
@@ -185,7 +220,7 @@ const resolveDispute = asyncHandler(async (req, res) => {
 });
 
 module.exports = {
-  list, checkIntegrity, atRisk, getById, create, mergeItems, confirmCod, setCourier, dispatch, recordPayment, recordShopCash,
+  list, checkIntegrity, atRisk, getById, create, mergeItems, replaceItems, mergeGroups, mergeOrders, confirmCod, setCourier, dispatch, recordPayment, recordShopCash,
   markReturnedInTransit, markReturnedAwaitingInspection, inspectReturn, decideOwnerAction,
   listPendingOwnerDecisions, openDispute, resolveDispute, cancel, expireUnconfirmed,
 };

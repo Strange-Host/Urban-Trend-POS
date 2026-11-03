@@ -37,14 +37,32 @@ function profitLoss({ storeId, from, to }) {
       AND ${dateOf('o.dispatched_at')} BETWEEN ? AND ? AND o.deleted_at IS NULL AND o.sale_id IS NULL
   `).get(storeId, from, to);
 
-  const deliveryFees = db.prepare(`
-    SELECT COALESCE(SUM(delivery_fee), 0) AS total FROM orders
-    WHERE store_id = ? AND status IN ${DISPATCHED} AND ${dateOf('dispatched_at')} BETWEEN ? AND ? AND deleted_at IS NULL
+  // Delivery, worked out from what actually happened rather than from the fee charged:
+  //   earned  = delivery fees the customer really paid (delivery_fee_receipts), by the day they were recorded
+  //   cost    = the courier package fees + riders' approved extra costs + approved extra delivery costs (net of
+  //             reversals), each by the day it was recorded or approved
+  // `deliveryFees` is the NET cost to the shop (cost - earned): positive when deliveries cost more than customers paid,
+  // negative when they earned more. It is subtracted from profit exactly as before, so the profit identity still holds.
+  const deliveryEarned = db.prepare(`
+    SELECT COALESCE(SUM(amount), 0) AS total FROM delivery_fee_receipts
+    WHERE store_id = ? AND ${dateOf('recorded_at')} BETWEEN ? AND ?
   `).get(storeId, from, to).total;
+  const deliveryCost = db.prepare(`
+    SELECT
+      (SELECT COALESCE(SUM(amount), 0) FROM package_fees WHERE store_id = ? AND ${dateOf('recorded_at')} BETWEEN ? AND ?)
+    + (SELECT COALESCE(SUM(amount), 0) FROM courier_costs WHERE store_id = ? AND status = 'approved' AND ${dateOf('decided_at')} BETWEEN ? AND ?)
+    + (SELECT COALESCE(SUM(CASE WHEN reverses_cost_id IS NULL THEN amount ELSE -amount END), 0) FROM delivery_costs
+        WHERE store_id = ? AND status = 'approved' AND ${dateOf('decided_at')} BETWEEN ? AND ?) AS total
+  `).get(storeId, from, to, storeId, from, to, storeId, from, to).total;
+  const deliveryFees = deliveryCost - deliveryEarned;
 
+  // Rider payouts are mirrored into expenses when they are paid. Those costs are already counted above (as package
+  // fees and approved courier costs), so the mirror rows are left out here: counting both would charge them twice.
   const businessExpenses = db.prepare(`
     SELECT COALESCE(SUM(amount), 0) AS total FROM expenses
     WHERE store_id = ? AND expense_date BETWEEN ? AND ? AND deleted_at IS NULL AND status = 'approved'
+      AND id NOT IN (SELECT fees_expense_id FROM rider_payouts WHERE fees_expense_id IS NOT NULL)
+      AND id NOT IN (SELECT costs_expense_id FROM rider_payouts WHERE costs_expense_id IS NOT NULL)
   `).get(storeId, from, to).total;
 
   let laborCost = 0;
@@ -61,7 +79,7 @@ function profitLoss({ storeId, from, to }) {
   const costOfGoodsSold = pos.cost + online.cost;
   const grossMargin = revenue - costOfGoodsSold;
   const netProfit = grossMargin - deliveryFees - laborCost - businessExpenses;
-  return { period: { from, to }, revenue, costOfGoodsSold, deliveryFees, laborCost, businessExpenses, grossMargin, netProfit };
+  return { period: { from, to }, revenue, costOfGoodsSold, deliveryFees, deliveryEarned, deliveryCost, laborCost, businessExpenses, grossMargin, netProfit };
 }
 
 // Revenue/cost/margin per product category, POS + online. The sale-level discount cannot be

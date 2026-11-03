@@ -30,7 +30,7 @@ async function dispatched(phone, { assignedStaffId } = {}) {
   const create = await request(app).post('/api/orders').set(auth())
     .send({ name: 'Risk Test', phone, payment_type: 'prepaid', assigned_staff_id: assignedStaffId, items: [{ product_id: product.id, quantity: 1 }] });
   const order = create.body.data;
-  await request(app).post(`/api/orders/${order.id}/dispatch`).set(auth());
+  await request(app).post(`/api/orders/${order.id}/dispatch`).set(auth()).send({ delivery_fee_paid: false });
   return db.prepare('SELECT * FROM orders WHERE id = ?').get(order.id);
 }
 
@@ -142,7 +142,7 @@ describe('courier money', () => {
     const id = created.body.data.id;
     await request(app).post(`/api/orders/${id}/courier`).set(auth()).send({ courier_id: courierId });
     await request(app).post(`/api/orders/${id}/confirm-cod`).set(auth());
-    const res = await request(app).post(`/api/orders/${id}/dispatch`).set(auth()).send({ package_fee: fee });
+    const res = await request(app).post(`/api/orders/${id}/dispatch`).set(auth()).send({ package_fee: fee, delivery_fee_paid: false });
     expect(res.status).toBe(200);
     return { id, total: created.body.data.total };
   }

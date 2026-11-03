@@ -29,7 +29,7 @@ async function createOrder(phone, name = 'Wanjiru Kamau', quantity = 1) {
 }
 
 async function dispatch(orderId) {
-  const res = await request(app).post(`/api/orders/${orderId}/dispatch`).set(auth(adminToken));
+  const res = await request(app).post(`/api/orders/${orderId}/dispatch`).set(auth(adminToken)).send({ delivery_fee_paid: false });
   expect(res.status).toBe(200);
 }
 

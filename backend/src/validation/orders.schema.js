@@ -30,6 +30,16 @@ const mergeItemsSchema = z.object({
   items: z.array(itemSchema).min(1, 'At least one item is required to merge.'),
 });
 
+const replaceItemsSchema = z.object({
+  items: z.array(itemSchema).min(1, 'An order must keep at least one item.'),
+});
+
+const mergeOrdersSchema = z.object({
+  keep_order_id: z.number().int().positive(),
+  merge_order_ids: z.array(z.number().int().positive()).min(1, 'Pick at least one order to merge in.'),
+  confirm: z.boolean().optional(),
+});
+
 const recordPaymentSchema = z.object({
   method: z.enum(['cash', 'card', 'mobile_money', 'bank_transfer']),
   amount: z.number().int().positive(), // integer cents
@@ -70,6 +80,6 @@ const resolveDisputeSchema = z.object({
 });
 
 module.exports = {
-  createOrderSchema, mergeItemsSchema, setCourierSchema, recordPaymentSchema, shopCashSchema, inspectReturnSchema,
+  createOrderSchema, mergeItemsSchema, replaceItemsSchema, mergeOrdersSchema, setCourierSchema, recordPaymentSchema, shopCashSchema, inspectReturnSchema,
   notesOnlySchema, returnedInTransitSchema, ownerDecisionSchema, openDisputeSchema, resolveDisputeSchema,
 };
