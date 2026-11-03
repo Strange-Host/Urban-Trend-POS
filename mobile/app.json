@@ -1,0 +1,16 @@
+{
+  "expo": {
+    "name": "Urban Trends",
+    "slug": "urbantrends-mobile",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "android": {
+      "package": "co.urbantrends.manager",
+      "versionCode": 1,
+      "permissions": ["USE_BIOMETRIC", "USE_FINGERPRINT"]
+    },
+    "extra": { "apiMode": "mock" },
+    "plugins": ["expo-secure-store", "expo-local-authentication"]
+  }
+}
