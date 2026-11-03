@@ -14,7 +14,7 @@ async function dispatchedOrder(phone) {
   const created = await request(app).post('/api/orders').set(auth(adminToken))
     .send({ name: 'C2B Test', phone, payment_type: 'prepaid', items: [{ product_id: product.id, quantity: 1 }] });
   const order = created.body.data;
-  await request(app).post(`/api/orders/${order.id}/dispatch`).set(auth(adminToken));
+  await request(app).post(`/api/orders/${order.id}/dispatch`).set(auth(adminToken)).send({ delivery_fee_paid: false });
   return order;
 }
 

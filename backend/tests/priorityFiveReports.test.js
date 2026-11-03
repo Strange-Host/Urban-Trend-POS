@@ -44,7 +44,7 @@ beforeAll(async () => {
     items: [{ product_id: product.id, quantity: 3, discount: 1000 }],
   });
   expect(order.status).toBe(201);
-  await request(app).post(`/api/orders/${order.body.data.id}/dispatch`).set(auth(adminToken));
+  await request(app).post(`/api/orders/${order.body.data.id}/dispatch`).set(auth(adminToken)).send({ delivery_fee_paid: false });
   await request(app).post(`/api/orders/${order.body.data.id}/payments`).set(auth(adminToken))
     .send({ method: 'mobile_money', amount: order.body.data.total, reference: 'P5-TXN-1' });
 

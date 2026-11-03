@@ -19,7 +19,7 @@ async function createDispatchedOrder(phone) {
   const createRes = await request(app).post('/api/orders').set('Authorization', `Bearer ${token}`)
     .send({ name: 'KCB IPN Test', phone, payment_type: 'prepaid', items: [{ product_id: product.id, quantity: 1 }] });
   const order = createRes.body.data;
-  await request(app).post(`/api/orders/${order.id}/dispatch`).set('Authorization', `Bearer ${token}`);
+  await request(app).post(`/api/orders/${order.id}/dispatch`).set('Authorization', `Bearer ${token}`).send({ delivery_fee_paid: false });
   return order;
 }
 

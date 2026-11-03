@@ -127,6 +127,8 @@ const ADDITIVE_COLUMNS = {
     `courier_type TEXT CHECK (courier_type IN ('boda','g4s'))`,
     `delivery_zone TEXT CHECK (delivery_zone IN ('nairobi','outside'))`,
     `delivery_fee INTEGER NOT NULL DEFAULT 0`,
+    // Set on an order that was merged away into another one (orders.mergeOrders); the order itself is cancelled and zeroed.
+    `merged_into_order_id INTEGER REFERENCES orders(id)`,
     `courier_id INTEGER REFERENCES couriers(id)`, // a NAMED courier (couriers table); courier_type stays the fee/zone source of truth
     `income_source_id INTEGER REFERENCES income_sources(id)`,
     `sale_id INTEGER REFERENCES sales(id)`,
