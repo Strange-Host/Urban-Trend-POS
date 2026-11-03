@@ -8,9 +8,26 @@
     "android": {
       "package": "co.urbantrends.manager",
       "versionCode": 1,
-      "permissions": ["USE_BIOMETRIC", "USE_FINGERPRINT"]
+      "permissions": [
+        "USE_BIOMETRIC",
+        "USE_FINGERPRINT",
+        "CAMERA",
+        "POST_NOTIFICATIONS"
+      ]
     },
-    "extra": { "apiMode": "mock" },
-    "plugins": ["expo-secure-store", "expo-local-authentication"]
+    "extra": {
+      "apiMode": "mock"
+    },
+    "plugins": [
+      "expo-secure-store",
+      "expo-local-authentication",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Urban Trends uses the camera to scan product barcodes."
+        }
+      ],
+      "expo-notifications"
+    ]
   }
 }
