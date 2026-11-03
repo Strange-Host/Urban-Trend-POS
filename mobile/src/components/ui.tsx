@@ -130,3 +130,48 @@ const s = StyleSheet.create({
   banner: { backgroundColor: colors.amberSoft, paddingVertical: 8, paddingHorizontal: 16 },
   bannerText: { fontSize: 13, color: colors.ink, fontWeight: "500" },
 });
+
+export function Empty({ title, note }: { title: string; note?: string }) {
+  return (
+    <Card>
+      <Text style={text.title}>{title}</Text>
+      {note ? <Text style={text.sub}>{note}</Text> : null}
+    </Card>
+  );
+}
+
+export function Chip({
+  label,
+  active,
+  onPress,
+}: {
+  label: string;
+  active?: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityState={{ selected: !!active }}
+      style={[cs.chip, active && cs.chipActive]}
+    >
+      <Text style={[cs.chipText, active && { fontWeight: "700" }]}>{label}</Text>
+    </Pressable>
+  );
+}
+
+const cs = StyleSheet.create({
+  chip: {
+    minHeight: 44,
+    paddingHorizontal: 14,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: colors.surface,
+    justifyContent: "center",
+    marginRight: 8,
+  },
+  chipActive: { backgroundColor: colors.amberSoft, borderColor: colors.amber },
+  chipText: { fontSize: 14, color: colors.ink },
+});

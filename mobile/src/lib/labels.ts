@@ -1,0 +1,33 @@
+import type { AdjustReason, ApprovalType, OrderStatus, PaymentState } from "../api/types";
+
+export const approvalTypeLabel: Record<ApprovalType, string> = {
+  void: "Void",
+  refund: "Refund",
+  requisition: "Requisition",
+  expense: "Expense",
+  stock_adjustment: "Stock adjustment",
+};
+
+export const orderStatusLabel: Record<OrderStatus, string> = {
+  pending_confirmation: "Pending confirmation",
+  awaiting_dispatch: "Awaiting dispatch",
+  dispatched: "Dispatched",
+  delivered: "Delivered",
+  returned: "Returned",
+  cancelled: "Cancelled",
+};
+
+export const paymentLabel: Record<PaymentState, string> = {
+  paid: "Paid",
+  unpaid: "Unpaid",
+  partial: "Part paid",
+};
+
+export const adjustReasons: { key: AdjustReason; label: string }[] = [
+  { key: "damaged", label: "Damaged" },
+  { key: "lost", label: "Lost" },
+  { key: "found", label: "Found" },
+  { key: "count_correction", label: "Count correction" },
+  { key: "return_to_stock", label: "Return to stock" },
+  { key: "other", label: "Other" },
+];
