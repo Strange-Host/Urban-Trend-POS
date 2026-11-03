@@ -4,7 +4,9 @@ import React from "react";
 import { ActivityIndicator, View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { AuthProvider, useAuth } from "./src/auth/AuthContext";
-import RootTabs from "./src/navigation/RootTabs";
+import AppNavigator from "./src/navigation/AppNavigator";
+import { navigationRef } from "./src/navigation/linking";
+import PushBridge from "./src/navigation/PushBridge";
 import LockScreen from "./src/screens/LockScreen";
 import LoginScreen from "./src/screens/LoginScreen";
 import UpdateScreen from "./src/screens/UpdateScreen";
@@ -27,8 +29,9 @@ function Gate() {
       return <LockScreen />;
     case "unlocked":
       return (
-        <NavigationContainer>
-          <RootTabs />
+        <NavigationContainer ref={navigationRef}>
+          <AppNavigator />
+          <PushBridge />
         </NavigationContainer>
       );
   }

@@ -10,6 +10,7 @@ const K_HOME = "ut.home.cache.v1";
 export interface StoredProfile {
   user: SessionUser;
   autoLockSeconds: number;
+  biometricApprovalAboveCents?: number;
 }
 
 export const secure = {
@@ -62,3 +63,30 @@ export const homeCache = {
     await AsyncStorage.removeItem(K_HOME);
   },
 };
+
+// Generic per-user read-only cache for list screens (offline view).
+const CACHE_PREFIX = "ut.cache.";
+
+export const cache = {
+  async set<T>(userId: number, key: string, data: T) {
+    await AsyncStorage.setItem(
+      `${CACHE_PREFIX}${userId}.${key}`,
+      JSON.stringify({ savedAt: new Date().toISOString(), data }),
+    );
+  },
+  async get<T>(userId: number, key: string): Promise<{ data: T; savedAt: string } | null> {
+    const raw = await AsyncStorage.getItem(`${CACHE_PREFIX}${userId}.${key}`);
+    if (!raw) return null;
+    try {
+      return JSON.parse(raw) as { data: T; savedAt: string };
+    } catch {
+      return null;
+    }
+  },
+};
+
+export async function clearAllCaches() {
+  const keys = await AsyncStorage.getAllKeys();
+  const mine = keys.filter((k) => k.startsWith(CACHE_PREFIX) || k === K_HOME);
+  if (mine.length) await AsyncStorage.multiRemove(mine);
+}

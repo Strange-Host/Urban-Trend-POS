@@ -1,0 +1,48 @@
+import Constants, { ExecutionEnvironment } from "expo-constants";
+
+// Push is FCM-direct (the backend sends through FCM), so we register the native device token.
+// It needs a development/production build with google-services.json; Expo Go cannot receive it.
+const inExpoGo = Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
+
+export async function registerForPush(): Promise<string | null> {
+  if (inExpoGo) return null;
+  try {
+    const N = await import("expo-notifications");
+    N.setNotificationHandler({
+      handleNotification: async () => ({
+        shouldShowBanner: true,
+        shouldShowList: true,
+        shouldPlaySound: false,
+        shouldSetBadge: false,
+      }),
+    });
+    await N.setNotificationChannelAsync("decisions", {
+      name: "Needs a decision",
+      importance: N.AndroidImportance.HIGH,
+    });
+    let { status } = await N.getPermissionsAsync();
+    if (status !== "granted") status = (await N.requestPermissionsAsync()).status;
+    if (status !== "granted") return null;
+    const token = await N.getDevicePushTokenAsync();
+    return typeof token.data === "string" ? token.data : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Calls onLink(deepLink) when a notification is tapped, including the one that cold-started the app. */
+export async function listenForNotificationTaps(onLink: (deepLink: string) => void): Promise<() => void> {
+  if (inExpoGo) return () => {};
+  try {
+    const N = await import("expo-notifications");
+    const pick = (r: { notification: { request: { content: { data?: unknown } } } } | null) => {
+      const data = r?.notification.request.content.data as { deepLink?: unknown } | undefined;
+      if (typeof data?.deepLink === "string") onLink(data.deepLink);
+    };
+    pick(await N.getLastNotificationResponseAsync());
+    const sub = N.addNotificationResponseReceivedListener(pick);
+    return () => sub.remove();
+  } catch {
+    return () => {};
+  }
+}

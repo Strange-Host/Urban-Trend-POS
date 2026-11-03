@@ -3,10 +3,21 @@ import type {
   Api,
   ApiErrorBody,
   ApiErrorCode,
+  AdjustRequest,
+  AdjustResult,
+  AppNotification,
   AppVersionInfo,
+  Approval,
+  ApprovalDecisionResult,
+  ApprovalStatus,
   HomeAttention,
   HomeSummary,
   MobileLoginResponse,
+  OrderDetail,
+  OrderFilter,
+  OrdersPage,
+  Paginated,
+  StockItem,
   TokenPair,
 } from "./types";
 
@@ -60,5 +71,43 @@ export function createHttpApi(base: string): Api {
     homeAttention: (token) => call<HomeAttention>(base, "GET", "/home/attention", { token }),
     homeSummary: (token) => call<HomeSummary>(base, "GET", "/home/summary", { token }),
     appVersion: () => call<AppVersionInfo>(base, "GET", "/app/version"),
+
+    approvals: (token, status) =>
+      call<Paginated<Approval>>(base, "GET", `/approvals?status=${status}`, { token }),
+    approve: (token, id) =>
+      call<ApprovalDecisionResult>(base, "POST", `/approvals/${id}/approve`, { token, body: {} }),
+    reject: (token, id, reason) =>
+      call<ApprovalDecisionResult>(base, "POST", `/approvals/${id}/reject`, {
+        token,
+        body: { reason },
+      }),
+
+    notifications: (token, cursor) =>
+      call<Paginated<AppNotification>>(
+        base,
+        "GET",
+        `/notifications${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`,
+        { token },
+      ),
+
+    stockLookup: (token, q) => {
+      const qs = q.barcode
+        ? `barcode=${encodeURIComponent(q.barcode)}`
+        : `q=${encodeURIComponent(q.q ?? "")}`;
+      return call<StockItem[]>(base, "GET", `/stock/lookup?${qs}`, { token });
+    },
+    stockAdjust: (token, req) =>
+      call<AdjustResult>(base, "POST", "/stock/adjustments", { token, body: req }),
+
+    orders: (token, f: OrderFilter) => {
+      const p = new URLSearchParams();
+      if (f.status) p.set("status", f.status);
+      if (f.courier) p.set("courier", f.courier);
+      if (f.unpaid) p.set("unpaid", "1");
+      if (f.cursor) p.set("cursor", f.cursor);
+      const qs = p.toString();
+      return call<OrdersPage>(base, "GET", `/orders${qs ? `?${qs}` : ""}`, { token });
+    },
+    order: (token, id) => call<OrderDetail>(base, "GET", `/orders/${id}`, { token }),
   };
 }
