@@ -19,7 +19,7 @@ const CHANNELS = [
 const CHANNEL_STYLE = {
   local: { label: 'Local store', cls: 'bg-line text-text-muted' },
   shopify: { label: 'Shopify', cls: 'bg-success-soft text-success' },
-  woocommerce: { label: 'WooCommerce', cls: 'bg-accent/20 text-accent-ink' },
+  woocommerce: { label: 'WooCommerce', cls: 'bg-accent/20 text-accent-text' },
 };
 
 function ChannelBadge({ sale }) {

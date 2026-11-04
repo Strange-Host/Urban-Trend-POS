@@ -77,7 +77,7 @@ export default function CommandPalette({ open, onClose, items, actions = [], rec
   let lastSection = null;
   return createPortal(
     <div className="fixed inset-0 z-[90] flex items-start justify-center px-3 pt-[12vh] bg-black/40" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div role="dialog" aria-modal="true" aria-label="Go to" className="w-full max-w-lg bg-surface text-text border border-line rounded-2xl shadow-2xl overflow-hidden">
+      <div role="dialog" aria-modal="true" aria-label="Go to" className="w-full max-w-lg bg-surface text-text border border-line rounded-xl shadow-2xl overflow-hidden">
         <div className="flex items-center gap-3 px-4 border-b border-line focus-within:border-accent transition-colors">
           <Search size={18} className="text-text-muted shrink-0" aria-hidden="true" />
           <input

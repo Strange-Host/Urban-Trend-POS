@@ -94,7 +94,7 @@ export default function Picker({
           {onCreate && (
             <div className="border-t border-line px-5 py-3">
               {!creating ? (
-                <button type="button" onClick={() => setCreating(true)} className="w-full min-h-[48px] text-left text-sm font-medium text-ink">+ {createLabel}</button>
+                <button type="button" onClick={() => setCreating(true)} className="w-full min-h-[48px] text-left text-sm font-medium text-text">+ {createLabel}</button>
               ) : (
                 <div>
                   <div className="flex gap-2">

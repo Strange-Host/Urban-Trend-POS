@@ -157,9 +157,11 @@ export function ActionBar({ label, summary, detail, meta, children }) {
 
 const TONES = {
   neutral: 'bg-line text-text-muted',
-  accent: 'bg-accent/20 text-accent-ink',
+  accent: 'bg-accent/20 text-accent-text',
   success: 'bg-success-soft text-success',
   danger: 'bg-danger-soft text-danger',
+  warning: 'bg-warning-soft text-warning',
+  info: 'bg-info-soft text-info',
 };
 
 export function StatusPill({ tone = 'neutral', children }) {

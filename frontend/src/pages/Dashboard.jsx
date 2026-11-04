@@ -170,7 +170,7 @@ function RangeToggle({ value, onChange }) {
 function AlertTile({ to, label, count, detail, clearText }) {
   const hot = count > 0;
   return (
-    <Link to={to} className={`@container block rounded-2xl border p-4 sm:p-5 transition-colors hover:border-ink ${hot ? 'bg-surface border-accent' : 'bg-surface border-line'}`}>
+    <Link to={to} className={`@container block rounded-xl border p-4 sm:p-5 transition-colors hover:border-text ${hot ? 'bg-surface border-accent' : 'bg-surface border-line'}`}>
       <div className="text-sm text-text-muted mb-2">{label}</div>
       <div className={`font-display font-700 tracking-tight tabular-nums text-3xl ${hot ? 'text-accent' : 'text-success'}`}>{count}</div>
       <div className="text-xs text-text-muted mt-1.5">{hot ? detail : clearText}</div>

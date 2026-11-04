@@ -200,7 +200,7 @@ function PolicyEditor() {
 // ---------------------------------------------------------------------------------------------------------------------
 // Admin: what happened lately
 // ---------------------------------------------------------------------------------------------------------------------
-const SEVERITY = { urgent: 'bg-danger-soft text-danger', warning: 'bg-accent/25 text-ink', info: 'bg-line text-text-muted' };
+const SEVERITY = { urgent: 'bg-danger-soft text-danger', warning: 'bg-accent/25 text-text', info: 'bg-line text-text-muted' };
 
 function EventsList() {
   const { data: events = [], isLoading } = useQuery({

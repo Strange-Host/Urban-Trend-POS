@@ -6,7 +6,7 @@
 export default function Panel({ title, description, action, children, className = '' }) {
   const hasHeader = title || description || action;
   return (
-    <section className={`bg-surface border border-line rounded-2xl overflow-hidden ${className}`}>
+    <section className={`bg-surface border border-line rounded-xl overflow-hidden ${className}`}>
       {hasHeader && (
         <header className="flex items-start justify-between gap-3 px-5 pt-5 pb-3">
           <div className="min-w-0">

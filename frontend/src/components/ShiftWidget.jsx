@@ -112,7 +112,7 @@ export default function ShiftWidget() {
         <>
           <span className="w-2 h-2 rounded-full bg-line" />
           <span className="text-text-muted">No shift open</span>
-          <button onClick={() => setMode('opening')} className="ml-auto text-xs text-accent-ink hover:opacity-70">Open shift</button>
+          <button onClick={() => setMode('opening')} className="ml-auto text-xs text-accent-text hover:opacity-70">Open shift</button>
         </>
       )}
     </div>

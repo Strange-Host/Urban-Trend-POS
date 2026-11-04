@@ -8,7 +8,7 @@ import { useToast, useDialog } from '../context/UIContext';
 import Picker from '../components/Picker';
 const badgeStyles = {
   new: 'bg-success-soft text-success',
-  update: 'bg-accent/20 text-accent-ink',
+  update: 'bg-accent/20 text-accent-text',
   unchanged: 'bg-line text-text-muted',
 };
 

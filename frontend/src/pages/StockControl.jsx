@@ -1052,7 +1052,7 @@ export default function StockControl() {
       <div className="flex gap-1 mb-6 overflow-x-auto border-b border-line" role="tablist">
         {tabs.map((t) => (
           <button key={t.id} role="tab" aria-selected={tab === t.id} onClick={() => setTab(t.id)}
-            className={`px-4 py-2.5 text-sm font-medium whitespace-nowrap border-b-2 -mb-px ${tab === t.id ? 'border-ink text-text' : 'border-transparent text-text-muted hover:text-text'}`}>{t.label}</button>
+            className={`px-4 py-2.5 text-sm font-medium whitespace-nowrap border-b-2 -mb-px ${tab === t.id ? 'border-text text-text' : 'border-transparent text-text-muted hover:text-text'}`}>{t.label}</button>
         ))}
       </div>
 

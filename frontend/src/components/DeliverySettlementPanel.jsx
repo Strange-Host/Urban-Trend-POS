@@ -14,7 +14,7 @@ const KINDS = [
   ['fuel', 'Fuel'], ['return_trip', 'Return trip'], ['packaging', 'Packaging'], ['other', 'Other'],
 ];
 const kindLabel = (k) => KINDS.find(([v]) => v === k)?.[1] || k;
-const STATUS_CLS = { pending: 'bg-accent/20 text-accent-ink', approved: 'bg-success-soft text-success', rejected: 'bg-danger-soft text-danger' };
+const STATUS_CLS = { pending: 'bg-accent/20 text-accent-text', approved: 'bg-success-soft text-success', rejected: 'bg-danger-soft text-danger' };
 
 // What this delivery earned against what it cost. Open until someone confirms the outcome: until then extra costs and
 // late fee payments can be added, each with its reason. Mistakes are fixed by a reversal, never by editing. Closing
@@ -122,7 +122,7 @@ export default function DeliverySettlementPanel({ order }) {
     <div className="mt-5 pt-4 border-t border-dashed border-line" data-testid="delivery-settlement">
       <div className="flex items-center justify-between mb-2">
         <div className="text-xs font-medium">Delivery earnings and costs</div>
-        <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${open ? 'bg-accent/20 text-accent-ink' : 'bg-success-soft text-success'}`}>
+        <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${open ? 'bg-accent/20 text-accent-text' : 'bg-success-soft text-success'}`}>
           {open ? 'Open until delivery is confirmed' : `Closed · ${s.settlement.outcome}`}
         </span>
       </div>

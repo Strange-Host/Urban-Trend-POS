@@ -189,7 +189,7 @@ export default function Staff() {
                   <span className={`text-xs px-2 py-1 rounded-full ${s.status === 'active' ? 'bg-success-soft text-success' : 'bg-danger-soft text-danger'}`}>
                     {s.erased ? 'erased' : s.status}
                   </span>
-                  {s.locked && <span className="ml-1.5 text-xs px-2 py-1 rounded-full bg-accent/25 text-ink">locked</span>}
+                  {s.locked && <span className="ml-1.5 text-xs px-2 py-1 rounded-full bg-accent/25 text-text">locked</span>}
                 </td>
                 <td className="px-4 py-3 text-right whitespace-nowrap">
                   <div className="flex gap-2 justify-start sm:justify-end">

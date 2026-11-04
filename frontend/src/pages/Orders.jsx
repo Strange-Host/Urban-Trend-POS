@@ -66,7 +66,7 @@ const CHANNELS = [
 const CHANNEL_PARAM = { all: undefined, local: 'manual', shopify: 'shopify', woocommerce: 'wordpress' };
 const CHANNEL_BADGE = {
   shopify: { label: 'Shopify', cls: 'bg-success-soft text-success' },
-  wordpress: { label: 'WooCommerce', cls: 'bg-accent/20 text-accent-ink' },
+  wordpress: { label: 'WooCommerce', cls: 'bg-accent/20 text-accent-text' },
 };
 
 function ChannelBadge({ order }) {

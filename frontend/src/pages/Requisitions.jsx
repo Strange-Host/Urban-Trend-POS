@@ -11,7 +11,7 @@ import Sheet from '../components/Sheet';
 const money = (cents) => (cents / 100).toLocaleString(undefined, { style: 'currency', currency: 'KES' });
 const when = (utc) => (utc ? new Date(`${utc.replace(' ', 'T')}Z`).toLocaleString() : '');
 const STATUS_COLORS = {
-  pending: 'bg-accent/20 text-accent-ink',
+  pending: 'bg-accent/20 text-accent-text',
   approved: 'bg-success-soft text-success',
   rejected: 'bg-danger-soft text-danger',
 };

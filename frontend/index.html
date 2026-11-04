@@ -4,7 +4,20 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content" />
+    <meta name="color-scheme" content="light dark" />
     <title>frontend</title>
+    <script>
+      // Apply the saved (or device) theme before the first paint so a dark setup never flashes white.
+      // Keep in step with src/hooks/useTheme.js.
+      (function () {
+        try {
+          var saved = localStorage.getItem('ut_theme');
+          var dark = saved === 'dark' || (saved !== 'light' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+          document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+          document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
+        } catch (e) { /* default (light) theme */ }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
