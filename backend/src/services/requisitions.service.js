@@ -133,4 +133,22 @@ function approve({ requisitionId, items, staffId, storeId }) {
   return txn();
 }
 
-module.exports = { approve };
+function reject({ requisitionId, reason, staffId, storeId }) {
+  if (!reason) throw new ApiError(400, 'rejection_reason is required.');
+  const existing = db.prepare('SELECT * FROM requisitions WHERE id = ? AND store_id = ? AND deleted_at IS NULL').get(requisitionId, storeId);
+  if (!existing) throw new ApiError(404, 'Requisition not found.');
+  if (existing.status !== 'pending') throw new ApiError(409, 'Only pending requisitions can be rejected.');
+  db.prepare(`
+    UPDATE requisitions SET status = 'rejected', reviewed_by_staff_id = ?, reviewed_at = datetime('now'),
+      rejection_reason = ?, updated_at = datetime('now')
+    WHERE id = ?
+  `).run(staffId, reason, requisitionId);
+  const requisition = db.prepare('SELECT * FROM requisitions WHERE id = ?').get(requisitionId);
+  logStaffAction({
+    staffId, action: 'update', entityType: 'requisition', entityId: requisition.id,
+    before: { status: 'pending' }, after: { status: 'rejected', rejection_reason: reason },
+  });
+  return requisition;
+}
+
+module.exports = { approve, reject };

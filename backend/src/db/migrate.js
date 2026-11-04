@@ -31,6 +31,9 @@ const ADDITIVE_COLUMNS = {
     `requisition_id INTEGER REFERENCES requisitions(id)`,
   ],
   users: [
+    // Mobile app push quiet hours: 'HH:MM' on the shop's clock. Both set = on, both NULL = off (services/push.service.js).
+    `quiet_start TEXT`,
+    `quiet_end TEXT`,
     `token_version INTEGER NOT NULL DEFAULT 1`,
     // Phase 7 (employee onboarding & e-signature) — 'active' default keeps
     // every existing user and everyone made via the plain POST /api/staff

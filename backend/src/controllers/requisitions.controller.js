@@ -110,24 +110,8 @@ const approve = asyncHandler(async (req, res) => {
 
 // PATCH /api/requisitions/:id/reject  { rejection_reason }
 const reject = asyncHandler(async (req, res) => {
-  const { rejection_reason } = req.body;
-  if (!rejection_reason) throw new ApiError(400, 'rejection_reason is required.');
-
-  const existing = db.prepare('SELECT * FROM requisitions WHERE id = ? AND store_id = ? AND deleted_at IS NULL')
-    .get(req.params.id, req.user.storeId);
-  if (!existing) throw new ApiError(404, 'Requisition not found.');
-  if (existing.status !== 'pending') throw new ApiError(409, 'Only pending requisitions can be rejected.');
-
-  db.prepare(`
-    UPDATE requisitions SET status = 'rejected', reviewed_by_staff_id = ?, reviewed_at = datetime('now'),
-      rejection_reason = ?, updated_at = datetime('now')
-    WHERE id = ?
-  `).run(req.user.id, rejection_reason, req.params.id);
-
-  const requisition = db.prepare('SELECT * FROM requisitions WHERE id = ?').get(req.params.id);
-  logStaffAction({
-    staffId: req.user.id, action: 'update', entityType: 'requisition', entityId: requisition.id,
-    before: { status: 'pending' }, after: { status: 'rejected', rejection_reason },
+  const requisition = requisitionsService.reject({
+    requisitionId: req.params.id, reason: req.body.rejection_reason, staffId: req.user.id, storeId: req.user.storeId,
   });
   res.json({ data: requisition });
 });
