@@ -61,6 +61,17 @@ const update = asyncHandler(async (req, res) => {
       throw new ApiError(400, 'attention_cash_variance_kes must be a number of shillings, 0 or more.');
     }
   }
+  for (const [key, label, max] of [['stock_adjust_approval_units', 'Stock adjustment approval units', 1000000], ['approval_biometric_above_kes', 'Biometric approval amount', 1e9]]) {
+    if (req.body?.[key] === undefined) continue;
+    const n = Number(req.body[key]);
+    if (String(req.body[key]).trim() === '' || !Number.isFinite(n) || n < 0 || n > max) throw new ApiError(400, `${label} must be a number from 0 to ${max}.`);
+  }
+  if (req.body?.app_auto_lock_seconds !== undefined) {
+    const n = Number(req.body.app_auto_lock_seconds);
+    if (String(req.body.app_auto_lock_seconds).trim() === '' || !Number.isInteger(n) || n < 15 || n > 3600) {
+      throw new ApiError(400, 'app_auto_lock_seconds must be a whole number of seconds from 15 to 3600.');
+    }
+  }
   if (req.body?.delivery_use_area_rates !== undefined && !['0', '1'].includes(String(req.body.delivery_use_area_rates))) {
     throw new ApiError(400, 'delivery_use_area_rates must be 0 or 1.');
   }

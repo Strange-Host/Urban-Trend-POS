@@ -4,6 +4,7 @@ const axios = require('axios');
 const jwt = require('jsonwebtoken');
 const db = require('../config/db');
 const logger = require('../utils/logger');
+const { offsetMinutes } = require('../utils/storeTime');
 
 // Push notifications to the mobile app, through Firebase Cloud Messaging (the HTTP v1 API).
 //
@@ -28,6 +29,10 @@ const DECISION_TYPES = new Set([
   'petty_cash_topup_pending',
   'stock_transfer_pending',
   'product_proposed',
+  // The spec's other push triggers (see notifications.service sweeps and cashSessions.close):
+  'unmatched_payment_stale',        // an incoming payment that matched no order for over an hour
+  'courier_remittance_overdue',     // a courier organization holding customer money past its limit
+  'cash_variance',                  // a till closed short or over by more than the owner's threshold
 ]);
 
 /**
@@ -118,6 +123,31 @@ function getProvider() {
 const isConfigured = () => Boolean(getProvider());
 const resetForTests = () => { cached = null; override = null; };
 
+// ---- quiet hours ------------------------------------------------------------------------------------------------------
+// A person can switch pushes off for part of the day (users.quiet_start / quiet_end, 'HH:MM' on the shop's clock, and the
+// window may cross midnight: 22:00 -> 06:00). Their bell still fills; only the buzz on the phone is held back. An 'urgent'
+// notification (a replayed sign-in, a locked account, a damaged return) ignores quiet hours: those are the ones nobody
+// wants to sleep through.
+const minutesOf = (hhmm) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5));
+
+function inQuietHours(user, now = new Date()) {
+  if (!user || !user.quiet_start || !user.quiet_end) return false;
+  const local = (((now.getUTCHours() * 60 + now.getUTCMinutes() + offsetMinutes(now)) % 1440) + 1440) % 1440;
+  const start = minutesOf(user.quiet_start);
+  const end = minutesOf(user.quiet_end);
+  if (start === end) return false;
+  return start < end ? local >= start && local < end : local >= start || local < end;
+}
+
+/** The subset of userIds that may be buzzed right now. */
+function awakeUserIds(userIds, now = new Date()) {
+  const ids = [...new Set((userIds || []).filter(Boolean))];
+  if (!ids.length) return [];
+  const marks = ids.map(() => '?').join(',');
+  const rows = db.prepare(`SELECT id, quiet_start, quiet_end FROM users WHERE id IN (${marks})`).all(...ids);
+  return rows.filter((u) => !inQuietHours(u, now)).map((u) => u.id);
+}
+
 // ---- sending ----------------------------------------------------------------------------------------------------------
 
 const clean = (s, max) => (s == null ? undefined : String(s).slice(0, max));
@@ -131,11 +161,16 @@ function forgetToken(token) {
  * Sends one push to every live phone of these users. Never throws. Returns { sent, failed, removed, skipped }.
  * `data` is what the app needs to open the right screen; everything in it is sent as a string.
  */
-async function sendToUsers({ userIds, title, body = null, data = {} }) {
+async function sendToUsers({ userIds, title, body = null, data = {}, severity = 'info' }) {
   const result = { sent: 0, failed: 0, removed: 0, skipped: null };
   try {
     const provider = getProvider();
     if (!provider) { result.skipped = 'not_configured'; return result; }
+    if (severity !== 'urgent') {
+      const awake = awakeUserIds(userIds);
+      if (!awake.length) { result.skipped = 'quiet_hours'; return result; }
+      userIds = awake;
+    }
     const devices = require('./devices.service');      // loaded here: devices -> securityAlerts -> notifications -> push would otherwise be a cycle
     const targets = devices.pushTokensForUsers(userIds);
     if (!targets.length) { result.skipped = 'no_devices'; return result; }
@@ -164,9 +199,9 @@ function pushForNotification({ userIds, type, severity, title, body, entityType,
   if (!userIds?.length || !shouldPush({ type, severity })) return null;
   if (!isConfigured()) return null;
   return sendToUsers({
-    userIds, title, body,
+    userIds, title, body, severity,
     data: { kind: type, severity, entityType, entityId, link: entityType && entityId ? `${entityType}:${entityId}` : undefined, id: crypto.randomUUID() },
   }).catch(() => null);
 }
 
-module.exports = { shouldPush, DECISION_TYPES, sendToUsers, pushForNotification, isConfigured, setProvider, resetForTests };
+module.exports = { shouldPush, DECISION_TYPES, inQuietHours, awakeUserIds, sendToUsers, pushForNotification, isConfigured, setProvider, resetForTests };

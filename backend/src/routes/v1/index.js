@@ -1,7 +1,7 @@
 const router = require('express').Router();
 const rateLimit = require('express-rate-limit');
 const validate = require('../../middleware/validate');
-const { authenticate } = require('../../middleware/auth');
+const { authenticate, requirePermission, requireAnyPermission } = require('../../middleware/auth');
 const { RATE_LIMITS } = require('../../config/limits');
 const SqliteRateLimitStore = require('../../utils/sqliteRateLimitStore');
 const mobileAuth = require('../../controllers/mobileAuth.controller');
@@ -9,6 +9,7 @@ const devices = require('../../controllers/devices.controller');
 const home = require('../../controllers/home.controller');
 const appVersion = require('../../controllers/appVersion.controller');
 const schema = require('../../validation/mobile.schema');
+const api = require('../../controllers/mobileApi.controller');
 
 // The mobile app's API, mounted at /api/v1 (app.js). The rule for this prefix: fields may be ADDED to responses and
 // endpoints may be added, but nothing here is renamed or removed while an older app might still be installed - that
@@ -35,5 +36,34 @@ router.get('/home/summary', authenticate, home.summary);
 router.post('/devices', authenticate, validate(schema.registerDevice), devices.register);
 router.get('/devices', authenticate, devices.list);
 router.delete('/devices/:id', authenticate, devices.revoke);
+
+// ---- approvals: anyone who can decide at least one kind sees the list; the service then shows and allows only the kinds
+// their own permissions cover (void/refund: approvals.review, expense: expenses.approve, requisition: requisitions.approve,
+// large stock change: inventory.approve_adjust), and never their own requests.
+const DECIDER = requireAnyPermission('approvals.review', 'expenses.approve', 'requisitions.approve', 'inventory.approve_adjust');
+router.get('/approvals', authenticate, DECIDER, api.approvalsList);
+router.post('/approvals/:id/approve', authenticate, DECIDER, validate(schema.approveBody), api.approve);
+router.post('/approvals/:id/reject', authenticate, DECIDER, validate(schema.rejectBody), api.reject);
+
+// ---- alerts: your own bell rows, so no permission beyond being signed in.
+router.get('/notifications', authenticate, api.notifications);
+
+// ---- stock
+router.get('/stock/lookup', authenticate, requireAnyPermission('inventory.adjust', 'stock.review', 'stock.receive'), api.stockLookup);
+router.post('/stock/adjustments', authenticate, requirePermission('inventory.adjust'), validate(schema.stockAdjustment), api.stockAdjustment);
+
+// ---- orders (read-only)
+router.get('/orders', authenticate, requirePermission('orders.view'), api.orders);
+router.get('/orders/:id', authenticate, requirePermission('orders.view'), api.order);
+
+// ---- your own app preferences
+router.get('/me/preferences', authenticate, api.getPreferences);
+router.put('/me/preferences', authenticate, validate(schema.preferences), api.putPreferences);
+
+// ---- the app file itself. Upload and link-making are owner actions; downloading needs a sign-in or a signed link.
+router.post('/app/apk', authenticate, requirePermission('app.manage'), api.uploadApk);
+router.get('/app/apk', authenticate, api.downloadApk);
+router.post('/app/download-links', authenticate, requirePermission('app.manage'), api.makeLink);
+router.get('/app/download', api.downloadByLink);
 
 module.exports = router;

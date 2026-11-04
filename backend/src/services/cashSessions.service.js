@@ -1,5 +1,8 @@
 const db = require('../config/db');
 const ApiError = require('../utils/ApiError');
+const settingsService = require('./settings.service');
+const permissionsService = require('./permissions.service');
+const notifications = require('./notifications.service');
 
 /** The currently open session for this cashier at this store, or null. */
 function getCurrentOpen(userId, storeId) {
@@ -44,6 +47,27 @@ function expectedCashFor(sessionId) {
   return session.opening_amount + cashCollected;
 }
 
+// A till that closes short or over by at least the owner's threshold (settings.attention_cash_variance_kes) tells everyone who
+// may see cash sessions - except the person who closed it - and that notice is pushed to their phones.
+function notifyIfVariance({ session, userId, closingAmount, expectedAmount, sessionId }) {
+  try {
+    const threshold = Math.round(Number(settingsService.getAll().attention_cash_variance_kes) * 100);
+    const diff = closingAmount - expectedAmount;
+    if (!(Math.abs(diff) >= Math.max(threshold, 1))) return;
+    const who = db.prepare('SELECT name FROM users WHERE id = ?').get(userId)?.name || 'A cashier';
+    const kes = (Math.abs(diff) / 100).toLocaleString('en-US', { maximumFractionDigits: 2 });
+    notifications.notify({
+      storeId: session.store_id, userIds: permissionsService.userIdsWith(session.store_id, 'cashsessions.view', userId),
+      type: 'cash_variance', severity: 'warning',
+      title: `${who}'s till was ${diff < 0 ? 'short' : 'over'} by KES ${kes}`,
+      body: `Counted ${(closingAmount / 100).toLocaleString('en-US')} but expected ${(expectedAmount / 100).toLocaleString('en-US')}.`,
+      entityType: 'cash_session', entityId: sessionId, dedupeKey: `cash_variance:${sessionId}`,
+    });
+  } catch (err) {
+    require('../utils/logger').error('[cashSessions] could not raise the variance notice', { error: err.message });
+  }
+}
+
 function close(sessionId, userId, closingAmount) {
   const session = db.prepare('SELECT * FROM cash_sessions WHERE id = ?').get(sessionId);
   if (!session) throw new ApiError(404, 'Cash session not found.');
@@ -59,6 +83,7 @@ function close(sessionId, userId, closingAmount) {
     UPDATE cash_sessions SET closing_amount = ?, expected_amount = ?, closed_at = datetime('now') WHERE id = ?
   `).run(closingAmount, expectedAmount, sessionId);
 
+  notifyIfVariance({ session, userId, closingAmount, expectedAmount, sessionId });
   return db.prepare('SELECT * FROM cash_sessions WHERE id = ?').get(sessionId);
 }
 

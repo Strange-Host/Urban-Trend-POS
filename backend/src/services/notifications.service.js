@@ -4,6 +4,7 @@ const ApiError = require('../utils/ApiError');
 const logger = require('../utils/logger');
 const costing = require('./costing.service');
 const stockAlerts = require('./stockAlerts.service');
+const permissionsService = require('./permissions.service');
 const { shopToday } = require('./stock.service');
 
 // In-app notifications. One row per RECIPIENT, so a notice for "all
@@ -201,6 +202,50 @@ function sweepExpiry() {
   return created;
 }
 
+// An incoming payment that has matched no order for over an hour. The notice at arrival (notifyUnmatchedPayment) is a
+// heads-up that usually clears itself when the order is keyed in; this one is the "someone should look" and is the one
+// that buzzes a phone. One per payment; it stops mattering once the payment is matched (the home list drops it).
+function sweepStaleUnmatchedPayments() {
+  const rows = db.prepare(`
+    SELECT id, store_id, source, amount, payer_name, external_reference FROM payment_notifications
+    WHERE direction = 'incoming' AND status = 'unmatched' AND created_at <= datetime('now', '-1 hour')
+  `).all();
+  let created = 0;
+  for (const n of rows) {
+    const kes = (n.amount / 100).toLocaleString('en-US', { maximumFractionDigits: 2 });
+    created += notify({
+      storeId: n.store_id, userIds: permissionsService.userIdsWith(n.store_id, 'payments.reconcile'),
+      type: 'unmatched_payment_stale', severity: 'warning',
+      title: `${String(n.source).toUpperCase()} payment of KES ${kes} still matches no order`,
+      body: [n.payer_name, n.external_reference && `ref ${n.external_reference}`].filter(Boolean).join(' · ') || null,
+      entityType: 'payment_notification', entityId: n.id, dedupeKey: `unmatched_stale:${n.id}`,
+    });
+  }
+  return created;
+}
+
+// A courier organization holding customer money past its overdue limit. One notice per overdue episode (it is keyed on the
+// date of the oldest collection still owed, so paying it off and falling behind again starts a new one) - not a daily nag.
+function sweepCourierRemittances() {
+  const courierOrganizations = require('./courierOrganizations.service');   // lazy: it uses notifications too
+  const orgs = db.prepare(`SELECT id, store_id, name FROM couriers WHERE kind = 'organization' AND collects_payment = 1`).all();
+  let created = 0;
+  for (const o of orgs) {
+    const standing = courierOrganizations.organizationStanding({ storeId: o.store_id, courierId: o.id });
+    if (!(standing.overdue > 0)) continue;
+    const oldest = db.prepare('SELECT MIN(collected_on) AS d FROM org_collections WHERE courier_id = ?').get(o.id).d || 'unknown';
+    const kes = (standing.overdue / 100).toLocaleString('en-US', { maximumFractionDigits: 2 });
+    created += notify({
+      storeId: o.store_id, userIds: permissionsService.userIdsWith(o.store_id, 'couriers.settle'),
+      type: 'courier_remittance_overdue', severity: standing.paused ? 'urgent' : 'warning',
+      title: `${o.name} owes KES ${kes} past its due date`,
+      body: standing.paused ? 'Paused for new collect-on-delivery parcels.' : null,
+      entityType: 'courier', entityId: o.id, dedupeKey: `courier_overdue:${o.id}:${oldest}`,
+    });
+  }
+  return created;
+}
+
 // Housekeeping so the table can't grow forever: read notices after 30 days,
 // anything after 90.
 function pruneOld() {
@@ -211,10 +256,12 @@ function pruneOld() {
 }
 
 function runSweeps() {
-  const result = { followUps: 0, lowStock: 0, expiry: 0, pruned: 0 };
+  const result = { followUps: 0, lowStock: 0, expiry: 0, unmatchedPayments: 0, courierRemittances: 0, pruned: 0 };
   result.followUps = sweepLeadFollowUps();
   result.lowStock = sweepLowStock();
   result.expiry = sweepExpiry();
+  result.unmatchedPayments = sweepStaleUnmatchedPayments();
+  result.courierRemittances = sweepCourierRemittances();
   result.pruned = pruneOld();
   return result;
 }
@@ -222,5 +269,5 @@ function runSweeps() {
 module.exports = {
   notify, listForUser, unreadCount, markRead, markAllRead,
   notifyLeadAssigned, notifyDamagedReturn, notifyUnmatchedPayment,
-  sweepLeadFollowUps, sweepLowStock, sweepExpiry, pruneOld, runSweeps,
+  sweepLeadFollowUps, sweepLowStock, sweepExpiry, sweepStaleUnmatchedPayments, sweepCourierRemittances, pruneOld, runSweeps,
 };

@@ -17,6 +17,12 @@ function can(user, key, preloadedOverrides) {
   return defaultAllows(user.role, key);
 }
 
+/** Ids of every active person in the store who holds this permission (admins always do), minus one person (the requester). */
+function userIdsWith(storeId, key, exceptUserId = null) {
+  const users = db.prepare('SELECT id, role FROM users WHERE store_id = ? AND is_active = 1').all(storeId);
+  return users.filter((u) => u.id !== exceptUserId && can(u, key)).map((u) => u.id);
+}
+
 function effectiveKeys(user) {
   const overrides = overridesFor(user.id);
   return Object.keys(PERMISSIONS).filter((key) => can(user, key, overrides));
@@ -75,4 +81,4 @@ function setOverrides({ storeId, actorId, userId, overrides }) {
   return describeForUser({ storeId, userId });
 }
 
-module.exports = { can, effectiveKeys, describeForUser, setOverrides, overridesFor };
+module.exports = { userIdsWith, can, effectiveKeys, describeForUser, setOverrides, overridesFor };
