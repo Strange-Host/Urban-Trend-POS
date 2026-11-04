@@ -7,73 +7,16 @@ import useModules from '../hooks/useModules';
 import useSlidingPill from '../hooks/useSlidingPill';
 import ConnectionDot from './ConnectionDot';
 import UserMenu from './UserMenu';
+import CommandPalette from './CommandPalette';
+import useRecentPages from '../hooks/useRecentPages';
+import { PINNED_TOP, GROUPS, PINNED_BOTTOM, ALL_ITEMS, filterVisible } from './navItems';
 import {
-  Banknote, ChartColumn, ChevronDown, ChevronRight, ChevronsLeft, ChevronsRight, ClipboardCheck, Clock,
-  GitCompareArrows, History, LayoutDashboard, Menu, Package, PanelLeftClose, PanelLeftOpen, ReceiptText, RefreshCw,
-  ScrollText, Settings, ShoppingCart, Tags, TriangleAlert, UserCog, UserPlus, Users, Wallet, Warehouse, X,
+  ChevronDown, ChevronRight, ChevronsLeft, ChevronsRight, Lock, Menu, PanelLeftClose, PanelLeftOpen, Search, X,
 } from 'lucide-react';
 
-// Grouped by "what am I doing right now", not by which backend module a
-// page belongs to — that's why Attendance sits under Team next to Payroll
-// (attendance data is literally what drives payroll deductions) rather
-// than under an Operations bucket, and why Reconciliation sits under Money
-// next to Finance rather than next to Orders.
-//
-// Terminal and Dashboard are deliberately ungrouped and pinned to the top:
-// they're where a shift starts, and burying either one behind a disclosure
-// triangle to save two lines would be a bad trade.
-const PINNED_TOP = [
-  { to: '/terminal', label: 'Terminal', icon: ShoppingCart, roles: ['admin', 'manager', 'cashier'] },
-  { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: ['admin', 'manager'], perm: 'reports.view' },
-  { to: '/reports', label: 'Reports', icon: ChartColumn, roles: ['admin', 'manager'], perm: 'reports.view' },
-];
-
-const GROUPS = [
-  {
-    id: 'sell',
-    label: 'Sell',
-    items: [
-      { to: '/orders', label: 'Orders', icon: Package, roles: ['admin', 'manager', 'cashier'] },
-      { to: '/leads', label: 'Leads', icon: Users, roles: ['admin', 'manager', 'cashier'] },
-      { to: '/sales', label: 'Sales history', icon: History, roles: ['admin', 'manager', 'cashier'] },
-      { to: '/approvals', label: 'Approvals', icon: ClipboardCheck, roles: ['admin', 'manager', 'cashier'], perm: ['approvals.review', 'sales.void_request', 'payments.refund_request'] },
-    ],
-  },
-  {
-    id: 'stock',
-    label: 'Stock',
-    items: [
-      { to: '/catalog', label: 'Catalog', icon: Tags, roles: ['admin', 'manager', 'store'], perm: ['products.manage', 'products.propose'] },
-      { to: '/stock', label: 'Stock control', icon: Warehouse, roles: ['admin', 'manager', 'store'], perm: ['stock.receive', 'stock.transfer', 'stock.count'] },
-      { to: '/shopify-sync', label: 'Shopify sync', icon: RefreshCw, roles: ['admin', 'manager'], perm: 'shopify.sync' },
-    ],
-  },
-  {
-    id: 'money',
-    label: 'Money',
-    items: [
-      { to: '/money-at-risk', label: 'Money at risk', icon: TriangleAlert, roles: ['admin', 'manager'], perm: 'atrisk.view' },
-      { to: '/finance', label: 'Finance', icon: Wallet, roles: ['admin', 'manager'] },
-      { to: '/reconciliation', label: 'Reconciliation', icon: GitCompareArrows, roles: ['admin', 'manager'], perm: 'payments.reconcile' },
-      { to: '/requisitions', label: 'Requisitions', icon: ReceiptText, roles: ['admin', 'manager', 'cashier'], module: 'hr' },
-    ],
-  },
-  {
-    id: 'team',
-    label: 'Team',
-    items: [
-      { to: '/attendance', label: 'Attendance', icon: Clock, roles: ['admin', 'manager', 'cashier'], module: 'hr' },
-      { to: '/payroll', label: 'Payroll', icon: Banknote, roles: ['admin', 'manager'], perm: 'payroll.view', module: 'hr' },
-      { to: '/staff', label: 'Staff', icon: UserCog, roles: ['admin'] },
-      { to: '/employees', label: 'Onboarding', icon: UserPlus, roles: ['admin'], module: 'hr' },
-      { to: '/staff-logs', label: 'Activity log', icon: ScrollText, roles: ['admin'] },
-    ],
-  },
-];
-
-const PINNED_BOTTOM = [
-  { to: '/settings', label: 'Settings', icon: Settings, roles: ['admin'] },
-];
+// Roles that see only a handful of pages get one plain list instead of group headings: two clicks to reach
+// five items is a bad trade.
+const FLAT_BELOW = 8;
 
 const COLLAPSE_KEY = 'ut_nav_collapsed';
 const MODE_KEY = 'ut_sidebar_mode';
@@ -142,7 +85,7 @@ function DockButton({ icon: Icon, label, onClick, rail }) {
 }
 
 export default function Layout() {
-  const { hasRole, can } = useAuth();
+  const { hasRole, can, lock } = useAuth();
   const location = useLocation();
   const [navOpen, setNavOpen] = useState(false);
   const mainRef = useRef(null);
@@ -162,9 +105,7 @@ export default function Layout() {
   });
 
   // `module` marks menu items that belong to an optional module (hidden while it is switched off).
-  const visible = (items) => items
-    .filter((i) => !i.module || modules[i.module])
-    .filter((i) => (i.perm ? (Array.isArray(i.perm) ? i.perm.some((p) => can(p)) : can(i.perm)) : hasRole(...i.roles)));
+  const visible = (items) => filterVisible(items, { hasRole, can, modules });
   const activeGroupId = GROUPS.find((g) => g.items.some((i) => i.to === location.pathname))?.id;
 
   useEffect(() => {
@@ -202,6 +143,20 @@ export default function Layout() {
     return () => window.removeEventListener('keydown', onKey);
   }, [navOpen]);
 
+  // Ctrl/Cmd+K opens the "go to…" palette from anywhere.
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  useEffect(() => {
+    const onKey = (e) => {
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setPaletteOpen((v) => !v);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+  const recentPaths = useRecentPages();
+
   // Tooltip for the icon rail. One element for the whole sidebar (the nav list scrolls, which would clip a
   // tooltip drawn inside it), positioned from the hovered item's box.
   const asideRef = useRef(null);
@@ -215,6 +170,22 @@ export default function Layout() {
 
   const topItems = visible(PINNED_TOP);
   const bottomItems = visible(PINNED_BOTTOM);
+  const visibleGroups = GROUPS.map((g) => ({ ...g, items: visible(g.items) })).filter((g) => g.items.length > 0);
+  const groupedCount = visibleGroups.reduce((n, g) => n + g.items.length, 0);
+  const flat = groupedCount < FLAT_BELOW;
+  // The last few pages visited (not the current one), for one-click return. Only when the list is long enough to need it.
+  const visibleAll = filterVisible(ALL_ITEMS, { hasRole, can, modules });
+  const recentItems = flat ? [] : recentPaths
+    .filter((path) => path !== location.pathname)
+    .map((path) => visibleAll.find((i) => i.to === path))
+    .filter(Boolean)
+    .slice(0, 3);
+  const paletteActions = [
+    { id: 'lock', label: 'Lock screen', icon: Lock, keywords: 'secure away', run: lock },
+    { id: 'mode-expanded', label: 'Sidebar: full', icon: PanelLeftOpen, keywords: 'expand pin show navigation menu', run: () => setMode('expanded') },
+    { id: 'mode-rail', label: 'Sidebar: icons only', icon: ChevronsLeft, keywords: 'collapse rail narrow navigation menu', run: () => setMode('rail') },
+    { id: 'mode-hidden', label: 'Sidebar: hide', icon: PanelLeftClose, keywords: 'collapse close navigation menu', run: () => setMode('hidden') },
+  ];
 
   return (
     <div className="flex h-dvh bg-paper text-text">
@@ -232,7 +203,16 @@ export default function Layout() {
           <div className="font-display font-700 text-sm tracking-tight">Urban Trends</div>
           <ConnectionDot />
         </div>
-        <NotificationBell className="-mr-2" anchor="topbar" />
+        <div className="flex items-center -mr-2">
+          <button
+            onClick={() => setPaletteOpen(true)}
+            aria-label="Search pages"
+            className="p-2 text-white/80 hover:text-white"
+          >
+            <Search size={20} strokeWidth={1.75} aria-hidden="true" />
+          </button>
+          <NotificationBell anchor="topbar" />
+        </div>
       </div>
 
       {navOpen && (
@@ -281,6 +261,19 @@ export default function Layout() {
         </div>
 
         <nav className={`flex-1 px-3 py-4 overflow-y-auto ${rail ? 'lg:px-2' : ''}`}>
+          <button
+            type="button"
+            onClick={() => setPaletteOpen(true)}
+            aria-label="Search pages"
+            onMouseEnter={rail ? (e) => showTip('Search · Ctrl K', e.currentTarget) : undefined}
+            onMouseLeave={rail ? () => showTip(null) : undefined}
+            className={`w-full mb-3 flex items-center gap-3 px-3 py-2 rounded-lg border border-white/10 text-sm text-white/50 hover:text-white hover:border-white/25 transition-colors ${rail ? 'lg:justify-center lg:px-0' : ''}`}
+          >
+            <Search size={16} strokeWidth={1.75} className="shrink-0" aria-hidden="true" />
+            <span className={`flex-1 text-left ${rail ? 'lg:hidden' : ''}`}>Go to…</span>
+            <kbd className={`font-mono text-[10px] text-white/40 border border-white/15 rounded px-1.5 py-0.5 ${rail ? 'lg:hidden' : ''}`}>Ctrl K</kbd>
+          </button>
+
           {/* Inner wrapper is the pill's positioning context: it is as tall as the full list, so the pill scrolls with it. */}
           <div ref={navRootRef} className="relative">
           <span {...navPill} className="sliding-pill rounded-lg bg-accent" />
@@ -290,9 +283,26 @@ export default function Layout() {
             ))}
           </div>
 
-          {GROUPS.map((group) => {
-            const items = visible(group.items);
-            if (items.length === 0) return null; // whole group hidden by role — don't render an empty header
+          {recentItems.length > 0 && (
+            <div className={`mt-5 ${rail ? 'lg:hidden' : ''}`}>
+              <div className="px-3 py-1 text-[11px] font-mono uppercase tracking-wider text-white/40">Recent</div>
+              <div className="mt-1 space-y-0.5">
+                {recentItems.map((item) => (
+                  <NavItem key={item.to} item={item} onNavigate={closeNav} nested rail={rail} onTip={showTip} />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {flat ? (
+            visibleGroups.length > 0 && (
+              <div className={`mt-4 pt-4 border-t border-white/10 space-y-1 ${rail ? 'lg:mt-3 lg:pt-3' : ''}`}>
+                {visibleGroups.flatMap((g) => g.items).map((item) => (
+                  <NavItem key={item.to} item={item} onNavigate={closeNav} rail={rail} onTip={showTip} />
+                ))}
+              </div>
+            )
+          ) : visibleGroups.map((group) => {
             // The group holding the current page is always open regardless of
             // saved state: landing somewhere with no highlighted nav item
             // anywhere in view would be disorienting.
@@ -310,7 +320,7 @@ export default function Layout() {
                   {isOpen ? <ChevronDown size={12} aria-hidden="true" /> : <ChevronRight size={12} aria-hidden="true" />}
                 </button>
                 <div className={`mt-1 space-y-0.5 ${isOpen ? '' : 'hidden'} ${rail ? 'lg:block' : ''}`}>
-                  {items.map((item) => (
+                  {group.items.map((item) => (
                     <NavItem key={item.to} item={item} onNavigate={closeNav} nested rail={rail} onTip={showTip} />
                   ))}
                 </div>
@@ -367,6 +377,8 @@ export default function Layout() {
           </div>
         )}
       </aside>
+
+      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} items={visibleAll} actions={paletteActions} recent={recentPaths} />
 
       <main ref={mainRef} className={`flex-1 min-w-0 overflow-y-auto pt-[calc(3.5rem+env(safe-area-inset-top))] ${hidden ? '' : 'lg:pt-0'}`}>
         <Outlet />

@@ -1,14 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import Layout from './Layout';
 
+const auth = { role: 'admin' };
 vi.mock('../context/AuthContext', () => ({
   useAuth: () => ({
-    user: { name: 'Ann Admin', role: 'admin' },
+    user: { name: 'Ann Admin', role: auth.role },
     logout: vi.fn(), lock: vi.fn(),
-    hasRole: () => true, can: () => true,
+    hasRole: (...roles) => roles.includes(auth.role),
+    can: (perm) => auth.role === 'admin' || perm === 'none',
   }),
 }));
 vi.mock('../hooks/useModules', () => ({ default: () => ({ hr: true, control: true, loaded: true }) }));
@@ -28,7 +30,7 @@ function mount() {
   );
 }
 
-beforeEach(() => localStorage.clear());
+beforeEach(() => { localStorage.clear(); auth.role = 'admin'; });
 
 describe('Layout sidebar modes', () => {
   it('starts expanded with the wide sidebar and the dock controls', () => {
@@ -80,5 +82,24 @@ describe('Layout sidebar modes', () => {
     expect(screen.getByRole('menuitem', { name: /Security & devices/ })).toBeTruthy();
     expect(screen.getByRole('menuitem', { name: /Lock screen/ })).toBeTruthy();
     expect(screen.getByRole('menuitem', { name: /Sign out/ })).toBeTruthy();
+  });
+
+  it('opens the go-to palette with Ctrl+K', () => {
+    mount();
+    expect(screen.queryByRole('dialog', { name: 'Go to' })).toBeNull();
+    fireEvent.keyDown(window, { key: 'k', ctrlKey: true });
+    expect(screen.getByRole('dialog', { name: 'Go to' })).toBeTruthy();
+  });
+
+  it('shows group headings to a role with many pages and a plain list to one with few', () => {
+    mount();
+    expect(screen.getByRole('button', { name: /^Sell/ })).toBeTruthy();
+  });
+
+  it('drops the group headings for a role that sees only a few pages', () => {
+    auth.role = 'cashier';
+    mount();
+    expect(screen.queryByRole('button', { name: /^Sell/ })).toBeNull();
+    expect(screen.getByRole('link', { name: 'Orders' })).toBeTruthy();
   });
 });
