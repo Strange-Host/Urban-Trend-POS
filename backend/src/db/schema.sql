@@ -206,6 +206,7 @@ CREATE TABLE IF NOT EXISTS categories (
   parent_id   INTEGER REFERENCES categories(id),
   is_archived INTEGER NOT NULL DEFAULT 0,   -- hidden from pickers but kept for old products/reports; can be restored
   archived_at TEXT,
+  sort_order  INTEGER NOT NULL DEFAULT 0,   -- the order the mobile app shows them in (set by dragging); ties fall back to name
   created_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -1842,3 +1843,63 @@ CREATE TABLE IF NOT EXISTS stock_adjustment_requests (
   review_note   TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_stock_adj_req_store ON stock_adjustment_requests(store_id, status, id);
+
+-- ---------------------------------------------------------------------
+-- MOBILE v1.1: price history, bulk price batches, stock-takes
+-- ---------------------------------------------------------------------
+-- Every change to a product's selling price, whoever made it and wherever (phone, web screen, bulk change, online sync).
+CREATE TABLE IF NOT EXISTS price_batches (
+  id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+  kind                TEXT NOT NULL CHECK (kind IN ('bulk','bulk_revert')),
+  category_id         INTEGER REFERENCES categories(id),
+  mode                TEXT NOT NULL,                 -- 'percent' | 'fixed' (a revert records 'revert')
+  value               REAL NOT NULL DEFAULT 0,
+  reason              TEXT,
+  created_by          INTEGER REFERENCES users(id),
+  device_id           INTEGER,                       -- the phone's sign-in session (auth_sessions.id), NULL when not from a phone
+  created_at          TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  reverts_batch_id    INTEGER REFERENCES price_batches(id),
+  reverted_by_batch_id INTEGER REFERENCES price_batches(id),
+  product_count       INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS price_history (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  product_id  INTEGER NOT NULL REFERENCES products(id),
+  old_price   INTEGER NOT NULL,
+  new_price   INTEGER NOT NULL,
+  reason      TEXT,
+  changed_by  INTEGER REFERENCES users(id),
+  device_id   INTEGER,
+  batch_id    INTEGER REFERENCES price_batches(id),
+  source      TEXT NOT NULL CHECK (source IN ('edit','bulk','bulk_revert','online_sync','web')),
+  changed_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+CREATE INDEX IF NOT EXISTS idx_price_history_product ON price_history(product_id, id);
+CREATE INDEX IF NOT EXISTS idx_price_history_batch ON price_history(batch_id);
+
+-- A counted-stock sheet started on the phone. The draft lives here so a backgrounded or killed app loses nothing.
+CREATE TABLE IF NOT EXISTS stock_takes (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  store_id      INTEGER NOT NULL REFERENCES stores(id),
+  scope_type    TEXT NOT NULL CHECK (scope_type IN ('all','category')),
+  category_id   INTEGER REFERENCES categories(id),
+  status        TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','applied','pending_approval','rejected')),
+  note          TEXT,
+  created_by    INTEGER NOT NULL REFERENCES users(id),
+  created_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  submitted_at  TEXT,
+  reviewed_by   INTEGER REFERENCES users(id),
+  reviewed_at   TEXT,
+  review_note   TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_stock_takes_status ON stock_takes(store_id, status);
+CREATE TABLE IF NOT EXISTS stock_take_lines (
+  take_id         INTEGER NOT NULL REFERENCES stock_takes(id),
+  product_id      INTEGER NOT NULL REFERENCES products(id),
+  counted_qty     INTEGER NOT NULL CHECK (counted_qty >= 0),
+  expected_qty    INTEGER,                           -- frozen at submit; NULL while still a draft
+  variance        INTEGER,
+  needs_approval  INTEGER NOT NULL DEFAULT 0,
+  applied         INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (take_id, product_id)
+);

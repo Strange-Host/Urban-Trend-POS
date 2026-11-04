@@ -37,6 +37,7 @@ const PERMISSIONS = {
   'orders.resolve_dispute':{ group: 'Orders',    label: 'Resolve payment disputes',                   roles: ['admin', 'manager'] },
   'products.manage':       { group: 'Stock',     label: 'Create, edit and delete products and categories', roles: ['admin', 'manager'] },
   'products.propose':      { group: 'Stock',     label: 'Propose new products (they stay hidden until approved)', roles: ['admin', 'manager', 'store'] },
+  'prices.bulk':           { group: 'Stock',     label: 'Change prices for a whole category at once, and undo it', roles: ['admin'] },
   'products.approve':      { group: 'Stock',     label: 'Approve or reject proposed products',        roles: ['admin', 'manager'] },
   'products.view_cost':    { group: 'Stock',     label: 'See buying (cost) prices',                   roles: ['admin', 'manager'] },
   'inventory.adjust':      { group: 'Stock',     label: 'Adjust stock and view the stock check',      roles: ['admin', 'manager'] },

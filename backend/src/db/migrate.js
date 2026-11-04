@@ -58,6 +58,7 @@ const ADDITIVE_COLUMNS = {
   categories: [
     `is_archived INTEGER NOT NULL DEFAULT 0`,
     `archived_at TEXT`,
+    `sort_order INTEGER NOT NULL DEFAULT 0`,
   ],
   refresh_tokens: [
     `session_id INTEGER REFERENCES auth_sessions(id)`,
