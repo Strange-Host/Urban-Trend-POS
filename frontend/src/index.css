@@ -163,6 +163,47 @@ body {
   background-color: var(--color-surface);
 }
 
+/* ---------------------------------------------------------------------
+   Data tables
+   - Figures line up: right-aligned and mono cells use tabular numerals.
+   - Long tables keep their column headings in view: the .scroll-x wrapper
+     (which already scrolls sideways) also becomes the vertical scroller above
+     a certain height, and the heading row sticks to its top. Phones get
+     the stacked cards instead (see stack-sm above), so none of this applies there.
+   - The first column stays put while the rest scrolls sideways, so a row
+     never loses its name. Written in the base layer so Tailwind's own
+     utilities (hover:bg-paper, tinted rows, ...) still win.
+   - .row-flag marks the rows that need a look (overdue, short, unmatched):
+     a coloured bar on the left. Colour the exceptions, not every row.
+   --------------------------------------------------------------------- */
+@layer base {
+  td.text-right, th.text-right, .font-mono { font-variant-numeric: tabular-nums; }
+
+  .scroll-x tbody tr { background-color: var(--color-surface); }
+  .scroll-x table:not(.stack-sm) tbody tr > :first-child:not([colspan]),
+  .scroll-x table.stack-sm tbody tr > :first-child:not([colspan]) { background-color: inherit; }
+
+  .scroll-x table:not(.stack-sm) tbody tr > :first-child:not([colspan]) {
+    position: sticky; left: 0; z-index: 1; max-width: 14rem;
+    box-shadow: 1px 0 0 var(--color-line);
+  }
+  .scroll-x table:not(.stack-sm) thead th { position: sticky; top: 0; z-index: 2; background-color: var(--color-surface); box-shadow: inset 0 -1px 0 var(--color-line); }
+  .scroll-x table:not(.stack-sm) thead th:first-child { left: 0; z-index: 3; box-shadow: inset 0 -1px 0 var(--color-line), 1px 0 0 var(--color-line); }
+}
+@media (min-width: 640px) {
+  .scroll-x { max-height: min(75dvh, 52rem); overflow-y: auto; }
+  @layer base {
+    .scroll-x table.stack-sm tbody tr > :first-child:not([colspan]) {
+      position: sticky; left: 0; z-index: 1; max-width: 14rem;
+      box-shadow: 1px 0 0 var(--color-line);
+    }
+    .scroll-x table.stack-sm thead th { position: sticky; top: 0; z-index: 2; background-color: var(--color-surface); box-shadow: inset 0 -1px 0 var(--color-line); }
+    .scroll-x table.stack-sm thead th:first-child { left: 0; z-index: 3; box-shadow: inset 0 -1px 0 var(--color-line), 1px 0 0 var(--color-line); }
+  }
+}
+tr.row-flag > :first-child { box-shadow: inset 3px 0 0 var(--color-danger); }
+tr.row-flag.row-flag-warning > :first-child { box-shadow: inset 3px 0 0 var(--color-warning); }
+
 /* Long URLs / secrets / paths shown in <code> must wrap instead of widening the page. */
 main code, main pre { overflow-wrap: anywhere; }
 main pre { white-space: pre-wrap; }
