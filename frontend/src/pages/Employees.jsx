@@ -118,7 +118,7 @@ export default function Employees() {
                 <div className="text-sm font-medium">{s.name}</div>
                 <div className="text-xs text-text-muted font-mono">{s.email} · {s.role}</div>
               </div>
-              <span className="px-2 py-0.5 rounded-full text-xs bg-accent/20 text-accent-ink">
+              <span className="px-2 py-0.5 rounded-full text-xs bg-accent/20 text-accent-text">
                 {s.onboarding_status === 'pending_documents' ? 'Needs documents' : 'Needs signature'}
               </span>
             </div>

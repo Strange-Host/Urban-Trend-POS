@@ -9,9 +9,10 @@ import ConnectionDot from './ConnectionDot';
 import UserMenu from './UserMenu';
 import CommandPalette from './CommandPalette';
 import useRecentPages from '../hooks/useRecentPages';
+import { setThemePreference } from '../hooks/useTheme';
 import { PINNED_TOP, GROUPS, PINNED_BOTTOM, ALL_ITEMS, filterVisible } from './navItems';
 import {
-  ChevronDown, ChevronRight, ChevronsLeft, ChevronsRight, Lock, Menu, PanelLeftClose, PanelLeftOpen, Search, X,
+  ChevronDown, ChevronRight, ChevronsLeft, ChevronsRight, Lock, Menu, Monitor, Moon, PanelLeftClose, PanelLeftOpen, Search, Sun, X,
 } from 'lucide-react';
 
 // Roles that see only a handful of pages get one plain list instead of group headings: two clicks to reach
@@ -182,6 +183,9 @@ export default function Layout() {
     .slice(0, 3);
   const paletteActions = [
     { id: 'lock', label: 'Lock screen', icon: Lock, keywords: 'secure away', run: lock },
+    { id: 'theme-dark', label: 'Theme: dark', icon: Moon, keywords: 'night appearance colours', run: () => setThemePreference('dark') },
+    { id: 'theme-light', label: 'Theme: light', icon: Sun, keywords: 'day appearance colours', run: () => setThemePreference('light') },
+    { id: 'theme-system', label: 'Theme: match device', icon: Monitor, keywords: 'auto system appearance colours', run: () => setThemePreference('system') },
     { id: 'mode-expanded', label: 'Sidebar: full', icon: PanelLeftOpen, keywords: 'expand pin show navigation menu', run: () => setMode('expanded') },
     { id: 'mode-rail', label: 'Sidebar: icons only', icon: ChevronsLeft, keywords: 'collapse rail narrow navigation menu', run: () => setMode('rail') },
     { id: 'mode-hidden', label: 'Sidebar: hide', icon: PanelLeftClose, keywords: 'collapse close navigation menu', run: () => setMode('hidden') },

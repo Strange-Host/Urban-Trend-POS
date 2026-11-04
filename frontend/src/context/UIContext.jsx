@@ -107,7 +107,7 @@ function DialogModal({ state, onCancel, onSubmit }) {
             value={value}
             onChange={(e) => setValue(e.target.value)}
             placeholder={state.placeholder}
-            className="w-full px-3 py-2 rounded-lg border border-line bg-bg text-sm mb-4 focus:outline-none focus:ring-2 focus:ring-ink/20"
+            className="w-full px-3 py-2 rounded-lg border border-line bg-bg text-sm mb-4 focus:outline-none focus:ring-2 focus:ring-accent/40"
           />
         )}
 

@@ -1,6 +1,27 @@
 @import "tailwindcss";
 @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
+/* ---------------------------------------------------------------------
+   Design tokens
+
+   Colour: only the variables below set colour anywhere in the app (no hex
+   values in components), which is what lets the dark theme further down
+   re-skin everything by overriding them.
+     ink / ink-soft  the dark "chrome": sidebar, top bar, primary buttons
+     surface / paper cards and fields / the page behind them
+     accent          the brand amber. Use it as a FILL with accent-ink text on
+                     top; for amber-coloured TEXT use accent-text (readable on
+                     both themes).
+     success, danger, warning, info, each with a -soft tint for backgrounds
+
+   Shape (keep to these three):
+     rounded-lg    controls: buttons, inputs, nav items, chips      (8px)
+     rounded-xl    cards and panels, tables, dialogs                (12px)
+     rounded-full  pills, avatars, dots
+
+   Spacing: lay out in steps of 8px (gap-2/4/6/8, p-4/6, mb-6); use the 4px
+   steps (1, 3) only inside a control, e.g. icon-to-label gaps.
+   --------------------------------------------------------------------- */
 @theme {
   --color-ink: #14141a;
   --color-ink-soft: #1f1f27;
@@ -8,10 +29,15 @@
   --color-surface: #ffffff;
   --color-accent: #ffb800;
   --color-accent-ink: #1a1a1f;
+  --color-accent-text: #1a1a1f;
   --color-success: #1f9d55;
   --color-success-soft: #e6f6ec;
   --color-danger: #e5484d;
   --color-danger-soft: #fdecec;
+  --color-warning: #b45309;
+  --color-warning-soft: #fdf1e0;
+  --color-info: #2563eb;
+  --color-info-soft: #e8f0fd;
   --color-line: #e4e4e0;
   --color-text: #1a1a1f;
   --color-text-muted: #6b6b66;
@@ -19,6 +45,31 @@
   --font-display: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
   --font-body: 'Inter', ui-sans-serif, system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+}
+
+/* Dark theme: chosen in the account menu (or follows the device), set as data-theme on <html> by hooks/useTheme.js.
+   Screen only: receipts, waybills and invoices always print on white. "ink" becomes a raised slate rather than
+   near-black so that buttons and the sidebar stay distinguishable from the page; amber, green and red are lifted
+   a little so they keep their contrast on dark surfaces. */
+@media screen {
+  :root[data-theme="dark"] {
+    --color-ink: #272731;
+    --color-ink-soft: #33333f;
+    --color-paper: #0e0e12;
+    --color-surface: #17171d;
+    --color-accent-text: #ffc933;
+    --color-success: #2bb06a;
+    --color-success-soft: #12301f;
+    --color-danger: #f0545a;
+    --color-danger-soft: #3a1618;
+    --color-warning: #f2a03d;
+    --color-warning-soft: #3a2a12;
+    --color-info: #6ea8fe;
+    --color-info-soft: #14233d;
+    --color-line: #2c2c36;
+    --color-text: #ececf1;
+    --color-text-muted: #9a9aa6;
+  }
 }
 
 body {

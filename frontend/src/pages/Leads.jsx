@@ -15,8 +15,8 @@ const SOURCES = ['whatsapp', 'walk_in', 'referral', 'shopify', 'other'];
 const STATUS_LABELS = { new: 'New', contacted: 'Contacted', rescheduled: 'Rescheduled', converted: 'Converted', cancelled: 'Lost' }; // the stored status stays 'cancelled'; it is shown as Lost
 const STATUS_COLORS = {
   new: 'bg-line text-text-muted',
-  contacted: 'bg-accent/20 text-accent-ink',
-  rescheduled: 'bg-accent/20 text-accent-ink',
+  contacted: 'bg-accent/20 text-accent-text',
+  rescheduled: 'bg-accent/20 text-accent-text',
   converted: 'bg-success-soft text-success',
   cancelled: 'bg-danger-soft text-danger',
 };

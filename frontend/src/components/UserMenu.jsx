@@ -2,13 +2,14 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ChevronUp, Lock, LogOut, ShieldCheck } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import ThemeSwitch from './ThemeSwitch';
 
 const initials = (name) => (name || '?').trim().split(/\s+/).slice(0, 2).map((w) => w[0]?.toUpperCase()).join('') || '?';
 
 // One menu for everything about "me": security & devices, lock, sign out. In the wide sidebar it is a
 // full-width button (avatar, name, role) whose menu opens upwards; in the icon rail (lg+) it is just the
 // avatar and the menu opens to the right. On phones the rail never applies, so it is always the wide form.
-export default function UserMenu({ rail = false, onNavigate, extraItems = null }) {
+export default function UserMenu({ rail = false, onNavigate }) {
   const { user, logout, lock } = useAuth();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
@@ -64,7 +65,7 @@ export default function UserMenu({ rail = false, onNavigate, extraItems = null }
           <button type="button" role="menuitem" className={itemClass} onClick={run(() => navigate('/security'))}>
             <ShieldCheck size={16} aria-hidden="true" /> Security &amp; devices
           </button>
-          {extraItems}
+          <ThemeSwitch />
           <button type="button" role="menuitem" className={itemClass} onClick={run(lock)}>
             <Lock size={16} aria-hidden="true" /> Lock screen
           </button>

@@ -144,7 +144,7 @@ export default function RevenueChart({ rows, labels = {}, colors = {} }) {
               <path
                 d={line} fill="none" vectorEffect="non-scaling-stroke"
                 strokeLinejoin="round" strokeLinecap="round"
-                style={{ stroke: 'var(--color-ink)', strokeWidth: 2 }}
+                style={{ stroke: 'var(--color-text)', strokeWidth: 2 }}
               />
             )}
             {active && pts.length > 1 && (
