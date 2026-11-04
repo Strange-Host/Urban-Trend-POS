@@ -55,3 +55,25 @@ module.exports = {
   ...base, list, iso, cents,
   Product, ProductList, PriceHistory, CatalogSettings, Category, CategoryList, BulkPreview, BulkApplied, BulkBatches, BulkReverted,
 };
+
+// ---- stock-takes
+const StockTake = z.looseObject({
+  id: z.number().int(),
+  scope: z.looseObject({ type: z.enum(['all', 'category']), categoryId: z.number().int().nullable(), categoryName: z.string().nullable() }),
+  status: z.enum(['draft', 'applied', 'pending_approval', 'rejected']), note: z.string().nullable(),
+  createdBy: z.looseObject({ id: z.number().int(), name: z.string() }), createdAt: iso, submittedAt: iso.nullable(),
+  lineCount: z.number().int(), varianceUnits: z.number().int(), needsApprovalCount: z.number().int(),
+});
+const StockTakeLine = z.looseObject({
+  productId: z.number().int(), name: z.string(), sku: z.string(), barcode: z.string().nullable(),
+  countedQty: z.number().int(), systemQty: z.number().int(), variance: z.number().int(), needsApproval: z.boolean(), applied: z.boolean(),
+});
+const StockTakeDetail = StockTake.extend({ lines: z.array(StockTakeLine) });
+const StockTakeList = list(StockTake);
+const StockTakeSubmitted = z.looseObject({
+  status: z.enum(['applied', 'pending_approval']),
+  applied: z.array(z.looseObject({ productId: z.number().int(), variance: z.number().int() })),
+  pendingApproval: z.array(z.looseObject({ productId: z.number().int(), variance: z.number().int() })),
+  notCountedCount: z.number().int(),
+});
+Object.assign(module.exports, { StockTake, StockTakeLine, StockTakeDetail, StockTakeList, StockTakeSubmitted });

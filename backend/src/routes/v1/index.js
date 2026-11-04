@@ -13,6 +13,7 @@ const api = require('../../controllers/mobileApi.controller');
 const v11 = require('../../validation/mobile.v11.schema');
 const catalog = require('../../controllers/mobileCatalog.controller');
 const bulkPrice = require('../../controllers/mobileBulkPrice.controller');
+const stockTakes = require('../../controllers/mobileStockTakes.controller');
 
 // The mobile app's API, mounted at /api/v1 (app.js). The rule for this prefix: fields may be ADDED to responses and
 // endpoints may be added, but nothing here is renamed or removed while an older app might still be installed - that
@@ -85,5 +86,16 @@ router.post('/prices/bulk/preview', authenticate, bulkKey, validate(v11.bulkChan
 router.post('/prices/bulk/apply', authenticate, bulkKey, validate(v11.bulkApply), bulkPrice.apply);
 router.get('/prices/bulk/batches', authenticate, bulkKey, bulkPrice.batches);
 router.post('/prices/bulk/:batchId/revert', authenticate, bulkKey, validate(v11.bulkRevert), bulkPrice.revert);
+
+// ---- v1.1: stock-take
+const countKey = requirePermission('stock.count');
+const reviewKey = requirePermission('stock.review');
+router.post('/stock-takes', authenticate, countKey, validate(v11.startStockTake), stockTakes.start);
+router.get('/stock-takes', authenticate, countKey, stockTakes.list);
+router.get('/stock-takes/:id', authenticate, countKey, stockTakes.get);
+router.post('/stock-takes/:id/lines', authenticate, countKey, validate(v11.stockTakeLines), stockTakes.saveLines);
+router.post('/stock-takes/:id/submit', authenticate, countKey, stockTakes.submit);
+router.post('/stock-takes/:id/approve', authenticate, reviewKey, validate(v11.approveStockTake), stockTakes.approve);
+router.post('/stock-takes/:id/reject', authenticate, reviewKey, validate(v11.rejectStockTake), stockTakes.reject);
 
 module.exports = router;
