@@ -310,7 +310,9 @@ export const ordersApi = {
   delivery: (id) => client.get(`/orders/${id}/delivery`),
   addFeeReceipt: (id, data) => client.post(`/orders/${id}/delivery/fee-receipts`, data),
   addDeliveryCost: (id, data) => client.post(`/orders/${id}/delivery/costs`, data),
-  closeDelivery: (id, note) => client.post(`/orders/${id}/delivery/close`, { note }),
+  closeDelivery: (id, note, writeOffReason) => client.post(`/orders/${id}/delivery/close`, { note, ...(writeOffReason ? { write_off_reason: writeOffReason } : {}) }),
+  // Correct a wrong package fee ({ target_type: 'package_fee', delta, reason }) or a rider cost ({ target_type: 'courier_cost', cost_id, delta, reason }).
+  addAdjustment: (id, data) => client.post(`/orders/${id}/delivery/adjustments`, data),
   reopenDelivery: (id, reason) => client.post(`/orders/${id}/delivery/reopen`, { reason }),
   recordPayment: (id, data) => client.post(`/orders/${id}/payments`, data),
   returnedInTransit: (id, data) => client.post(`/orders/${id}/returned-in-transit`, data),
@@ -382,6 +384,10 @@ export const deliveryApi = {
   approveCost: (id) => client.post(`/delivery/costs/${id}/approve`),
   rejectCost: (id, reason) => client.post(`/delivery/costs/${id}/reject`, { reason }),
   reverseCost: (id, data) => client.post(`/delivery/costs/${id}/reverse`, data),
+  approveAdjustment: (id) => client.post(`/delivery/adjustments/${id}/approve`),
+  rejectAdjustment: (id, reason) => client.post(`/delivery/adjustments/${id}/reject`, { reason }),
+  unverifiedReceipts: () => client.get('/delivery/fee-receipts/unverified'),
+  verifyReceipt: (id, note) => client.post(`/delivery/fee-receipts/${id}/verify`, { note }),
 };
 
 export const couriersApi = {

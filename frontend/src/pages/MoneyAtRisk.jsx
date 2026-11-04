@@ -21,6 +21,9 @@ const KINDS = {
   cash_not_deposited: { label: 'Cash held', hint: 'Shop cash still in a staff member\'s hands, not deposited' },
   courier_unpaid: { label: 'Courier unpaid', hint: 'Package fees and approved costs we owe a rider and have not paid' },
   organization_overdue: { label: 'Organization overdue', hint: 'A courier organization holding customer money past its overdue limit' },
+  delivery_fee_unverified: { label: 'Delivery fee not confirmed', hint: 'A delivery fee payment no one has confirmed as real money: cash not deposited, or no matching M-Pesa/bank payment seen' },
+  delivery_cost_pending: { label: 'Delivery cost awaiting approval', hint: 'An extra delivery cost or correction waiting for an administrator or manager' },
+  delivery_settlement_open: { label: 'Delivery not confirmed', hint: 'A dispatched parcel nobody has confirmed as delivered, so its earnings and costs are still open' },
 };
 const kindLabel = (k) => KINDS[k]?.label || k;
 

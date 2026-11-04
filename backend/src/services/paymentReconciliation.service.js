@@ -4,6 +4,7 @@ const db = require('../config/db');
 const ApiError = require('../utils/ApiError');
 const ordersService = require('./orders.service');
 const notificationsService = require('./notifications.service');
+const deliverySettlement = require('./deliverySettlement.service');
 
 const SOURCES = ['kcb', 'mpesa', 'manual'];
 const METHODS = ['mobile_money', 'bank_transfer', 'cash'];
@@ -85,8 +86,13 @@ function ingestNotification({ storeId, source, method, amount, externalReference
   const matchedCode = extractProductCode(narrative) || extractProductCode(externalReference);
 
   const txn = db.transaction(() => {
+    // The same reference may already have been entered by staff as the customer paying a DELIVERY FEE. That money is the fee,
+    // never a payment for the goods, so it must not be applied to the order. An exact match verifies the fee payment; a
+    // reference that matches with a different amount is held for a person to look at.
+    const feeClaim = deliverySettlement.claimIncomingForFeeReceipt({ storeId, reference: externalReference, amount });
+
     let order = null;
-    if (matchedCode) {
+    if (matchedCode && !feeClaim) {
       order = ordersService.findByProductCode({ storeId, productCode: matchedCode });
     }
 
@@ -95,7 +101,13 @@ function ingestNotification({ storeId, source, method, amount, externalReference
     let resolvedBy = null;
     let resolvedAt = null;
 
-    if (order && PAYABLE_ORDER_STATUSES.includes(order.status)) {
+    if (feeClaim && feeClaim.exact) {
+      const systemUser = getOrCreateSystemUser(storeId);
+      status = 'matched';
+      orderId = feeClaim.receipt.order_id;
+      resolvedBy = systemUser.id;
+      resolvedAt = new Date().toISOString().replace('T', ' ').slice(0, 19);
+    } else if (order && PAYABLE_ORDER_STATUSES.includes(order.status)) {
       const systemUser = getOrCreateSystemUser(storeId);
       ordersService.recordPayment({
         orderId: order.id, storeId, staffId: systemUser.id, method, amount, reference: externalReference,
@@ -133,6 +145,10 @@ function ingestNotification({ storeId, source, method, amount, externalReference
       throw err;
     }
 
+    if (feeClaim && feeClaim.exact) {
+      db.prepare('UPDATE payment_notifications SET delivery_fee_receipt_id = ? WHERE id = ?').run(feeClaim.receipt.id, insertResult.lastInsertRowid);
+      deliverySettlement.verifyByNotification({ receipt: feeClaim.receipt, notificationId: insertResult.lastInsertRowid, staffId: resolvedBy });
+    }
     const saved = db.prepare('SELECT * FROM payment_notifications WHERE id = ?').get(insertResult.lastInsertRowid);
     if (saved.status === 'unmatched') notificationsService.notifyUnmatchedPayment({ notification: saved });
     return saved;

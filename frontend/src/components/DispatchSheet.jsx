@@ -39,6 +39,7 @@ export default function DispatchSheet({ order, onClose, onDispatched }) {
         const cents = toCents(collected);
         if (!cents || cents <= 0) { setError('Enter how much of the delivery fee the customer paid.'); return; }
         if (cents > fee) { setError(`The customer cannot have paid more than the fee charged (${money(fee)}).`); return; }
+        if (method !== 'cash' && !reference.trim()) { setError('Enter the M-Pesa code or bank reference, so the payment can be checked against the money received.'); return; }
         body.delivery_fee_collected = cents;
         body.delivery_fee_method = method;
         if (reference.trim()) body.delivery_fee_reference = reference.trim();
@@ -98,7 +99,7 @@ export default function DispatchSheet({ order, onClose, onDispatched }) {
                   <option value="cash">Cash</option>
                   <option value="bank_transfer">Bank</option>
                 </select>
-                <input placeholder="Reference (optional)" value={reference} onChange={(e) => setReference(e.target.value)} className={`${inputCls} flex-1 font-mono`} />
+                <input placeholder={method === 'cash' ? 'Note (optional)' : 'M-Pesa code / bank reference'} aria-label="Payment reference" value={reference} onChange={(e) => setReference(e.target.value)} className={`${inputCls} flex-1 font-mono`} />
               </div>
             </div>
           )}

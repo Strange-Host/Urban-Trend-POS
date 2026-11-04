@@ -38,6 +38,13 @@ const settlement = async (id) => (await request(app).get(`/api/orders/${id}/deli
 const addCost = (id, body, who = cashier) => request(app).post(`/api/orders/${id}/delivery/costs`).set(auth(who.token))
   .send({ kind: 'outpost_leg', amount: 8000, reason: 'Outpost to Kitale rider', paid_via: 'mobile_money', ...body });
 const approve = (costId, who = manager) => request(app).post(`/api/delivery/costs/${costId}/approve`).set(auth(who.token));
+// A fee payment must be confirmed as real money before its settlement can close.
+async function verifyReceipts(orderId, who = manager) {
+  for (const r of db.prepare('SELECT id FROM delivery_fee_receipts WHERE order_id = ?').all(orderId)) {
+    const res = await request(app).post(`/api/delivery/fee-receipts/${r.id}/verify`).set(auth(who.token)).send({ note: 'Seen on the deposit slip' });
+    expect([201, 409]).toContain(res.status);
+  }
+}
 
 beforeAll(async () => {
   adminToken = await loginAsAdmin();
@@ -180,6 +187,10 @@ describe('staying open until delivery is confirmed', () => {
     const early = await request(app).post(`/api/orders/${order.id}/delivery/close`).set(auth(manager.token)).send({});
     expect(early.status).toBe(409);
     await approve(rec.body.data.id);
+    const unverified = await request(app).post(`/api/orders/${order.id}/delivery/close`).set(auth(manager.token)).send({});
+    expect(unverified.status).toBe(409);
+    expect(unverified.body.error.code).toBe('FEES_UNVERIFIED');
+    await verifyReceipts(order.id);
 
     expect((await request(app).post(`/api/orders/${order.id}/delivery/close`).set(auth(cashier.token)).send({})).status).toBe(403);
     const closed = await request(app).post(`/api/orders/${order.id}/delivery/close`).set(auth(manager.token)).send({ note: 'Customer confirmed by phone' });
@@ -196,7 +207,7 @@ describe('staying open until delivery is confirmed', () => {
   it('only an administrator can reopen, and only with a reason', async () => {
     const order = await makeOrder();
     await dispatch(order.id, { delivery_fee_paid: false });
-    await request(app).post(`/api/orders/${order.id}/delivery/close`).set(auth(manager.token)).send({});
+    await request(app).post(`/api/orders/${order.id}/delivery/close`).set(auth(manager.token)).send({ write_off_reason: 'Customer refused to pay the fee' });
     expect((await request(app).post(`/api/orders/${order.id}/delivery/reopen`).set(auth(manager.token)).send({ reason: 'late cost' })).status).toBe(403);
     expect((await request(app).post(`/api/orders/${order.id}/delivery/reopen`).set(auth(adminToken)).send({ reason: ' ' })).status).toBe(400);
     const ok = await request(app).post(`/api/orders/${order.id}/delivery/reopen`).set(auth(adminToken)).send({ reason: 'Outpost invoice arrived late' });
@@ -211,7 +222,7 @@ describe('staying open until delivery is confirmed', () => {
     const tooSoon = await request(app).post(`/api/orders/${order.id}/delivery/close`).set(auth(manager.token)).send({});
     expect(tooSoon.status).toBe(409);
     await request(app).post(`/api/orders/${order.id}/returned-awaiting-inspection`).set(auth(adminToken)).send({});
-    const closed = await request(app).post(`/api/orders/${order.id}/delivery/close`).set(auth(manager.token)).send({});
+    const closed = await request(app).post(`/api/orders/${order.id}/delivery/close`).set(auth(manager.token)).send({ write_off_reason: 'Parcel came back; fee never paid' });
     expect(closed.status).toBe(200);
     expect(closed.body.data.settlement).toMatchObject({ outcome: 'returned', result: -10000 });
   });
