@@ -235,6 +235,15 @@ const update = asyncHandler(async (req, res) => {
   `).run({ ...updates, id: req.params.id });
 
   const product = db.prepare('SELECT * FROM products WHERE id = ?').get(req.params.id);
+  if (product.sell_price !== existing.sell_price) {
+    // Price history is complete only if the web screen writes to it too, not just the phone.
+    const reason = typeof req.body.reason === 'string' && req.body.reason.trim() ? req.body.reason.trim() : 'Changed on the web';
+    require('../services/priceHistory.service').record({
+      productId: product.id, oldCents: existing.sell_price, newCents: product.sell_price, reason, userId: req.user.id, source: 'web',
+    });
+    logStaffAction({ staffId: req.user.id, action: 'update', entityType: 'product', entityId: product.id,
+      before: { sell_price: existing.sell_price }, after: { sell_price: product.sell_price, reason } });
+  }
   require('../services/securityAlerts.service').priceChanged({
     storeId: req.user.storeId, actor: { id: req.user.id, name: req.user.name }, product: product.name, oldCents: existing.sell_price, newCents: product.sell_price,
   });

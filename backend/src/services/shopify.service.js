@@ -177,14 +177,26 @@ function approve(stagingId, storeId, userId) {
   const txn = db.transaction(() => {
     let productId;
     if (staged.matched_product_id) {
+      const current = db.prepare('SELECT sell_price, catalogue FROM products WHERE id = ?').get(staged.matched_product_id);
+      // Who sets the in-shop price (setting price_master). With 'pos' (the default) an online listing no longer
+      // rewrites the price of a product that sits in the SHOP catalogue: the shop price is whatever the shop set. An
+      // online-catalogue product is the online store's own listing, so it still takes the online price.
+      const keepShopPrice = current && current.catalogue === 'shop' && require('./settings.service').getAll().price_master !== 'online';
+      const newPrice = keepShopPrice ? current.sell_price : staged.sell_price;
       db.prepare(`
         UPDATE products SET
           name = ?, sell_price = ?, barcode = COALESCE(?, barcode),
           shopify_product_id = ?, shopify_variant_id = ?, shopify_inventory_item_id = ?,
           income_source_id = ?, shopify_synced_at = datetime('now'), updated_at = datetime('now')
         WHERE id = ?
-      `).run(staged.name, staged.sell_price, staged.barcode, staged.shopify_product_id,
+      `).run(staged.name, newPrice, staged.barcode, staged.shopify_product_id,
              staged.shopify_variant_id, staged.shopify_inventory_item_id, staged.income_source_id, staged.matched_product_id);
+      if (current && newPrice !== current.sell_price) {
+        require('./priceHistory.service').record({
+          productId: staged.matched_product_id, oldCents: current.sell_price, newCents: newPrice,
+          reason: 'Approved from the online store', userId, source: 'online_sync',
+        });
+      }
       productId = staged.matched_product_id;
     } else {
       const result = db.prepare(`

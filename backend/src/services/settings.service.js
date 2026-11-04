@@ -121,6 +121,13 @@ const DEFAULTS = {
   stock_adjust_approval_units: '25',
   approval_biometric_above_kes: '5000',
   app_auto_lock_seconds: '120',
+  // Who sets the in-shop selling price. 'pos' (default): approving an online listing no longer overwrites the price of a
+  // product that is already in the shop catalogue. 'online': the old behaviour, the online price wins.
+  price_master: 'pos',
+  // Reserved: '1' will push POS price changes out to Shopify/WooCommerce. The POS has no such push today, so it does nothing yet.
+  price_push_online: '0',
+  // Mobile stock-take: a counted line off by more than this many units needs an owner/manager decision before it changes stock.
+  stocktake_approval_units: '10',
 };
 
 function getAll() {

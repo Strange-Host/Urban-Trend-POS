@@ -34,6 +34,7 @@ const fields = {
 const createProductSchema = z.object(fields);
 
 // PUT keeps whatever is omitted (see products.controller.js update()), so every field is optional here.
-const updateProductSchema = z.object(fields).partial();
+// `reason` is optional on the web (it is stored with the price history when the selling price changes).
+const updateProductSchema = z.object(fields).partial().extend({ reason: z.string().trim().max(300).optional() });
 
 module.exports = { createProductSchema, updateProductSchema, MAX_CENTS };
