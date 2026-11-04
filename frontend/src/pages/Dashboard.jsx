@@ -7,7 +7,10 @@ import { useAuth } from '../context/AuthContext';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { reportsApi, stockApi } from '../api/endpoints';
-import { EmptyRow } from '../components/EmptyState';
+import EmptyState, { EmptyRow } from '../components/EmptyState';
+import { SkeletonCards } from '../components/Skeleton';
+import { CircleCheck } from 'lucide-react';
+import { dailySeries, pctChange } from '../utils/trends';
 
 const CHANNEL_LABEL = { local: 'Local store', shopify: 'Shopify', woocommerce: 'WooCommerce' };
 const CHANNEL_COLOR = { local: 'bg-ink', shopify: 'bg-success', woocommerce: 'bg-accent' };
@@ -109,7 +112,7 @@ function PaymentMethods({ rows }) {
           </div>
         </div>
       ))}
-      {rows?.length === 0 && <div className="text-text-muted text-sm text-center py-4">No payments yet.</div>}
+      {rows?.length === 0 && <EmptyState className="py-4">No payments yet.</EmptyState>}
     </div>
   );
 }
@@ -117,7 +120,7 @@ function PaymentMethods({ rows }) {
 function TopProductsByChannel({ data }) {
   const channels = Object.keys(data || {});
   if (channels.length === 0) {
-    return <div className="px-5 py-8 text-center text-text-muted text-sm">No sales yet.</div>;
+    return <EmptyState className="px-5 py-8">No sales yet.</EmptyState>;
   }
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x divide-line">
@@ -167,15 +170,60 @@ function RangeToggle({ value, onChange }) {
   );
 }
 
-/* A tile that needs someone's attention. Goes quiet (green, "all clear") when the count is zero. */
-function AlertTile({ to, label, count, detail, clearText }) {
-  const hot = count > 0;
+/* How loud each kind of alert is: red for things that must come off the shelf, orange for a warning, amber for
+   "needs doing soon". Quiet checks never get a tile of their own (see AttentionSection). */
+const TONES = {
+  danger: { border: 'border-danger', count: 'text-danger', rank: 0 },
+  warning: { border: 'border-warning', count: 'text-warning', rank: 1 },
+  accent: { border: 'border-accent', count: 'text-accent-text', rank: 2 },
+};
+
+function AlertTile({ to, label, count, detail, tone }) {
+  const t = TONES[tone] || TONES.accent;
   return (
-    <Link to={to} className={`@container block rounded-xl border p-4 sm:p-5 transition-colors hover:border-text ${hot ? 'bg-surface border-accent' : 'bg-surface border-line'}`}>
+    <Link to={to} className={`@container block rounded-xl border bg-surface p-4 sm:p-5 transition-colors hover:border-text ${t.border}`}>
       <div className="text-sm text-text-muted mb-2">{label}</div>
-      <div className={`font-display font-700 tracking-tight tabular-nums text-3xl ${hot ? 'text-accent' : 'text-success'}`}>{count}</div>
-      <div className="text-xs text-text-muted mt-1.5">{hot ? detail : clearText}</div>
+      <div className={`font-display font-700 tracking-tight tabular-nums text-3xl ${t.count}`}>{count}</div>
+      <div className="text-xs text-text-muted mt-1.5">{detail}</div>
     </Link>
+  );
+}
+
+/* "Needs attention": only the checks that found something get a tile, worst first. Everything that is fine is
+   folded into one quiet line, so a healthy shop shows one calm card instead of six rows of zeros. */
+function AttentionSection({ alerts }) {
+  const hot = alerts.filter((a) => a.count > 0).sort((a, b) => (TONES[a.tone]?.rank ?? 9) - (TONES[b.tone]?.rank ?? 9));
+  const quiet = alerts.filter((a) => !a.count);
+  if (alerts.length === 0) return null;
+  const quietNames = quiet.map((a) => a.label).join(', ');
+  return (
+    <section aria-label="Needs attention" className="mb-6">
+      {hot.length > 0 ? (
+        <>
+          <h2 className="font-display font-700 text-sm mb-3 flex items-center gap-2">
+            Needs attention
+            <span className="font-mono text-[11px] bg-accent/20 text-accent-text rounded-full px-2 py-0.5">{hot.length}</span>
+          </h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {hot.map(({ id, ...tile }) => <AlertTile key={id} {...tile} />)}
+          </div>
+          {quiet.length > 0 && (
+            <p className="flex items-start gap-2 text-xs text-text-muted mt-3">
+              <CircleCheck size={14} className="text-success shrink-0 mt-px" aria-hidden="true" />
+              <span>All clear: {quietNames}.</span>
+            </p>
+          )}
+        </>
+      ) : (
+        <div className="bg-surface border border-line rounded-xl p-4 sm:p-5 flex items-start gap-3">
+          <CircleCheck size={20} className="text-success shrink-0" aria-hidden="true" />
+          <div>
+            <div className="font-display font-700">All clear</div>
+            <p className="text-sm text-text-muted mt-0.5">Nothing needs attention right now. Checked: {quietNames}.</p>
+          </div>
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -184,22 +232,49 @@ export default function Dashboard() {
   const [range, setRange] = useState('30');
   const from = range === 'all' ? '1970-01-01' : new Date(Date.now() - Number(range) * 86400000).toISOString();
   const params = { from };
+  // The period just before this one, same length, for "vs previous" arrows. Not available for All time.
+  const prevFrom = range === 'all' ? null : new Date(Date.now() - 2 * Number(range) * 86400000).toISOString();
+  const prevParams = prevFrom ? { from: prevFrom, to: from } : null;
 
   const { data: summary } = useQuery({ queryKey: ['reports', 'summary', range], queryFn: () => reportsApi.salesSummary(params).then((r) => r.data.data) });
   const { data: inventoryValue } = useQuery({ queryKey: ['reports', 'inventory-value'], queryFn: () => reportsApi.inventoryValue().then((r) => r.data.data) });
   // Stock alerts: low stock, expiring / expired / recalled batches, damaged stock. Quiet if the caller may not see stock.
-  const { data: stockAlerts } = useQuery({ queryKey: ['stock', 'alerts'], queryFn: () => stockApi.alerts().then((r) => r.data.data), retry: false, staleTime: 60000 });
+  const { data: stockAlerts, isLoading: stockAlertsLoading } = useQuery({ queryKey: ['stock', 'alerts'], queryFn: () => stockApi.alerts().then((r) => r.data.data), retry: false, staleTime: 60000 });
+  const { data: prevSummary } = useQuery({ queryKey: ['reports', 'summary', 'prev', range], queryFn: () => reportsApi.salesSummary(prevParams).then((r) => r.data.data), enabled: !!prevParams });
+  const { data: prevByChannel } = useQuery({ queryKey: ['reports', 'by-channel', 'prev', range], queryFn: () => reportsApi.salesByChannel(prevParams).then((r) => r.data.data), enabled: !!prevParams });
   const { data: byChannel } = useQuery({ queryKey: ['reports', 'by-channel', range], queryFn: () => reportsApi.salesByChannel(params).then((r) => r.data.data) });
   const { data: trend } = useQuery({ queryKey: ['reports', 'trend', range], queryFn: () => reportsApi.salesTrend({ from: range === 'all' ? undefined : from.slice(0, 10) }).then((r) => r.data.data) });
   const { data: paymentMethods } = useQuery({ queryKey: ['reports', 'payments', range], queryFn: () => reportsApi.paymentMethods(params).then((r) => r.data.data) });
   const { data: topByChannel } = useQuery({ queryKey: ['reports', 'top-by-channel', range], queryFn: () => reportsApi.topProductsByChannel({ ...params, limit: 6 }).then((r) => r.data.data) });
 
-  const { data: overview } = useQuery({ queryKey: ['reports', 'dashboard-overview'], queryFn: () => reportsApi.dashboardOverview().then((r) => r.data.data) });
+  const { data: overview, isLoading: overviewLoading } = useQuery({ queryKey: ['reports', 'dashboard-overview'], queryFn: () => reportsApi.dashboardOverview().then((r) => r.data.data) });
   const unpaidParcels = (overview?.unpaidParcelsByCourier || []).reduce((s, c) => s + c.parcel_count, 0);
   const capitalTiedUp = (overview?.unpaidParcelsByCourier || []).reduce((s, c) => s + c.capital_tied_up, 0);
 
   const onlineRevenue = (byChannel || []).filter((c) => c.source_type !== 'local').reduce((s, c) => s + c.revenue, 0);
   const localRevenue = (byChannel || []).filter((c) => c.source_type === 'local').reduce((s, c) => s + c.revenue, 0);
+
+  const prevLocal = (prevByChannel || []).filter((c) => c.source_type === 'local').reduce((s, c) => s + c.revenue, 0);
+  const prevOnline = (prevByChannel || []).filter((c) => c.source_type !== 'local').reduce((s, c) => s + c.revenue, 0);
+  const vsLabel = `vs previous ${range} days`;
+  const deltaOf = (cur, prev) => (prevParams && prevByChannel ? { pct: pctChange(cur, prev), label: vsLabel } : undefined);
+  const sparkAll = dailySeries(trend);
+  const sparkLocal = dailySeries(trend, (r) => r.source_type === 'local');
+  const sparkOnline = dailySeries(trend, (r) => r.source_type !== 'local');
+
+  // The checks this person is allowed to see (each source is quiet for roles without stock access).
+  const alerts = [
+    overview && { id: 'low', to: '/stock', label: 'Low stock', count: overview.lowStockCount, tone: 'accent', detail: 'Products at or below their reorder level' },
+    overview && { id: 'parcels', to: '/money-at-risk', label: 'Unpaid parcels', count: unpaidParcels, tone: 'accent', detail: `${money(capitalTiedUp)} still owed on dispatched parcels` },
+    stockAlerts && { id: 'expiring', to: '/stock', label: 'Expiring soon', count: stockAlerts.counts.expiring, tone: 'warning', detail: `Batches expiring within ${stockAlerts.expiry_alert_days} days` },
+    stockAlerts && { id: 'expired', to: '/stock', label: 'Expired in stock', count: stockAlerts.counts.expired, tone: 'danger', detail: 'Expired batches still on a shelf' },
+    stockAlerts && { id: 'recalled', to: '/stock', label: 'Recalled batches', count: stockAlerts.counts.recalled, tone: 'danger', detail: 'Batches recalled and taken off sale' },
+    stockAlerts && {
+      id: 'damaged', to: '/stock', label: 'Damaged stock (30 days)', tone: 'warning',
+      count: stockAlerts.counts.damaged_units_30d + stockAlerts.counts.damaged_returns_awaiting_decision,
+      detail: `${stockAlerts.counts.damaged_units_30d} unit(s) written off, ${stockAlerts.counts.damaged_returns_awaiting_decision} damaged return(s) awaiting a decision`,
+    },
+  ].filter(Boolean);
 
   const firstName = user?.name?.trim().split(/\s+/)[0];
   const today = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
@@ -216,23 +291,21 @@ export default function Dashboard() {
         <RangeToggle value={range} onChange={setRange} />
       </div>
 
-      {(overview || stockAlerts) && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6" aria-label="Alerts">
-          {overview && <AlertTile to="/stock" label="Low stock" count={overview.lowStockCount} detail="Products at or below their reorder level" clearText="Every product is above its reorder level" />}
-          {overview && <AlertTile to="/money-at-risk" label="Unpaid parcels" count={unpaidParcels} detail={`${money(capitalTiedUp)} still owed on dispatched parcels`} clearText="No dispatched parcel is waiting on payment" />}
-          {stockAlerts && <AlertTile to="/stock" label="Expiring soon" count={stockAlerts.counts.expiring} detail={`Batches expiring within ${stockAlerts.expiry_alert_days} days`} clearText="No batch is close to its expiry date" />}
-          {stockAlerts && <AlertTile to="/stock" label="Expired in stock" count={stockAlerts.counts.expired} detail="Expired batches still on a shelf" clearText="No expired stock on the shelves" />}
-          {stockAlerts && <AlertTile to="/stock" label="Recalled batches" count={stockAlerts.counts.recalled} detail="Batches recalled and taken off sale" clearText="No batch has been recalled" />}
-          {stockAlerts && <AlertTile to="/stock" label="Damaged stock (30 days)" count={stockAlerts.counts.damaged_units_30d + stockAlerts.counts.damaged_returns_awaiting_decision} detail={`${stockAlerts.counts.damaged_units_30d} unit(s) written off, ${stockAlerts.counts.damaged_returns_awaiting_decision} damaged return(s) awaiting a decision`} clearText="No damaged stock in the last 30 days" />}
+      {overviewLoading || stockAlertsLoading
+        ? <SkeletonCards count={3} className="md:grid-cols-3 mb-6" />
+        : <AttentionSection alerts={alerts} />}
+
+      {!summary ? (
+        <SkeletonCards count={4} className="mb-6" />
+      ) : (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+          <StatCard size="large" label="Revenue" value={<Money cents={summary.revenue} />} sub={`${summary.transaction_count} transactions`}
+            delta={prevParams && prevSummary ? { pct: pctChange(summary.revenue, prevSummary.revenue), label: vsLabel } : undefined} spark={sparkAll} />
+          <StatCard size="large" label="Local store" value={<Money cents={localRevenue} />} delta={deltaOf(localRevenue, prevLocal)} spark={sparkLocal} />
+          <StatCard size="large" label="Online channels" value={<Money cents={onlineRevenue} />} delta={deltaOf(onlineRevenue, prevOnline)} spark={sparkOnline} />
+          <StatCard size="large" label="Inventory value" value={inventoryValue ? <Money cents={inventoryValue.total_retail_value} /> : '—'} />
         </div>
       )}
-
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-        <StatCard size="large" label="Revenue" value={summary ? <Money cents={summary.revenue} /> : '—'} sub={summary ? `${summary.transaction_count} transactions` : undefined} />
-        <StatCard size="large" label="Local store" value={<Money cents={localRevenue} />} />
-        <StatCard size="large" label="Online channels" value={<Money cents={onlineRevenue} />} />
-        <StatCard size="large" label="Inventory value" value={inventoryValue ? <Money cents={inventoryValue.total_retail_value} /> : '—'} />
-      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
         <Panel className="lg:col-span-2">
