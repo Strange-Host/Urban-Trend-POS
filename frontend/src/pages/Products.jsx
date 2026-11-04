@@ -7,6 +7,7 @@ import { useAuth } from '../context/AuthContext';
 
 import Sheet from '../components/Sheet';
 import Picker, { Segmented } from '../components/Picker';
+import { SkeletonRows } from '../components/Skeleton';
 const emptyForm = { sku: '', barcode: '', name: '', category_id: '', cost_price: '', sell_price: '' };
 const emptyAdjustForm = { mode: 'add', qty: '', reason: 'restock' };
 
@@ -257,7 +258,7 @@ export default function Products({ catalogue = 'shop' }) {
           </thead>
           <tbody>
             {isLoading && (
-              <tr><td colSpan={6} className="px-4 py-8 text-center text-text-muted">Loading…</td></tr>
+              <SkeletonRows cols={6} />
             )}
             {!isLoading && data?.data.length === 0 && (
               <tr><td colSpan={6} className="px-4 py-8 text-center text-text-muted">

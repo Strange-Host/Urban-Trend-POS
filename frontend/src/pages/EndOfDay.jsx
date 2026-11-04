@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { attendanceApi } from '../api/endpoints';
 import { getErrorMessage } from '../api/client';
 import { PageHeader, StatusPill } from '../components/DataUI';
+import { LoadingBlock } from '../components/Skeleton';
 
 function time(ts) {
   return ts ? new Date(`${ts.replace(' ', 'T')}Z`).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—';
@@ -71,7 +72,7 @@ export default function EndOfDay() {
 
       {error && <div className="mb-4 px-3.5 py-2.5 rounded-lg bg-danger-soft text-danger text-sm">{error}</div>}
       {loadError && <div className="mb-4 px-3.5 py-2.5 rounded-lg bg-danger-soft text-danger text-sm">{getErrorMessage(loadError)}</div>}
-      {isLoading && <div className="p-6 text-text-muted text-sm">Loading…</div>}
+      {isLoading && <LoadingBlock />}
 
       {data && (
         <>

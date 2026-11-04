@@ -3,6 +3,8 @@ import StatCard from '../components/StatCard';
 import { useQuery, keepPreviousData } from '@tanstack/react-query';
 import { staffLogsApi } from '../api/endpoints';
 import Pager, { usePager } from '../components/Pager';
+import { SkeletonRows } from '../components/Skeleton';
+import { EmptyRow } from '../components/EmptyState';
 
 const ENTITY_TYPES = ['lead', 'requisition', 'expense', 'payment', 'staff'];
 const ACTIONS = ['create', 'update', 'delete'];
@@ -63,9 +65,9 @@ export default function StaffLogs() {
             </tr>
           </thead>
           <tbody>
-            {isLoading && <tr><td colSpan={5} className="px-4 py-8 text-center text-text-muted">Loading…</td></tr>}
+            {isLoading && <SkeletonRows cols={5} />}
             {!isLoading && logs.length === 0 && (
-              <tr><td colSpan={5} className="px-4 py-8 text-center text-text-muted">No logged actions yet.</td></tr>
+              <EmptyRow colSpan={5}>No logged actions yet.</EmptyRow>
             )}
             {logs.map((log) => (
               <Fragment key={log.id}>

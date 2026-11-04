@@ -4,6 +4,7 @@ import { couriersApi } from '../../api/endpoints';
 import { getErrorMessage } from '../../api/client';
 import PayoutReceipt from './PayoutReceipt';
 import { money, shortDate, METHOD_LABELS } from './format';
+import { LoadingBlock } from '../Skeleton';
 
 export default function PayoutsTab({ courier }) {
   const [open, setOpen] = useState(null);
@@ -11,7 +12,7 @@ export default function PayoutsTab({ courier }) {
     queryKey: ['couriers', 'payouts', courier.id],
     queryFn: () => couriersApi.payouts({ courier_id: courier.id }).then((r) => r.data.data),
   });
-  if (isLoading) return <p className="text-sm text-text-muted py-6">Loading…</p>;
+  if (isLoading) return <LoadingBlock />;
   if (error) return <div className="px-3 py-2 rounded-lg bg-danger-soft text-danger text-sm">{getErrorMessage(error, 'Could not load payouts.')}</div>;
   if (payouts.length === 0) return <p className="text-sm text-text-muted text-center py-8 border border-dashed border-line rounded-xl">No payouts to {courier.name} yet.</p>;
   return (

@@ -11,6 +11,8 @@ import PayablesOverview from '../components/couriers/PayablesOverview';
 import DeliveryResultsTab from '../components/couriers/DeliveryResultsTab';
 
 import Sheet from '../components/Sheet';
+import { SkeletonRows } from '../components/Skeleton';
+import { EmptyRow } from '../components/EmptyState';
 const empty = { name: '', phone: '', vehicle: '', courier_type: 'boda', notes: '' };
 const money = (c) => `KES ${((c || 0) / 100).toLocaleString('en-KE')}`;
 const inputCls = 'w-full px-3 py-2 rounded-lg border border-line outline-none focus:border-accent text-sm';
@@ -110,8 +112,8 @@ export default function Couriers() {
             </tr>
           </thead>
           <tbody>
-            {isLoading && <tr><td colSpan={5} className="px-4 py-8 text-center text-text-muted">Loading…</td></tr>}
-            {!isLoading && couriers.length === 0 && <tr><td colSpan={5} className="px-4 py-10 text-center text-text-muted">No couriers yet. Add your riders and agents so unpaid parcels can be traced to a person.</td></tr>}
+            {isLoading && <SkeletonRows cols={5} />}
+            {!isLoading && couriers.length === 0 && <EmptyRow colSpan={5}>No couriers yet. Add your riders and agents so unpaid parcels can be traced to a person.</EmptyRow>}
             {couriers.map((c) => (
               <tr key={c.id} className={`border-b border-line last:border-0 ${c.is_active ? '' : 'opacity-60'}`}>
                 <td className="px-4 py-3">

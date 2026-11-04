@@ -5,6 +5,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useToast, useDialog } from '../../context/UIContext';
 import { StatusPill } from '../DataUI';
 import { money, shortDate, COST_KIND_LABELS, COST_TONE } from './format';
+import { SkeletonRows } from '../Skeleton';
 
 /**
  * Courier costs (fuel, return trip, ...) for one courier or for everyone, filtered by status.
@@ -69,7 +70,7 @@ export default function CostsPanel({ courierId, status, empty = 'No costs to sho
           </tr>
         </thead>
         <tbody>
-          {isLoading && <tr><td colSpan={5} className="px-4 py-8 text-center text-text-muted">Loading…</td></tr>}
+          {isLoading && <SkeletonRows cols={5} />}
           {!isLoading && costs.length === 0 && <tr><td colSpan={5} className="px-4 py-10 text-center text-text-muted">{empty}</td></tr>}
           {costs.map((c) => {
             const own = c.recorded_by === user?.id;

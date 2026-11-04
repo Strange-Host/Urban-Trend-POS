@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import { ordersApi } from '../api/endpoints';
 import { getErrorMessage } from '../api/client';
 import { PageHeader, KpiTile, StatusPill } from '../components/DataUI';
+import { LoadingBlock } from '../components/Skeleton';
 
 function money(cents) {
   return (cents / 100).toLocaleString(undefined, { style: 'currency', currency: 'KES' });
@@ -61,7 +62,7 @@ export default function MoneyAtRisk() {
           {getErrorMessage(error, 'Could not load the money-at-risk list.')}
         </div>
       )}
-      {isLoading && <div className="text-text-muted text-sm">Loading…</div>}
+      {isLoading && <LoadingBlock />}
 
       {summary && summary.count > 0 && (
         <>

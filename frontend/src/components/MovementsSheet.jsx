@@ -3,6 +3,8 @@ import { inventoryApi } from '../api/endpoints';
 import { getErrorMessage } from '../api/client';
 import Pager, { usePager } from './Pager';
 import Sheet from './Sheet';
+import { SkeletonRows } from './Skeleton';
+import { EmptyRow } from './EmptyState';
 
 // Why a quantity is what it is: every stock change for one product at one branch, newest first. Each row is a line
 // in the movement ledger, the same record the reconcile check compares the cached quantity against.
@@ -57,8 +59,8 @@ export default function MovementsSheet({ product, storeParams = {}, onClose }) {
             </tr>
           </thead>
           <tbody>
-            {isLoading && <tr><td colSpan={5} className="px-3 py-8 text-center text-text-muted">Loading…</td></tr>}
-            {!isLoading && !error && rows.length === 0 && <tr><td colSpan={5} className="px-3 py-8 text-center text-text-muted">No movements recorded for this product.</td></tr>}
+            {isLoading && <SkeletonRows cols={5} />}
+            {!isLoading && !error && rows.length === 0 && <EmptyRow colSpan={5}>No movements recorded for this product.</EmptyRow>}
             {rows.map((m) => (
               <tr key={m.id} className="border-b border-line last:border-0">
                 <td className="px-3 py-2 font-mono text-xs whitespace-nowrap">{when(m.created_at)}</td>

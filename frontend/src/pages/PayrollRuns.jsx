@@ -5,6 +5,7 @@ import { getErrorMessage } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/UIContext';
 import { StatusPill } from '../components/DataUI';
+import { LoadingBlock } from '../components/Skeleton';
 
 // Locked payroll runs. A period is calculated as a DRAFT (re-calculate it as often as you like), reviewed, then
 // APPROVED, which freezes every figure and fingerprints it, and finally marked PAID. Approving and paying are admin-only
@@ -97,7 +98,7 @@ export default function PayrollRuns() {
       <div className="grid gap-5 lg:grid-cols-[18rem_1fr] items-start">
         <div className="bg-surface border border-line rounded-xl overflow-hidden">
           <div className="px-4 py-3 font-display font-600 text-sm border-b border-line">Runs</div>
-          {isLoading && <div className="p-4 text-sm text-text-muted">Loading…</div>}
+          {isLoading && <LoadingBlock />}
           {runs && runs.length === 0 && <div className="p-4 text-sm text-text-muted">No runs yet. Pick a month and calculate a draft.</div>}
           <ul>
             {(runs || []).map((r) => (
@@ -193,7 +194,7 @@ function RunDetail({ runId, onError }) {
   };
   const toggle = (id) => setExpanded((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
 
-  if (isLoading || !run) return <div className="text-sm text-text-muted">Loading…</div>;
+  if (isLoading || !run) return <LoadingBlock />;
   const needsRef = pay.method !== 'cash';
   const adminOnly = isAdmin ? undefined : 'Only an admin can do this';
 

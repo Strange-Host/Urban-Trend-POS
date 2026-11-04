@@ -8,6 +8,8 @@ import AskApproval from '../components/AskApproval';
 import TabBar from '../components/TabBar';
 import { useDialog } from '../context/UIContext';
 import Pager, { usePager } from '../components/Pager';
+import { SkeletonRows } from '../components/Skeleton';
+import { EmptyRow } from '../components/EmptyState';
 
 const CHANNELS = [
   { key: 'all', label: 'All channels' },
@@ -83,7 +85,7 @@ export default function SalesHistory() {
             </tr>
           </thead>
           <tbody>
-            {isLoading && <tr><td colSpan={9} className="px-4 py-8 text-center text-text-muted">Loading…</td></tr>}
+            {isLoading && <SkeletonRows cols={9} />}
             {data?.data.map((s) => (
               <tr key={s.id} className="border-b border-line last:border-0">
                 <td className="px-4 py-3 font-mono">
@@ -121,7 +123,7 @@ export default function SalesHistory() {
               </tr>
             ))}
             {data?.data.length === 0 && !isLoading && (
-              <tr><td colSpan={9} className="px-4 py-12 text-center text-text-muted">No transactions for this channel yet.</td></tr>
+              <EmptyRow colSpan={9}>No transactions for this channel yet.</EmptyRow>
             )}
           </tbody>
         </table>

@@ -3,6 +3,7 @@ import { useQuery, keepPreviousData } from '@tanstack/react-query';
 import { customersApi } from '../api/endpoints';
 import { getErrorMessage } from '../api/client';
 import { StatusPill } from './DataUI';
+import { LoadingBlock } from './Skeleton';
 
 const PAGE = 5;
 
@@ -43,7 +44,7 @@ export default function CustomerOrderHistory({ customerId, currentOrderId, onSel
 
       {open && (
         <div className="border-t border-line">
-          {isLoading && <div className="p-3 text-xs text-text-muted">Loading…</div>}
+          {isLoading && <LoadingBlock />}
           {error && <div className="p-3 text-xs text-danger">{getErrorMessage(error)}</div>}
           {data && (
             <>

@@ -5,6 +5,7 @@ import { getErrorMessage } from '../api/client';
 import { PageHeader } from '../components/DataUI';
 import { useDialog } from '../context/UIContext';
 import Pager, { usePager } from '../components/Pager';
+import { LoadingBlock } from '../components/Skeleton';
 
 function money(cents) {
   return (cents / 100).toLocaleString(undefined, { style: 'currency', currency: 'KES' });
@@ -81,7 +82,7 @@ export default function PaymentReconciliation() {
 
       {error && <div className="mb-4 px-3.5 py-2.5 rounded-lg bg-danger-soft text-danger text-sm">{error}</div>}
 
-      {isLoading && <div className="text-text-muted text-sm">Loading…</div>}
+      {isLoading && <LoadingBlock />}
 
       {!isLoading && rows.length === 0 && (
         <div className="bg-surface border border-line rounded-xl p-10 text-center">

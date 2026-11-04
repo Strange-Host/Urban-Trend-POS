@@ -8,6 +8,7 @@ import Pager, { usePager } from '../components/Pager';
 import Sheet from '../components/Sheet';
 import MovementsSheet from '../components/MovementsSheet';
 import Picker, { Segmented } from '../components/Picker';
+import { LoadingBlock, SkeletonRows } from '../components/Skeleton';
 
 // Main-store inventory control: receiving shipments, issuing stock out, transfers between branches (with approval),
 // outlet opening/closing counts, and a who-did-what log. Buying prices never appear here - the storekeeper does not
@@ -90,7 +91,7 @@ function Table({ head, children, empty, loading, min = 'min-w-[640px]' }) {
       <table className={`stack-sm w-full text-sm ${min}`}>
         <thead><tr className="border-b border-line text-left text-text-muted">{head.map((h) => <th key={h} className="px-4 py-3 font-medium">{h}</th>)}</tr></thead>
         <tbody>
-          {loading && <tr><td colSpan={head.length} className="px-4 py-8 text-center text-text-muted">Loading…</td></tr>}
+          {loading && <SkeletonRows cols={head.length} />}
           {!loading && empty && <tr><td colSpan={head.length} className="px-4 py-8 text-center text-text-muted">{empty}</td></tr>}
           {children}
         </tbody>
@@ -626,7 +627,7 @@ function CountsTab({ storeParams, isOwnStore }) {
 
       {reviewing && (
         <Sheet onClose={() => setReviewing(null)} size="lg">
-          {!detail ? <div className="text-sm text-text-muted">Loading…</div> : (
+          {!detail ? <LoadingBlock /> : (
             <>
               <h2 className="font-display font-700 text-lg mb-1 capitalize">{detail.kind} count · {detail.count_date}</h2>
               <p className="text-xs text-text-muted mb-3">{detail.store_name} · submitted by {detail.submitted_by_name} <Badge status={detail.status} />{detail.review_note ? ` — ${detail.review_note}` : ''}</p>

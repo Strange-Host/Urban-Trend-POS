@@ -6,6 +6,8 @@ import StatCard from '../StatCard';
 import Panel from '../Panel';
 import CostsPanel from './CostsPanel';
 import { money } from './format';
+import { SkeletonRows } from '../Skeleton';
+import { EmptyRow } from '../EmptyState';
 
 // Cross-courier view: who is owed what (riders), and the costs waiting for someone to approve them.
 export default function PayablesOverview({ onOpenCourier }) {
@@ -48,8 +50,8 @@ export default function PayablesOverview({ onOpenCourier }) {
                 </tr>
               </thead>
               <tbody>
-                {isLoading && <tr><td colSpan={6} className="px-4 py-8 text-center text-text-muted">Loading…</td></tr>}
-                {!isLoading && rows.length === 0 && <tr><td colSpan={6} className="px-4 py-10 text-center text-text-muted">No rider is owed anything right now.</td></tr>}
+                {isLoading && <SkeletonRows cols={6} />}
+                {!isLoading && rows.length === 0 && <EmptyRow colSpan={6}>No rider is owed anything right now.</EmptyRow>}
                 {rows.map((r) => (
                   <tr key={r.courier.id} className="border-b border-line last:border-0">
                     <td className="px-4 py-3 font-medium">{r.courier.name}<div className="text-xs text-text-muted font-normal">{r.unpaid_items} unpaid item{r.unpaid_items === 1 ? '' : 's'}</div></td>

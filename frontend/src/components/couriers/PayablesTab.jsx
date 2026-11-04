@@ -7,6 +7,7 @@ import Sheet from '../Sheet';
 import StatCard from '../StatCard';
 import PayoutReceipt from './PayoutReceipt';
 import { money, shortDate, inputCls, METHOD_LABELS } from './format';
+import { LoadingBlock } from '../Skeleton';
 
 const keyOf = (i) => `${i.type}:${i.id}`;
 
@@ -60,7 +61,7 @@ export default function PayablesTab({ courier }) {
     pay.mutate();
   }
 
-  if (isLoading) return <p className="text-sm text-text-muted py-6">Loading…</p>;
+  if (isLoading) return <LoadingBlock />;
   if (loadError) return <div className="px-3 py-2 rounded-lg bg-danger-soft text-danger text-sm">{getErrorMessage(loadError, 'Could not load what this courier is owed.')}</div>;
 
   return (

@@ -9,6 +9,8 @@ import AskApproval from '../components/AskApproval';
 import { useAuth } from '../context/AuthContext';
 
 import Sheet from '../components/Sheet';
+import { SkeletonRows } from '../components/Skeleton';
+import { EmptyRow } from '../components/EmptyState';
 const METHODS = ['cash', 'card', 'mobile_money', 'bank_transfer'];
 const emptyForm = { direction: 'incoming', sale_id: '', supplier_name: '', method: 'cash', amount: '', reference: '', notes: '' };
 
@@ -125,9 +127,9 @@ export default function Payments() {
             </tr>
           </thead>
           <tbody>
-            {isLoading && <tr><td colSpan={7} className="px-4 py-8 text-center text-text-muted">Loading…</td></tr>}
+            {isLoading && <SkeletonRows cols={7} />}
             {!isLoading && payments.length === 0 && (
-              <tr><td colSpan={7} className="px-4 py-8 text-center text-text-muted">No payments recorded yet.</td></tr>
+              <EmptyRow colSpan={7}>No payments recorded yet.</EmptyRow>
             )}
             {payments.map((p) => (
               <tr key={p.id} className="border-b border-line last:border-0">

@@ -13,6 +13,9 @@
 // The monospace uppercase eyebrow above a bold display title — the
 // "AUDIT READY / 1 VARIANCE" pattern. `meta` is the right-aligned
 // counterpart ("6 lines · 5 counted").
+import { LoadingBlock } from './Skeleton';
+import EmptyState from './EmptyState';
+
 export function PageHeader({ eyebrow, title, description, meta, actions }) {
   return (
     <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3 mb-6">
@@ -40,12 +43,12 @@ export function PageHeader({ eyebrow, title, description, meta, actions }) {
 
 export function DataTable({ columns, rows, keyField = 'id', onRowClick, selectedKey, empty, loading }) {
   if (loading) {
-    return <div className="bg-surface border border-line rounded-xl p-6 text-text-muted text-sm">Loading…</div>;
+    return <div className="bg-surface border border-line rounded-xl px-6"><LoadingBlock lines={4} /></div>;
   }
   if (!rows || rows.length === 0) {
     return (
-      <div className="bg-surface border border-line rounded-xl p-10 text-center text-text-muted text-sm">
-        {empty || 'Nothing here yet.'}
+      <div className="bg-surface border border-line rounded-xl">
+        <EmptyState className="py-10">{empty || 'Nothing here yet.'}</EmptyState>
       </div>
     );
   }

@@ -6,6 +6,8 @@ import { useToast } from '../context/UIContext';
 import { StatusPill } from '../components/DataUI';
 import StatCard from '../components/StatCard';
 import Sheet from '../components/Sheet';
+import { SkeletonRows } from '../components/Skeleton';
+import { EmptyRow } from '../components/EmptyState';
 
 const money = (c) => `KES ${((c || 0) / 100).toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
@@ -77,8 +79,8 @@ export default function Custody() {
             </tr>
           </thead>
           <tbody>
-            {isLoading && <tr><td colSpan={5} className="px-4 py-8 text-center text-text-muted">Loading…</td></tr>}
-            {!isLoading && !loadError && records.length === 0 && <tr><td colSpan={5} className="px-4 py-10 text-center text-text-muted">No shop cash is being held. Everything taken at the shop has been deposited.</td></tr>}
+            {isLoading && <SkeletonRows cols={5} />}
+            {!isLoading && !loadError && records.length === 0 && <EmptyRow colSpan={5}>No shop cash is being held. Everything taken at the shop has been deposited.</EmptyRow>}
             {records.map((r) => {
               const days = ageInDays(r.opened_at);
               return (

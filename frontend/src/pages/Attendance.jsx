@@ -7,6 +7,7 @@ import HandoverModal from '../components/HandoverModal';
 import { useAuth } from '../context/AuthContext';
 import { PageHeader, StatusPill } from '../components/DataUI';
 import StatCard from '../components/StatCard';
+import { LoadingBlock } from '../components/Skeleton';
 
 function time(ts) {
   return ts ? new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—';
@@ -161,7 +162,7 @@ export default function Attendance() {
             <div className="px-4 py-3 border-b border-line font-display font-600 text-sm">
               Today · telesales team
             </div>
-            {isLoading && <div className="p-6 text-text-muted text-sm">Loading…</div>}
+            {isLoading && <LoadingBlock />}
             {!isLoading && rows.length === 0 && (
               <div className="p-8 text-center text-text-muted text-sm">
                 No telesales staff on record yet.

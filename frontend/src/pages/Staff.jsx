@@ -13,6 +13,8 @@ import StaffDetailSheet from '../components/StaffDetailSheet';
 import { passwordHint } from '../utils/passwordRules';
 
 import Sheet from '../components/Sheet';
+import { SkeletonRows } from '../components/Skeleton';
+import { EmptyRow } from '../components/EmptyState';
 const emptyForm = { name: '', phone: '', email: '', password: '', pin: '', role: 'cashier' };
 const ROLES = ['admin', 'manager', 'cashier', 'store'];
 
@@ -173,9 +175,9 @@ export default function Staff() {
             </tr>
           </thead>
           <tbody>
-            {isLoading && <tr><td colSpan={5} className="px-4 py-8 text-center text-text-muted">Loading…</td></tr>}
+            {isLoading && <SkeletonRows cols={5} />}
             {!isLoading && staff.length === 0 && (
-              <tr><td colSpan={5} className="px-4 py-8 text-center text-text-muted">No staff found.</td></tr>
+              <EmptyRow colSpan={5}>No staff found.</EmptyRow>
             )}
             {staff.map((s) => (
               <tr key={s.id} className="border-b border-line last:border-0">

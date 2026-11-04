@@ -5,6 +5,7 @@ import { authApi, securityApi } from '../api/endpoints';
 import { getErrorMessage } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { useToast, useDialog } from '../context/UIContext';
+import { LoadingBlock } from '../components/Skeleton';
 
 // Security: your own sign-in (devices, lock, password) for everyone; the sign-in rules and the security log for admins.
 
@@ -70,7 +71,7 @@ export default function Security() {
               : <>You are signed out completely after <b className="text-text">{minutesText(session.signOutAfterSeconds)}</b> without use, and at the latest at <b className="text-text">{new Date(session.expiresAt).toLocaleString()}</b>.</>}
             </li>
           </ul>
-        ) : <p className="text-sm text-text-muted">Loading…</p>}
+        ) : <LoadingBlock />}
         <div className="flex flex-wrap gap-2 mt-4">
           <button type="button" onClick={lock} className="min-h-[44px] px-4 rounded-lg border border-line text-sm font-medium hover:border-text-muted">Lock the screen now</button>
           <Link to="/change-password" className="min-h-[44px] px-4 rounded-lg border border-line text-sm font-medium hover:border-text-muted inline-flex items-center">Change my password</Link>
@@ -84,7 +85,7 @@ export default function Security() {
             <button type="button" onClick={endOthers} className="min-h-[44px] px-3 rounded-lg border border-danger/40 text-danger text-sm font-medium hover:bg-danger-soft">Sign out all others</button>
           )}
         </div>
-        {isLoading && <p className="text-sm text-text-muted">Loading…</p>}
+        {isLoading && <LoadingBlock />}
         <ul className="divide-y divide-line">
           {devices.map((d) => (
             <li key={d.id} className="py-3 flex items-center justify-between gap-3">
@@ -211,7 +212,7 @@ function EventsList() {
   return (
     <section className="bg-surface border border-line rounded-xl p-4 md:p-5">
       <h2 className="font-medium mb-3">Recent security events</h2>
-      {isLoading && <p className="text-sm text-text-muted">Loading…</p>}
+      {isLoading && <LoadingBlock />}
       {!isLoading && events.length === 0 && <p className="text-sm text-text-muted">Nothing yet. Lockouts, password resets, large refunds and similar things will be listed here.</p>}
       <ul className="divide-y divide-line">
         {events.map((e) => (

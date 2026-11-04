@@ -1,6 +1,8 @@
 import { useQuery, keepPreviousData } from '@tanstack/react-query';
 import { cashSessionsApi } from '../api/endpoints';
 import Pager, { usePager } from '../components/Pager';
+import { SkeletonRows } from '../components/Skeleton';
+import { EmptyRow } from '../components/EmptyState';
 
 function variance(session) {
   if (session.closing_amount === null) return null;
@@ -34,9 +36,9 @@ export default function CashSessions() {
             </tr>
           </thead>
           <tbody>
-            {isLoading && <tr><td colSpan={7} className="px-4 py-8 text-center text-text-muted">Loading…</td></tr>}
+            {isLoading && <SkeletonRows cols={7} />}
             {data?.data.length === 0 && !isLoading && (
-              <tr><td colSpan={7} className="px-4 py-12 text-center text-text-muted">No cash sessions yet.</td></tr>
+              <EmptyRow colSpan={7}>No cash sessions yet.</EmptyRow>
             )}
             {data?.data.map((s) => {
               const v = variance(s);
