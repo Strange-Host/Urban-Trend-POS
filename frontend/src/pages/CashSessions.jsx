@@ -43,14 +43,14 @@ export default function CashSessions() {
             {data?.data.map((s) => {
               const v = variance(s);
               return (
-                <tr key={s.id} className="border-b border-line last:border-0">
+                <tr key={s.id} className={`border-b border-line last:border-0 ${v ? 'row-flag' : ''}`}>
                   <td className="px-4 py-3 font-medium">{s.cashier_name}</td>
                   <td className="px-4 py-3 text-text-muted">{new Date(s.opened_at).toLocaleString()}</td>
                   <td className="px-4 py-3 text-text-muted">{s.closed_at ? new Date(s.closed_at).toLocaleString() : <span className="text-success">open</span>}</td>
                   <td className="px-4 py-3 text-right font-mono">{(s.opening_amount / 100).toFixed(2)}</td>
                   <td className="px-4 py-3 text-right font-mono">{s.expected_amount !== null ? (s.expected_amount / 100).toFixed(2) : '—'}</td>
                   <td className="px-4 py-3 text-right font-mono">{s.closing_amount !== null ? (s.closing_amount / 100).toFixed(2) : '—'}</td>
-                  <td className={`px-4 py-3 text-right font-mono ${v === null ? '' : v === 0 ? 'text-success' : 'text-danger'}`}>
+                  <td className={`px-4 py-3 text-right font-mono ${v ? 'text-danger' : v === 0 ? 'text-text-muted' : ''}`}>
                     {v === null ? '—' : (v > 0 ? '+' : '') + (v / 100).toFixed(2)}
                   </td>
                 </tr>
