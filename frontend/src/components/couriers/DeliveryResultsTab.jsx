@@ -6,6 +6,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useDialog, useToast } from '../../context/UIContext';
 import StatCard from '../StatCard';
 import { money, shortDate, inputCls } from './format';
+import { EmptyRow } from '../EmptyState';
 
 // What every delivery earned against what it cost, and the extra costs waiting for a second person to approve them.
 // Closed deliveries show their frozen figures; open ones show the live position.
@@ -97,7 +98,7 @@ export default function DeliveryResultsTab() {
             </tr>
           </thead>
           <tbody>
-            {rows.length === 0 && <tr><td colSpan={7} className="px-4 py-8 text-center text-text-muted">No deliveries match.</td></tr>}
+            {rows.length === 0 && <EmptyRow colSpan={7}>No deliveries match.</EmptyRow>}
             {rows.map((r) => (
               <tr key={r.order_id} className="border-b border-line last:border-0">
                 <td className="px-4 py-3">#{r.order_id} · {r.customer_name}<div className="text-xs text-text-muted">{r.customer_city}</div></td>

@@ -6,6 +6,7 @@ import { useToast } from '../context/UIContext';
 import { StatusPill } from '../components/DataUI';
 import { SectionCard, Field, inputCls } from '../components/SettingsUI';
 import Sheet from '../components/Sheet';
+import { LoadingBlock } from '../components/Skeleton';
 
 const errCls = 'mb-3 px-3 py-2 rounded-lg bg-danger-soft text-danger text-sm';
 const primaryBtn = 'flex-1 py-2.5 rounded-lg bg-ink text-white text-sm font-medium hover:bg-ink-soft disabled:opacity-50';
@@ -79,7 +80,7 @@ export function BranchesSection() {
   return (
     <SectionCard title="Branches" description="Your main store and outlets. Switch a branch off instead of deleting it, so its sales and stock history stay intact.">
       {error && <div className={errCls}>{getErrorMessage(error, 'Could not load branches.')}</div>}
-      {isLoading && <div className="text-text-muted text-sm">Loading…</div>}
+      {isLoading && <LoadingBlock />}
       {stores.map((s) => (
         <div key={s.id} className="flex items-center gap-3 py-3 border-t border-line first:border-t-0">
           <div className="min-w-0 flex-1">
@@ -161,7 +162,7 @@ export function SuppliersSection() {
   return (
     <SectionCard title="Suppliers" description="Who you buy stock from. Correct a name or contact here; switch one off to hide it from the receiving screen.">
       {error && <div className={errCls}>{getErrorMessage(error, 'Could not load suppliers.')}</div>}
-      {isLoading && <div className="text-text-muted text-sm">Loading…</div>}
+      {isLoading && <LoadingBlock />}
       {!isLoading && !error && suppliers.length === 0 && <div className="text-text-muted text-sm mb-1">No suppliers yet.</div>}
       {suppliers.map((s) => (
         <div key={s.id} className="flex items-center gap-3 py-3 border-t border-line first:border-t-0">

@@ -8,6 +8,8 @@ import Pager, { usePager } from '../components/Pager';
 import { fetchAll } from '../api/fetchAll';
 
 import Sheet from '../components/Sheet';
+import { SkeletonRows } from '../components/Skeleton';
+import { EmptyRow } from '../components/EmptyState';
 const money = (cents) => (cents / 100).toLocaleString(undefined, { style: 'currency', currency: 'KES' });
 const when = (utc) => (utc ? new Date(`${utc.replace(' ', 'T')}Z`).toLocaleString() : '');
 const STATUS_COLORS = {
@@ -163,9 +165,9 @@ export default function Requisitions() {
             </tr>
           </thead>
           <tbody>
-            {isLoading && <tr><td colSpan={5} className="px-4 py-8 text-center text-text-muted">Loading…</td></tr>}
+            {isLoading && <SkeletonRows cols={5} />}
             {!isLoading && requisitions.length === 0 && (
-              <tr><td colSpan={5} className="px-4 py-8 text-center text-text-muted">No requisitions found.</td></tr>
+              <EmptyRow colSpan={5}>No requisitions found.</EmptyRow>
             )}
             {requisitions.map((r) => (
               <tr key={r.id} className="border-b border-line last:border-0">

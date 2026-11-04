@@ -3,6 +3,7 @@ import { couriersApi } from '../../api/endpoints';
 import { getErrorMessage } from '../../api/client';
 import Sheet from '../Sheet';
 import { money, shortDate, COST_KIND_LABELS, METHOD_LABELS } from './format';
+import { LoadingBlock } from '../Skeleton';
 
 // The record of one payout, read back from the server (GET /couriers/payouts/:id): fee lines and cost lines apart.
 export default function PayoutReceipt({ payoutId, onClose }) {
@@ -14,7 +15,7 @@ export default function PayoutReceipt({ payoutId, onClose }) {
   return (
     <Sheet onClose={onClose} size="md" label="Payout receipt" zIndex={60}>
       <h2 className="font-display font-700 text-lg mb-1">Payout #{payoutId}</h2>
-      {isLoading && <p className="text-sm text-text-muted py-6">Loading…</p>}
+      {isLoading && <LoadingBlock />}
       {error && <div className="mb-3 px-3 py-2 rounded-lg bg-danger-soft text-danger text-sm">{getErrorMessage(error, 'Could not load the payout.')}</div>}
       {p && (
         <>

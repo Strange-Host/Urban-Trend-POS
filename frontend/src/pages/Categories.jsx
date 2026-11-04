@@ -6,6 +6,8 @@ import { useToast } from '../context/UIContext';
 
 import Sheet from '../components/Sheet';
 import Picker from '../components/Picker';
+import { SkeletonRows } from '../components/Skeleton';
+import { EmptyRow } from '../components/EmptyState';
 const emptyForm = { name: '', parent_id: '' };
 
 export default function Categories() {
@@ -88,9 +90,9 @@ export default function Categories() {
             </tr>
           </thead>
           <tbody>
-            {isLoading && <tr><td colSpan={3} className="px-4 py-8 text-center text-text-muted">Loading…</td></tr>}
+            {isLoading && <SkeletonRows cols={3} />}
             {categories?.length === 0 && (
-              <tr><td colSpan={3} className="px-4 py-8 text-center text-text-muted">No categories yet.</td></tr>
+              <EmptyRow colSpan={3}>No categories yet.</EmptyRow>
             )}
             {categories?.map((c) => (
               <tr key={c.id} className={`border-b border-line last:border-0 ${c.is_archived ? 'opacity-60' : ''}`}>

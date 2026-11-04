@@ -9,6 +9,7 @@ import Pager, { usePager } from '../components/Pager';
 
 import Sheet from '../components/Sheet';
 import Picker, { Segmented } from '../components/Picker';
+import { SkeletonRows } from '../components/Skeleton';
 
 const today = () => new Date().toISOString().slice(0, 10);
 const emptyForm = { category_id: '', amount: '', description: '', expense_date: today(), paid_from: 'main' };
@@ -256,7 +257,7 @@ export default function Expenses() {
             </tr>
           </thead>
           <tbody>
-            {isLoading && <tr><td colSpan={6} className="px-4 py-8 text-center text-text-muted">Loading…</td></tr>}
+            {isLoading && <SkeletonRows cols={6} />}
             {!isLoading && expenses.length === 0 && (
               <tr><td colSpan={6} className="px-4 py-8 text-center text-text-muted">{statusFilter ? 'Nothing here.' : 'No expenses recorded yet.'}</td></tr>
             )}

@@ -5,6 +5,7 @@ import { getErrorMessage } from '../api/client';
 import { useToast } from '../context/UIContext';
 
 import Sheet from './Sheet';
+import { LoadingBlock } from './Skeleton';
 // One person's access: which individual permissions differ from their role's
 // defaults, and whether sign-in needs an SMS code. Admins cannot be restricted
 // (the server enforces it) — that is what guarantees nobody can lock themselves out.
@@ -99,7 +100,7 @@ export default function StaffAccessModal({ staff, isSelf, onClose }) {
           </div>
 
           <div className="text-sm font-medium mb-1">Permissions</div>
-          {isLoading && <div className="text-sm text-text-muted py-4">Loading…</div>}
+          {isLoading && <LoadingBlock />}
           {error && <div className="px-3 py-2 rounded-lg bg-danger-soft text-danger text-sm">{getErrorMessage(error, 'Could not load permissions.')}</div>}
           {locked && <p className="text-xs text-text-muted mb-4">Admins always have every permission and can't be restricted.</p>}
           {isSelf && !locked && <p className="text-xs text-text-muted mb-4">You can't change your own permissions.</p>}

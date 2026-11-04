@@ -8,6 +8,7 @@ import StatCard from '../StatCard';
 import { StatusPill } from '../DataUI';
 import { toCents } from '../../utils/splitPayment';
 import { money, shortDate, inputCls } from './format';
+import { LoadingBlock } from '../Skeleton';
 
 const Err = ({ error, fallback }) => <div className="px-3 py-2 rounded-lg bg-danger-soft text-danger text-sm">{getErrorMessage(error, fallback)}</div>;
 const Empty = ({ children }) => <p className="text-sm text-text-muted text-center py-8 border border-dashed border-line rounded-xl">{children}</p>;
@@ -19,7 +20,7 @@ export function StandingTab({ courier }) {
     queryKey: ['couriers', 'standing', courier.id],
     queryFn: () => couriersApi.standing(courier.id).then((r) => r.data.data),
   });
-  if (isLoading) return <p className="text-sm text-text-muted py-6">Loading…</p>;
+  if (isLoading) return <LoadingBlock />;
   if (error) return <Err error={error} fallback="Could not load this organization's standing." />;
   return (
     <div>
@@ -88,7 +89,7 @@ export function CollectionsTab({ courier }) {
               <p className="text-xs text-text-muted">Collected for customers and not yet on a statement.</p>
               <button onClick={() => { setError(''); setOpen(true); }} className="px-3.5 py-2 rounded-lg bg-ink text-white text-sm font-medium hover:bg-ink-soft">+ Record collection</button>
             </div>
-            {isLoading && <p className="text-sm text-text-muted py-6">Loading…</p>}
+            {isLoading && <LoadingBlock />}
             {loadError && <Err error={loadError} fallback="Could not load collections." />}
             {!isLoading && !loadError && rows.length === 0 && <Empty>No open collections.</Empty>}
             {rows.length > 0 && (
@@ -186,7 +187,7 @@ export function StatementsTab({ courier }) {
         <p className="text-xs text-text-muted">Statements net our package fees off what the organization remits.</p>
         <button onClick={() => { setError(''); setOpen(true); }} className="px-3.5 py-2 rounded-lg bg-ink text-white text-sm font-medium hover:bg-ink-soft">+ New statement</button>
       </div>
-      {isLoading && <p className="text-sm text-text-muted py-6">Loading…</p>}
+      {isLoading && <LoadingBlock />}
       {loadError && <Err error={loadError} fallback="Could not load statements." />}
       {!isLoading && !loadError && statements.length === 0 && <Empty>No statements yet.</Empty>}
       {statements.length > 0 && (

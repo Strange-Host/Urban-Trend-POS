@@ -7,6 +7,7 @@ import { useToast, useDialog } from '../context/UIContext';
 import TabBar from '../components/TabBar';
 import Pager, { usePager } from '../components/Pager';
 import { StatusPill } from '../components/DataUI';
+import { SkeletonRows } from '../components/Skeleton';
 
 // Void / refund requests. A cashier sees the ones they filed (and what happened to them); a manager sees the store's and
 // approves or rejects. Approving runs the void / refund, so it is confirmed first and the server asks for the password
@@ -140,7 +141,7 @@ export default function Approvals() {
               </tr>
             </thead>
             <tbody>
-              {isLoading && <tr><td colSpan={6} className="px-4 py-8 text-center text-text-muted">Loading…</td></tr>}
+              {isLoading && <SkeletonRows cols={6} />}
               {!isLoading && rows.length === 0 && (
                 <tr>
                   <td colSpan={6} className="px-4 py-12 text-center text-text-muted">

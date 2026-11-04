@@ -213,6 +213,9 @@ main pre { white-space: pre-wrap; }
   .sheet-actions { padding-bottom: 1.25rem; margin-left: 0; margin-right: 0; }
   .sheet:not(.sheet-padded) { padding-bottom: 0; }
 }
+@keyframes toast-in { from { transform: translateY(0.5rem); opacity: 0; } to { transform: none; opacity: 1; } }
+.toast-in { animation: toast-in 0.18s ease-out; }
+@media (prefers-reduced-motion: reduce) { .toast-in { animation: none; } }
 @keyframes sheet-up { from { transform: translateY(2rem); opacity: 0.6; } to { transform: none; opacity: 1; } }
 @keyframes sheet-pop { from { transform: scale(0.97); opacity: 0; } to { transform: none; opacity: 1; } }
 @keyframes sheet-fade { from { opacity: 0; } to { opacity: 1; } }

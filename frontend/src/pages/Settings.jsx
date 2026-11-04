@@ -10,6 +10,7 @@ import { ServerAddressSection, EmailSection, KcbAdvancedSection, LiveSyncControl
 import { useSearchParams } from 'react-router-dom';
 import { modulesApi } from '../api/endpoints';
 import TabBar from '../components/TabBar';
+import { LoadingBlock } from '../components/Skeleton';
 
 const PLATFORM_LABEL = { shopify: 'Shopify', woocommerce: 'WooCommerce' };
 
@@ -201,7 +202,7 @@ function BackupsSection() {
         </p>
       )}
 
-      {isLoading && <div className="text-text-muted text-sm">Loading…</div>}
+      {isLoading && <LoadingBlock />}
       {backups?.length === 0 && !isLoading && (
         <div className="text-text-muted text-sm mb-4">
           No backups yet — the first one runs a minute or so after the server starts, or click "Run backup now" above.
@@ -957,7 +958,7 @@ function OptionalModulesSection() {
 
   return (
     <SectionCard title="Optional modules" description="Switch off what your shop does not use to keep the menu and the system simple. Nothing is deleted.">
-      {!data && <div className="text-text-muted text-sm">Loading…</div>}
+      {!data && <LoadingBlock />}
       {data && MODULE_CHOICES.map((m) => (
         <label key={m.key} className="flex items-start gap-3 py-3 border-t border-line first:border-t-0 cursor-pointer">
           <input
@@ -1056,7 +1057,7 @@ export default function Settings() {
         description="Every place money comes in from — the register, and any number of Shopify or WooCommerce stores. Sales pulled in here show up in Sales History and analytics tagged by channel; nothing changes your local inventory automatically."
       >
         <LiveSyncSettings />
-        {isLoading && <div className="text-text-muted text-sm">Loading…</div>}
+        {isLoading && <LoadingBlock />}
         {sources?.length === 0 && !showAdd && (
           <div className="text-text-muted text-sm mb-3">No income sources connected yet — everything is attributed to the local register.</div>
         )}

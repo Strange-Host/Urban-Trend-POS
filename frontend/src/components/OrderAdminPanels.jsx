@@ -5,6 +5,7 @@ import { getErrorMessage } from '../api/client';
 import { useDialog, useToast } from '../context/UIContext';
 import { StatusPill } from './DataUI';
 import Pager, { usePager } from './Pager';
+import { LoadingBlock } from './Skeleton';
 
 const money = (cents) => ((cents || 0) / 100).toLocaleString(undefined, { style: 'currency', currency: 'KES' });
 const errCls = 'mb-4 px-3.5 py-2.5 rounded-lg bg-danger-soft text-danger text-sm';
@@ -62,7 +63,7 @@ export function OwnerDecisionQueue({ canDecide, selectedId, onSelect }) {
       {error && <div className={errCls}>{error}</div>}
       {loadError && <div className={errCls}>{getErrorMessage(loadError, 'Could not load the queue.')}</div>}
       <div className="bg-surface border border-line rounded-xl overflow-hidden scroll-x">
-        {isLoading && <div className="p-6 text-text-muted text-sm">Loading…</div>}
+        {isLoading && <LoadingBlock />}
         {!isLoading && !loadError && rows.length === 0 && (
           <div className="p-10 text-center text-text-muted text-sm">Nothing is waiting on a decision.</div>
         )}

@@ -8,6 +8,7 @@ import StatCard from '../components/StatCard';
 import TabBar from '../components/TabBar';
 import Panel from '../components/Panel';
 import { inputCls } from '../components/SettingsUI';
+import { LoadingBlock } from '../components/Skeleton';
 
 // Profit & loss and the Priority 5 reports. Every tab reads the same endpoint its Excel/PDF export is built
 // from, so a downloaded sheet always matches what is on screen. Money arrives in cents.
@@ -118,7 +119,7 @@ function PnlTab({ params }) {
   const { can } = useAuth();
   const queryClient = useQueryClient();
   const { data, isLoading, error } = useQuery({ queryKey: ['reports', 'pnl', params], queryFn: () => reportsApi.pnl(params).then((r) => r.data.data) });
-  if (isLoading) return <div className="text-sm text-text-muted">Loading…</div>;
+  if (isLoading) return <LoadingBlock />;
   if (error) return <div className="text-sm text-danger">{getErrorMessage(error)}</div>;
   const { summary: s, byCategory, byBranch, forecast } = data;
   const line = (label, amount) => ({ label, amount });
@@ -160,7 +161,7 @@ function PnlTab({ params }) {
 
 function DiscountsTab({ params }) {
   const { data, isLoading, error } = useQuery({ queryKey: ['reports', 'discounts', params], queryFn: () => reportsApi.discounts(params).then((r) => r.data.data) });
-  if (isLoading) return <div className="text-sm text-text-muted">Loading…</div>;
+  if (isLoading) return <LoadingBlock />;
   if (error) return <div className="text-sm text-danger">{getErrorMessage(error)}</div>;
   const { summary: s } = data;
   const base = (first) => [first, I('transactions', 'Transactions'), I('discounted_transactions', 'Discounted'), M('list_value', 'List value'), M('discount', 'Discount'), P('discount_percent', 'Discount %')];
@@ -183,7 +184,7 @@ function DiscountsTab({ params }) {
 
 function VatTab({ params }) {
   const { data, isLoading, error } = useQuery({ queryKey: ['reports', 'vat', params], queryFn: () => reportsApi.vat(params).then((r) => r.data.data) });
-  if (isLoading) return <div className="text-sm text-text-muted">Loading…</div>;
+  if (isLoading) return <LoadingBlock />;
   if (error) return <div className="text-sm text-danger">{getErrorMessage(error)}</div>;
   const base = (first) => [first, M('gross', 'Sales incl. VAT'), M('net', 'Sales excl. VAT'), M('vat', `VAT @ ${data.vat_rate_percent}%`)];
   return (
@@ -204,7 +205,7 @@ function VatTab({ params }) {
 
 function BranchesTab({ params }) {
   const { data, isLoading, error } = useQuery({ queryKey: ['reports', 'branches', params], queryFn: () => reportsApi.branchComparison(params).then((r) => r.data.data) });
-  if (isLoading) return <div className="text-sm text-text-muted">Loading…</div>;
+  if (isLoading) return <LoadingBlock />;
   if (error) return <div className="text-sm text-danger">{getErrorMessage(error)}</div>;
   return (
     <Panel title="Branches" description="Admins see every active branch; managers see their own.">
@@ -216,7 +217,7 @@ function BranchesTab({ params }) {
 
 function AgentsTab({ params }) {
   const { data, isLoading, error } = useQuery({ queryKey: ['reports', 'agents', params], queryFn: () => reportsApi.agentPerformance(params).then((r) => r.data.data) });
-  if (isLoading) return <div className="text-sm text-text-muted">Loading…</div>;
+  if (isLoading) return <LoadingBlock />;
   if (error) return <div className="text-sm text-danger">{getErrorMessage(error)}</div>;
   return (
     <Panel title="Agents ranked by revenue" description="Online revenue = collected value of dispatched orders assigned to the agent. Leads are those assigned in the period; Lost = cancelled.">
@@ -240,7 +241,7 @@ function UnpaidParcelsTab() {
     queryKey: ['reports', 'unpaid-parcels', courier],
     queryFn: () => reportsApi.unpaidParcels(courier ? { courier } : {}).then((r) => r.data.data),
   });
-  if (isLoading) return <div className="text-sm text-text-muted">Loading…</div>;
+  if (isLoading) return <LoadingBlock />;
   if (error) return <div className="text-sm text-danger">{getErrorMessage(error)}</div>;
   const rows = data.map((r) => ({ ...r, courier: r.courier_type || 'unassigned', days_waiting: daysSince(r.dispatched_at) }));
   const outstanding = rows.reduce((sum, r) => sum + r.outstanding, 0);
@@ -272,7 +273,7 @@ function UnpaidParcelsTab() {
 function ProfitLeadersTab({ params }) {
   const products = useQuery({ queryKey: ['reports', 'top-products-by-profit', params], queryFn: () => reportsApi.topProductsByProfit(params).then((r) => r.data.data) });
   const staff = useQuery({ queryKey: ['reports', 'top-staff-by-profit', params], queryFn: () => reportsApi.topStaffByProfit(params).then((r) => r.data.data) });
-  if (products.isLoading || staff.isLoading) return <div className="text-sm text-text-muted">Loading…</div>;
+  if (products.isLoading || staff.isLoading) return <LoadingBlock />;
   const failed = products.error || staff.error;
   if (failed) return <div className="text-sm text-danger">{getErrorMessage(failed)}</div>;
   const productRows = products.data.map((r) => ({ ...r, margin_percent: marginPct(r.revenue, r.profit) }));

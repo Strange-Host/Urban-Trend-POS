@@ -7,6 +7,7 @@ import { useAuth } from '../context/AuthContext';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { reportsApi, stockApi } from '../api/endpoints';
+import { EmptyRow } from '../components/EmptyState';
 
 const CHANNEL_LABEL = { local: 'Local store', shopify: 'Shopify', woocommerce: 'WooCommerce' };
 const CHANNEL_COLOR = { local: 'bg-ink', shopify: 'bg-success', woocommerce: 'bg-accent' };
@@ -85,7 +86,7 @@ function ChannelBreakdown({ rows }) {
           </tr>
         ))}
         {rows?.length === 0 && (
-          <tr><td colSpan={5} className="px-5 py-8 text-center text-text-muted">No sales yet.</td></tr>
+          <EmptyRow colSpan={5}>No sales yet.</EmptyRow>
         )}
       </tbody>
     </table>

@@ -6,6 +6,8 @@ import { getErrorMessage } from '../api/client';
 import { useToast, useDialog } from '../context/UIContext';
 
 import Picker from '../components/Picker';
+import { SkeletonRows } from '../components/Skeleton';
+import { EmptyRow } from '../components/EmptyState';
 const badgeStyles = {
   new: 'bg-success-soft text-success',
   update: 'bg-accent/20 text-accent-text',
@@ -285,11 +287,11 @@ export default function ShopifySync() {
             </tr>
           </thead>
           <tbody>
-            {isLoading && <tr><td colSpan={7} className="px-4 py-8 text-center text-text-muted">Loading…</td></tr>}
+            {isLoading && <SkeletonRows cols={7} />}
             {staged?.length === 0 && (
-              <tr><td colSpan={7} className="px-4 py-12 text-center text-text-muted">
+              <EmptyRow colSpan={7}>
                 Nothing pending review. Press “Pull products” to bring in your catalog - or wait: with live sync on, changes in your store appear here by themselves.
-              </td></tr>
+              </EmptyRow>
             )}
             {staged?.slice(0, visibleCount).map((s) => {
               const isNew = s.match_status === 'new';

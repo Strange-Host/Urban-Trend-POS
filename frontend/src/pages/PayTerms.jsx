@@ -4,6 +4,7 @@ import { payrollApi } from '../api/endpoints';
 import { getErrorMessage } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/UIContext';
+import { LoadingBlock } from '../components/Skeleton';
 
 // How each person's commission is worked out. Admin only (the server enforces it too).
 //   Fixed        a set amount per unit sold; leave the amount empty to use the store's achievement tiers
@@ -117,7 +118,7 @@ export default function PayTerms() {
       </p>
       {error && <div className="mb-4 px-3.5 py-2.5 rounded-lg bg-danger-soft text-danger text-sm" role="alert">{getErrorMessage(error, 'Could not load pay terms.')}</div>}
       <div className="bg-surface border border-line rounded-xl overflow-hidden">
-        {isLoading && <div className="p-4 text-sm text-text-muted">Loading…</div>}
+        {isLoading && <LoadingBlock />}
         {terms && terms.length === 0 && <div className="p-4 text-sm text-text-muted">No active staff.</div>}
         <ul>
           {(terms || []).map((t) => <Row key={`${t.staffId}-${t.type}-${t.fixedCents}-${t.percentBp}`} term={t} onSaved={() => qc.invalidateQueries({ queryKey: ['payroll'] })} />)}

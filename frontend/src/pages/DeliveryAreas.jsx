@@ -6,6 +6,7 @@ import { useToast, useDialog } from '../context/UIContext';
 import { useAuth } from '../context/AuthContext';
 import { inputCls } from '../components/SettingsUI';
 import { parseRates } from '../utils/parseRates';
+import { SkeletonRows } from '../components/Skeleton';
 
 // The delivery-area rate card (Joyfull Cargo). When an order's town matches a row, that fee is used
 // instead of the flat/percent rule. Fees are entered in KES and stored as cents.
@@ -113,7 +114,7 @@ export default function DeliveryAreas() {
               {['Area', 'Fee (KES)', 'Courier', ''].map((h, i) => <th key={i} className={`font-mono text-[11px] uppercase tracking-wider text-text-muted px-4 py-2.5 ${i === 1 ? 'text-right' : 'text-left'}`}>{h}</th>)}
             </tr></thead>
             <tbody>
-              {isLoading && <tr><td className="px-4 py-6 text-text-muted" colSpan={4}>Loading…</td></tr>}
+              {isLoading && <SkeletonRows cols={4} />}
               {!isLoading && areas.length === 0 && <tr><td className="px-4 py-8 text-center text-text-muted" colSpan={4}>{search ? 'No area matches.' : 'No delivery areas yet. Import the rate card above.'}</td></tr>}
               {areas.map((a) => (
                 <tr key={a.id} className={`border-b border-line last:border-0 ${a.is_active ? '' : 'opacity-50'}`}>

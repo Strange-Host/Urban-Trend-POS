@@ -3,6 +3,7 @@ import { staffApi } from '../api/endpoints';
 import { getErrorMessage } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import Sheet from './Sheet';
+import { LoadingBlock } from './Skeleton';
 
 const when = (ts) => (ts ? new Date(String(ts).replace(' ', 'T') + (/[zZ]|[+-]\d\d:?\d\d$/.test(ts) ? '' : 'Z')).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—');
 
@@ -39,7 +40,7 @@ export default function StaffDetailSheet({ staff, onClose }) {
       {isAdmin && (
         <section>
           <h3 className="text-xs font-medium text-text-muted mb-2">Signed-in devices</h3>
-          {sessions.isLoading && <p className="text-sm text-text-muted">Loading…</p>}
+          {sessions.isLoading && <LoadingBlock />}
           {sessions.isError && <p className="text-sm text-danger">{getErrorMessage(sessions.error, 'Could not load sessions.')}</p>}
           {sessions.data?.length === 0 && <p className="text-sm text-text-muted">Not signed in anywhere.</p>}
           <ul className="space-y-2">

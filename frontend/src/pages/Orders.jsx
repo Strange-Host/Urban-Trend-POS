@@ -20,6 +20,7 @@ import Pager, { usePager } from '../components/Pager';
 import useModules from '../hooks/useModules';
 import { OwnerDecisionQueue, IntegrityPanel, ShopCashForm } from '../components/OrderAdminPanels';
 import usePendingDecisionCount from '../hooks/usePendingDecisionCount';
+import { LoadingBlock } from '../components/Skeleton';
 
 function money(cents) {
   return (cents / 100).toLocaleString(undefined, { style: 'currency', currency: 'KES' });
@@ -237,7 +238,7 @@ export default function Orders() {
         {isManager && view === 'integrity' && <IntegrityPanel selectedId={selectedId} onSelect={(id) => { setSelectedId(id); setError(''); }} />}
         {view === 'orders' && (<>
         <div className="bg-surface border border-line rounded-xl overflow-hidden">
-          {isLoading && <div className="p-6 text-text-muted text-sm">Loading…</div>}
+          {isLoading && <LoadingBlock />}
           {!isLoading && orders.length === 0 && (
             <div className="p-10 text-center text-text-muted text-sm">
               {statusFilter || search || channel !== 'all'

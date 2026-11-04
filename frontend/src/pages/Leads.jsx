@@ -11,6 +11,8 @@ import { fetchAll } from '../api/fetchAll';
 
 import Sheet from '../components/Sheet';
 import ConvertLeadSheet from '../components/ConvertLeadSheet';
+import { SkeletonRows } from '../components/Skeleton';
+import { EmptyRow } from '../components/EmptyState';
 const SOURCES = ['whatsapp', 'walk_in', 'referral', 'shopify', 'other'];
 const STATUS_LABELS = { new: 'New', contacted: 'Contacted', rescheduled: 'Rescheduled', converted: 'Converted', cancelled: 'Lost' }; // the stored status stays 'cancelled'; it is shown as Lost
 const STATUS_COLORS = {
@@ -197,9 +199,9 @@ export default function Leads() {
             </tr>
           </thead>
           <tbody>
-            {isLoading && <tr><td colSpan={5} className="px-4 py-8 text-center text-text-muted">Loading…</td></tr>}
+            {isLoading && <SkeletonRows cols={5} />}
             {!isLoading && leads.length === 0 && (
-              <tr><td colSpan={5} className="px-4 py-8 text-center text-text-muted">No leads found.</td></tr>
+              <EmptyRow colSpan={5}>No leads found.</EmptyRow>
             )}
             {leads.map((l) => (
               <tr key={l.id} className="border-b border-line last:border-0">

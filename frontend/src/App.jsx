@@ -5,6 +5,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { ToastProvider, DialogProvider } from './context/UIContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import Layout from './components/Layout';
+import { PageSkeleton } from './components/Skeleton';
 import Login from './pages/Login';
 import POSTerminal from './pages/POSTerminal';
 
@@ -43,10 +44,9 @@ const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } },
 });
 
-// Same "Loading…" visual language Orders/etc. already use for in-page
-// query loading states, just centered full-page for a route transition.
+// Shown while a page's code downloads: a grey outline of a typical page instead of a line of text.
 function RouteFallback() {
-  return <div className="p-8 text-text-muted text-sm">Loading…</div>;
+  return <PageSkeleton />;
 }
 
 // Each role has its own home: the storekeeper has no till, so they land on the catalog instead.

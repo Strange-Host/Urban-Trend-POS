@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 
+import { CircleAlert, CircleCheck, Info, X } from 'lucide-react';
 import Sheet from '../components/Sheet';
 /* =============================== Toasts =============================== */
 // Replaces alert() for one-off notifications (errors, success confirmations).
@@ -14,22 +15,37 @@ const TOAST_STYLES = {
   error: 'bg-danger text-white',
   info: 'bg-ink text-white',
 };
+const TOAST_ICONS = { success: CircleCheck, error: CircleAlert, info: Info };
+const HOVER_GRACE_MS = 2000; // after the pointer leaves a toast it stays this long, then goes
 
 export function ToastProvider({ children }) {
   const [toasts, setToasts] = useState([]);
+  const timers = useRef(new Map());
 
   const dismiss = useCallback((id) => {
+    clearTimeout(timers.current.get(id));
+    timers.current.delete(id);
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
+  const schedule = useCallback((id, ms) => {
+    clearTimeout(timers.current.get(id));
+    timers.current.set(id, setTimeout(() => dismiss(id), ms));
+  }, [dismiss]);
+
   const push = useCallback((variant, message, { duration } = {}) => {
     const id = ++toastIdCounter;
-    setToasts((prev) => [...prev, { id, variant, message }]);
+    // Keep the newest five: a burst of errors must not push the whole page's worth of boxes onto the screen.
+    setToasts((prev) => [...prev, { id, variant, message }].slice(-5));
     // Errors stay up a little longer — there's usually more to read.
-    const ms = duration ?? (variant === 'error' ? 6000 : 4000);
-    setTimeout(() => dismiss(id), ms);
+    schedule(id, duration ?? (variant === 'error' ? 6000 : 4000));
     return id;
-  }, [dismiss]);
+  }, [schedule]);
+
+  useEffect(() => {
+    const live = timers.current;
+    return () => live.forEach((t) => clearTimeout(t));
+  }, []);
 
   const api = useRef({
     success: (msg, opts) => push('success', msg, opts),
@@ -41,18 +57,28 @@ export function ToastProvider({ children }) {
     <ToastContext.Provider value={api}>
       {children}
       <div className="fixed bottom-4 right-4 z-[100] flex flex-col gap-2 max-w-sm w-full px-4 sm:px-0">
-        {toasts.map((t) => (
-          <div
-            key={t.id}
-            role="status"
-            className={`${TOAST_STYLES[t.variant]} rounded-lg shadow-lg px-4 py-3 text-sm flex items-start justify-between gap-3`}
-          >
-            <span className="flex-1">{t.message}</span>
-            <button onClick={() => dismiss(t.id)} className="opacity-70 hover:opacity-100 leading-none" aria-label="Dismiss">
-              ×
-            </button>
-          </div>
-        ))}
+        {toasts.map((t) => {
+          const Icon = TOAST_ICONS[t.variant];
+          return (
+            <div
+              key={t.id}
+              // Errors interrupt a screen reader; everything else waits for a pause.
+              role={t.variant === 'error' ? 'alert' : 'status'}
+              // Reading takes time: hovering (or tabbing into) a toast keeps it up.
+              onMouseEnter={() => clearTimeout(timers.current.get(t.id))}
+              onMouseLeave={() => schedule(t.id, HOVER_GRACE_MS)}
+              onFocus={() => clearTimeout(timers.current.get(t.id))}
+              onBlur={() => schedule(t.id, HOVER_GRACE_MS)}
+              className={`${TOAST_STYLES[t.variant]} toast-in rounded-lg shadow-lg px-4 py-3 text-sm flex items-start gap-3`}
+            >
+              <Icon size={18} strokeWidth={1.75} className="shrink-0 mt-px" aria-hidden="true" />
+              <span className="flex-1">{t.message}</span>
+              <button onClick={() => dismiss(t.id)} className="opacity-70 hover:opacity-100 leading-none -mr-1 p-0.5" aria-label="Dismiss">
+                <X size={16} aria-hidden="true" />
+              </button>
+            </div>
+          );
+        })}
       </div>
     </ToastContext.Provider>
   );
