@@ -52,6 +52,10 @@ const GUARD_TRIGGERS = [
   ...['payroll_items_ins_locked', 'payroll_items_upd_locked', 'payroll_items_del_locked'].map((trigger) => ({ table: 'payroll_items', trigger, rule: 9 })),
   ...['payroll_item_lines_ins_locked', 'payroll_item_lines_upd_locked', 'payroll_item_lines_del_locked'].map((trigger) => ({ table: 'payroll_item_lines', trigger, rule: 9 })),
   ...['commissioned_orders_ins_locked', 'commissioned_orders_no_update', 'commissioned_orders_no_delete'].map((trigger) => ({ table: 'commissioned_orders', trigger, rule: 9 })),
+  ...['delivery_fee_receipts_no_update', 'delivery_fee_receipts_no_delete'].map((trigger) => ({ table: 'delivery_fee_receipts', trigger, rule: 13 })),
+  ...['delivery_costs_no_edit', 'delivery_costs_no_delete'].map((trigger) => ({ table: 'delivery_costs', trigger, rule: 13 })),
+  ...['delivery_adjustments_no_edit', 'delivery_adjustments_no_delete'].map((trigger) => ({ table: 'delivery_adjustments', trigger, rule: 13 })),
+  ...['delivery_fee_verifications_no_update', 'delivery_fee_verifications_no_delete'].map((trigger) => ({ table: 'delivery_fee_verifications', trigger, rule: 13 })),
 ];
 
 const DISPATCHED = ['dispatched_unpaid', 'dispatched_partial', 'dispatched_paid',
@@ -78,6 +82,23 @@ function paidMatchesPayments(db) {
     rule: 2, check: 'paid_matches_payments', ref: orderLabel(r),
     message: `Order ${orderLabel(r)} says ${r.amount_paid} cents have been paid but its payments and collections add up to ${r.derived}.`,
   }));
+}
+
+// RULE 13: delivery money. A customer is never recorded as having paid more of the delivery fee than was charged, and a
+// reversal never takes back more than the cost it reverses.
+function deliveryMoneyWithinBounds(db) {
+  const out = [];
+  for (const r of db.prepare(`
+    SELECT o.id, o.product_code, o.delivery_fee, COALESCE(SUM(f.amount), 0) AS collected
+      FROM orders o JOIN delivery_fee_receipts f ON f.order_id = o.id GROUP BY o.id HAVING collected > o.delivery_fee ORDER BY o.id`).all()) {
+    out.push({ rule: 13, check: 'delivery_fee_within_charged', ref: orderLabel(r), message: `Order ${orderLabel(r)} shows ${r.collected} cents of delivery fee paid against ${r.delivery_fee} charged.` });
+  }
+  for (const r of db.prepare(`
+    SELECT c.id, c.amount, COALESCE(SUM(v.amount), 0) AS reversed FROM delivery_costs c
+      JOIN delivery_costs v ON v.reverses_cost_id = c.id AND v.status = 'approved' GROUP BY c.id HAVING reversed > c.amount ORDER BY c.id`).all()) {
+    out.push({ rule: 13, check: 'reversal_within_cost', message: `Delivery cost ${r.id} of ${r.amount} cents has ${r.reversed} cents reversed.` });
+  }
+  return limit(out);
 }
 
 // RULE 6: an order is never paid more than it is worth, and never less than nothing.
@@ -153,10 +174,14 @@ function feesAndCostsNeverCombined(db) {
   for (const r of db.prepare(`
       SELECT p.id, p.fees_total, p.costs_total, p.total,
              COALESCE((SELECT SUM(amount) FROM rider_payout_items WHERE payout_id = p.id AND package_fee_id IS NOT NULL), 0) AS fee_lines,
-             COALESCE((SELECT SUM(amount) FROM rider_payout_items WHERE payout_id = p.id AND courier_cost_id IS NOT NULL), 0) AS cost_lines
+             COALESCE((SELECT SUM(amount) FROM rider_payout_items WHERE payout_id = p.id AND courier_cost_id IS NOT NULL), 0) AS cost_lines,
+             COALESCE((SELECT SUM(delta) FROM delivery_adjustments WHERE settled_via = 'rider_payout' AND settled_payout_id = p.id), 0) AS adjustments
         FROM rider_payouts p
-       WHERE p.total <> p.fees_total + p.costs_total OR p.fees_total <> fee_lines OR p.costs_total <> cost_lines ORDER BY p.id LIMIT ${MAX_REPORTED_PER_CHECK}`).all()) {
-    out.push({ rule: 12, check: 'payout_totals_match', message: `Payout ${r.id}: fees ${r.fees_total} and costs ${r.costs_total} do not add up to ${r.total}, or do not match its ${r.fee_lines} in fee lines and ${r.cost_lines} in cost lines.` });
+       WHERE p.total <> p.fees_total + p.costs_total
+          OR p.total <> fee_lines + cost_lines + adjustments
+          OR (adjustments = 0 AND (p.fees_total <> fee_lines OR p.costs_total <> cost_lines))
+       ORDER BY p.id LIMIT ${MAX_REPORTED_PER_CHECK}`).all()) {
+    out.push({ rule: 12, check: 'payout_totals_match', message: `Payout ${r.id}: fees ${r.fees_total} and costs ${r.costs_total} do not add up to ${r.total}, or do not match its ${r.fee_lines} in fee lines, ${r.cost_lines} in cost lines and ${r.adjustments} in corrections.` });
   }
   for (const r of db.prepare(`
       SELECT i.id, i.amount, f.amount AS recorded FROM payout_items i JOIN package_fees f ON f.id = i.package_fee_id WHERE i.amount <> f.amount ORDER BY i.id LIMIT ${MAX_REPORTED_PER_CHECK}`).all()) {
@@ -231,6 +256,7 @@ function runIntegrityChecks(db = defaultDb) {
       ...orderLinesMatchSubtotal(db),
       ...dispatchesHaveFees(db),
       ...feesAndCostsNeverCombined(db),
+      ...deliveryMoneyWithinBounds(db),
       ...lockedRunsUnchanged(db),
       ...commissionOnSecureMoney(db),
     ];

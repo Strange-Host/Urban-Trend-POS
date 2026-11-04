@@ -1776,7 +1776,9 @@ CREATE TABLE IF NOT EXISTS delivery_costs (
   kind             TEXT NOT NULL CHECK (kind IN ('outpost_leg','onward_transport','handling','storage','fuel','return_trip','packaging','other')),
   amount           INTEGER NOT NULL CHECK (amount > 0),
   reason           TEXT NOT NULL CHECK (length(trim(reason)) > 0),
-  paid_via         TEXT NOT NULL CHECK (paid_via IN ('cash','mobile_money','bank_transfer')),
+  paid_via         TEXT NOT NULL CHECK (paid_via IN ('cash','mobile_money','bank_transfer','deducted_by_courier')),
+  courier_id       INTEGER REFERENCES couriers(id),         -- set when the courier organization deducted this from what it remits (paid_via = deducted_by_courier)
+  netted_payout_id INTEGER,                                  -- the organization statement that netted it off a remittance (set once, by the statement)
   reference        TEXT,
   reverses_cost_id INTEGER REFERENCES delivery_costs(id),   -- set on a reversal: this row cancels (part of) that cost
   recorded_by      INTEGER NOT NULL REFERENCES users(id),
@@ -1789,7 +1791,7 @@ CREATE TABLE IF NOT EXISTS delivery_costs (
 CREATE INDEX IF NOT EXISTS idx_delivery_costs_order ON delivery_costs(order_id);
 CREATE INDEX IF NOT EXISTS idx_delivery_costs_reverses ON delivery_costs(reverses_cost_id);
 -- Only the decision columns may change, once.
-CREATE TRIGGER IF NOT EXISTS delivery_costs_no_edit BEFORE UPDATE OF store_id, order_id, kind, amount, reason, paid_via, reference, reverses_cost_id, recorded_by, created_at ON delivery_costs BEGIN SELECT RAISE(ABORT, 'delivery_costs cannot be edited: add a reversal instead'); END;
+CREATE TRIGGER IF NOT EXISTS delivery_costs_no_edit BEFORE UPDATE OF store_id, order_id, kind, amount, reason, paid_via, courier_id, reference, reverses_cost_id, recorded_by, created_at ON delivery_costs BEGIN SELECT RAISE(ABORT, 'delivery_costs cannot be edited: add a reversal instead'); END;
 CREATE TRIGGER IF NOT EXISTS delivery_costs_no_delete BEFORE DELETE ON delivery_costs BEGIN SELECT RAISE(ABORT, 'delivery_costs cannot be deleted: add a reversal instead'); END;
 
 CREATE TABLE IF NOT EXISTS delivery_settlements (
@@ -1805,6 +1807,52 @@ CREATE TABLE IF NOT EXISTS delivery_settlements (
   closed_by     INTEGER REFERENCES users(id),
   closed_at     TEXT,
   close_note    TEXT,
+  fee_written_off INTEGER NOT NULL DEFAULT 0,   -- delivery fee that was charged, never paid and written off at close, with the reason (the shop's loss, decided on purpose)
+  write_off_reason TEXT,
   opened_at     TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_delivery_settlements_status ON delivery_settlements(store_id, status);
+
+-- A fee payment is only as good as the money behind it. A mobile-money or bank receipt is verified when a real incoming
+-- payment notification with the same reference and amount lands (see paymentReconciliation.service.js), or by a manager
+-- who saw it on the statement; a cash receipt is verified when a manager confirms it reached the shop (deposited).
+-- Receipts without a verification are listed, aged and flagged until someone confirms them. Immutable.
+CREATE TABLE IF NOT EXISTS delivery_fee_verifications (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  store_id        INTEGER NOT NULL REFERENCES stores(id),
+  receipt_id      INTEGER NOT NULL UNIQUE REFERENCES delivery_fee_receipts(id),
+  via             TEXT NOT NULL CHECK (via IN ('notification','statement','deposit')),
+  notification_id INTEGER REFERENCES payment_notifications(id),
+  note            TEXT,
+  verified_by     INTEGER NOT NULL REFERENCES users(id),
+  verified_at     TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TRIGGER IF NOT EXISTS delivery_fee_verifications_no_update BEFORE UPDATE ON delivery_fee_verifications BEGIN SELECT RAISE(ABORT, 'delivery_fee_verifications are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS delivery_fee_verifications_no_delete BEFORE DELETE ON delivery_fee_verifications BEGIN SELECT RAISE(ABORT, 'delivery_fee_verifications are immutable'); END;
+
+-- Corrections to an amount owed to a courier: a wrong package fee, or a rider cost that was approved or even paid out
+-- wrongly. Signed (delta > 0 owes the courier more, delta < 0 owes the shop back). Never edits the original: the
+-- courier's next payout (rider) or statement (organization) carries the difference, and settled_via/settled_payout_id
+-- record where it was settled. Another person must approve it (an administrator may approve their own).
+CREATE TABLE IF NOT EXISTS delivery_adjustments (
+  id               INTEGER PRIMARY KEY AUTOINCREMENT,
+  store_id         INTEGER NOT NULL REFERENCES stores(id),
+  order_id         INTEGER NOT NULL REFERENCES orders(id),
+  courier_id       INTEGER NOT NULL REFERENCES couriers(id),
+  target_type      TEXT NOT NULL CHECK (target_type IN ('package_fee','courier_cost')),
+  target_id        INTEGER NOT NULL,
+  delta            INTEGER NOT NULL CHECK (delta <> 0),
+  reason           TEXT NOT NULL CHECK (length(trim(reason)) > 0),
+  recorded_by      INTEGER NOT NULL REFERENCES users(id),
+  status           TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected')),
+  decided_by       INTEGER REFERENCES users(id),
+  decided_at       TEXT,
+  decision_reason  TEXT,
+  settled_via      TEXT CHECK (settled_via IS NULL OR settled_via IN ('rider_payout','org_statement')),
+  settled_payout_id INTEGER,
+  created_at       TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_delivery_adjustments_order ON delivery_adjustments(order_id);
+CREATE INDEX IF NOT EXISTS idx_delivery_adjustments_courier ON delivery_adjustments(courier_id, status);
+CREATE TRIGGER IF NOT EXISTS delivery_adjustments_no_edit BEFORE UPDATE OF store_id, order_id, courier_id, target_type, target_id, delta, reason, recorded_by, created_at ON delivery_adjustments BEGIN SELECT RAISE(ABORT, 'delivery_adjustments cannot be edited: enter another adjustment'); END;
+CREATE TRIGGER IF NOT EXISTS delivery_adjustments_no_delete BEFORE DELETE ON delivery_adjustments BEGIN SELECT RAISE(ABORT, 'delivery_adjustments cannot be deleted'); END;

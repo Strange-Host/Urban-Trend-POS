@@ -1,6 +1,7 @@
 const db = require('../config/db');
 const courierPayables = require('./courierPayables.service');
 const courierOrganizations = require('./courierOrganizations.service');
+const deliverySettlement = require('./deliverySettlement.service');
 
 // "Money at risk": every place where money or goods could be going missing, with its age and whose
 // it is. This is the data behind the manager's daily page (GET /api/orders/at-risk).
@@ -18,7 +19,7 @@ const courierOrganizations = require('./courierOrganizations.service');
 // If a real delivered/failed marker is added to orders later, those two queries are where it plugs in.
 
 const KINDS = ['dispatched_no_outcome', 'delivered_unpaid', 'unmatched_payment', 'returning', 'till_session_left_open', 'cash_not_deposited',
-  'courier_unpaid', 'organization_overdue'];
+  'courier_unpaid', 'organization_overdue', 'delivery_fee_unverified', 'delivery_cost_pending', 'delivery_settlement_open'];
 
 const DEFAULTS = {
   dispatchedNoOutcomeDays: 3, // dispatched, nothing paid, nothing heard, for this long
@@ -27,6 +28,9 @@ const DEFAULTS = {
   sessionOpenHours: 20,       // a till session should have been closed out by now
   cashHeldDays: 2,            // shop cash still in a staff member's hands (custody) for this long
   courierUnpaidDays: 7,       // a rider's oldest unpaid fee or approved cost has been waiting this long
+  feeUnverifiedDays: 1,       // a delivery fee payment nobody has confirmed as real money (cash deposited, M-Pesa seen)
+  costPendingDays: 1,         // an extra delivery cost or correction waiting for an approver
+  settlementOpenDays: 14,     // a delivery nobody has confirmed as delivered (or returned) and closed
 };
 
 const DAY_MS = 86_400_000;
@@ -161,6 +165,52 @@ function moneyAtRisk({ storeId, now = new Date(), ...overrides }) {
     items.push({
       kind: 'organization_overdue', order_id: null, order_ref: null, amount: standing.overdue, since: `${oldest} 00:00:00`, owner: null,
       detail: `${o.name} holds overdue money${standing.paused ? ' and is paused for new collect-on-delivery parcels' : ''}`,
+    });
+  }
+
+  // Delivery fee payments recorded but not confirmed as real money: cash not yet deposited, or a mobile/bank payment no incoming
+  // notification or statement line has backed. Flagged from the day the cut-off passes, owned by whoever entered it.
+  for (const r of db.prepare(`
+    SELECT r.id, r.order_id, r.amount, r.method, r.reference, r.recorded_at AS since, o.product_code, u.name AS staff
+      FROM delivery_fee_receipts r JOIN orders o ON o.id = r.order_id JOIN users u ON u.id = r.recorded_by
+     WHERE r.store_id = ? AND r.recorded_at < ? AND NOT EXISTS (SELECT 1 FROM delivery_fee_verifications v WHERE v.receipt_id = r.id)`)
+    .all(storeId, cutoffDays(t.feeUnverifiedDays))) {
+    items.push({
+      kind: 'delivery_fee_unverified', order_id: r.order_id, order_ref: ref({ id: r.order_id, product_code: r.product_code }), amount: r.amount, since: r.since, owner: r.staff,
+      detail: r.method === 'cash' ? 'Delivery fee taken in cash, not confirmed as deposited' : `Delivery fee paid by ${r.method.replace('_', ' ')}${r.reference ? ` (${r.reference})` : ''}, no matching payment seen`,
+    });
+  }
+
+  // Extra delivery costs and corrections waiting for an approver.
+  const pendingSince = cutoffDays(t.costPendingDays);
+  for (const c of db.prepare(`
+    SELECT c.id, c.order_id, c.amount AS amount, c.created_at AS since, o.product_code, u.name AS staff, 'cost' AS what
+      FROM delivery_costs c JOIN orders o ON o.id = c.order_id JOIN users u ON u.id = c.recorded_by
+     WHERE c.store_id = ? AND c.status = 'pending' AND c.created_at < ?
+    UNION ALL
+    SELECT a.id, a.order_id, ABS(a.delta), a.created_at, o.product_code, u.name, 'correction'
+      FROM delivery_adjustments a JOIN orders o ON o.id = a.order_id JOIN users u ON u.id = a.recorded_by
+     WHERE a.store_id = ? AND a.status = 'pending' AND a.created_at < ?`).all(storeId, pendingSince, storeId, pendingSince)) {
+    items.push({
+      kind: 'delivery_cost_pending', order_id: c.order_id, order_ref: ref({ id: c.order_id, product_code: c.product_code }), amount: c.amount, since: c.since, owner: c.staff,
+      detail: `Delivery ${c.what} waiting for an administrator or manager to approve`,
+    });
+  }
+
+  // A delivery nobody has confirmed. Only settlements that exist and are open (dispatches before settlements existed have no
+  // row until someone looks at them). The amount is the cost so far, which the shop is carrying until it is closed.
+  for (const o of db.prepare(`
+    SELECT o.id, o.product_code, o.dispatched_at AS since, u.name AS staff, c.name AS courier
+      FROM delivery_settlements d
+      JOIN orders o ON o.id = d.order_id
+      LEFT JOIN users u ON u.id = o.assigned_staff_id
+      LEFT JOIN couriers c ON c.id = o.courier_id
+     WHERE d.store_id = ? AND d.status = 'open' AND o.deleted_at IS NULL AND o.dispatched_at IS NOT NULL AND o.dispatched_at < ?`)
+    .all(storeId, cutoffDays(t.settlementOpenDays))) {
+    const f = deliverySettlement.getFigures(o.id);
+    items.push({
+      kind: 'delivery_settlement_open', order_id: o.id, order_ref: ref(o), amount: Math.max(0, f.costs_total), since: o.since, owner: o.staff || o.courier || null,
+      detail: 'Delivery not yet confirmed and its earnings and costs not closed',
     });
   }
 

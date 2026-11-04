@@ -40,7 +40,7 @@ function profitLoss({ storeId, from, to }) {
   // Delivery, worked out from what actually happened rather than from the fee charged:
   //   earned  = delivery fees the customer really paid (delivery_fee_receipts), by the day they were recorded
   //   cost    = the courier package fees + riders' approved extra costs + approved extra delivery costs (net of
-  //             reversals), each by the day it was recorded or approved
+  //             reversals) + approved corrections (signed), each by the day it was recorded or approved
   // `deliveryFees` is the NET cost to the shop (cost - earned): positive when deliveries cost more than customers paid,
   // negative when they earned more. It is subtracted from profit exactly as before, so the profit identity still holds.
   const deliveryEarned = db.prepare(`
@@ -52,8 +52,10 @@ function profitLoss({ storeId, from, to }) {
       (SELECT COALESCE(SUM(amount), 0) FROM package_fees WHERE store_id = ? AND ${dateOf('recorded_at')} BETWEEN ? AND ?)
     + (SELECT COALESCE(SUM(amount), 0) FROM courier_costs WHERE store_id = ? AND status = 'approved' AND ${dateOf('decided_at')} BETWEEN ? AND ?)
     + (SELECT COALESCE(SUM(CASE WHEN reverses_cost_id IS NULL THEN amount ELSE -amount END), 0) FROM delivery_costs
+        WHERE store_id = ? AND status = 'approved' AND ${dateOf('decided_at')} BETWEEN ? AND ?)
+    + (SELECT COALESCE(SUM(delta), 0) FROM delivery_adjustments
         WHERE store_id = ? AND status = 'approved' AND ${dateOf('decided_at')} BETWEEN ? AND ?) AS total
-  `).get(storeId, from, to, storeId, from, to, storeId, from, to).total;
+  `).get(storeId, from, to, storeId, from, to, storeId, from, to, storeId, from, to).total;
   const deliveryFees = deliveryCost - deliveryEarned;
 
   // Rider payouts are mirrored into expenses when they are paid. Those costs are already counted above (as package

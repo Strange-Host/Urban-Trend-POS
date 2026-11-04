@@ -138,19 +138,26 @@ function listCosts({ storeId, courierId, status }) {
 // Pending and rejected costs are not owed.
 function unpaidItems(courierId) {
   return db.prepare(`
-    SELECT 'package_fee' AS type, f.id, f.amount, f.order_id, f.recorded_at AS since, 'Package fee' AS description
+    SELECT 'package_fee' AS type, f.id, f.amount, f.order_id, f.recorded_at AS since, 'Package fee' AS description, 'package_fee' AS sub
       FROM package_fees f
      WHERE f.courier_id = ? AND f.amount > 0 AND NOT EXISTS (SELECT 1 FROM rider_payout_items i WHERE i.package_fee_id = f.id)
     UNION ALL
-    SELECT 'courier_cost', c.id, c.amount, c.order_id, c.decided_at, 'Courier cost (' || c.kind || '): ' || c.description
+    SELECT 'courier_cost', c.id, c.amount, c.order_id, c.decided_at, 'Courier cost (' || c.kind || '): ' || c.description, 'courier_cost'
       FROM courier_costs c
      WHERE c.courier_id = ? AND c.status = 'approved' AND NOT EXISTS (SELECT 1 FROM rider_payout_items i WHERE i.courier_cost_id = c.id)
+    UNION ALL
+    -- Approved corrections not yet settled: signed. A correction to a fee or cost that was already paid is what makes the
+    -- courier's next payout come out higher (owed more) or lower (gave too much).
+    SELECT 'adjustment', a.id, a.delta, a.order_id, a.decided_at, 'Correction (' || replace(a.target_type, '_', ' ') || '): ' || a.reason, a.target_type
+      FROM delivery_adjustments a
+     WHERE a.courier_id = ? AND a.status = 'approved' AND a.settled_payout_id IS NULL
      ORDER BY since, id
-  `).all(courierId, courierId);
+  `).all(courierId, courierId, courierId);
 }
 
-function sumBy(items, type) {
-  return items.filter((i) => i.type === type).reduce((s, i) => s + i.amount, 0);
+// Fees (and corrections to fees) or costs (and corrections to costs): `sub` says which side an item belongs to.
+function sumBy(items, sub) {
+  return items.filter((i) => i.sub === sub).reduce((s, i) => s + i.amount, 0);
 }
 
 /** One courier's position: fees and costs owed shown separately, plus costs still waiting for approval. */
@@ -162,6 +169,7 @@ function balance({ courierId, storeId }) {
     courier: { id: courier.id, name: courier.name, courier_type: courier.courier_type },
     fees_owed: sumBy(items, 'package_fee'),
     costs_owed: sumBy(items, 'courier_cost'),
+    adjustments_owed: items.filter((i) => i.type === 'adjustment').reduce((n, i) => n + i.amount, 0),
     total_owed: items.reduce((s, i) => s + i.amount, 0),
     pending_costs: pending.n,
     pending_costs_amount: pending.total,
@@ -173,7 +181,7 @@ function balance({ courierId, storeId }) {
 function summary({ storeId }) {
   const couriers = db.prepare(`SELECT id FROM couriers WHERE store_id = ? AND kind = 'rider' ORDER BY name`).all(storeId);
   return couriers.map((c) => balance({ courierId: c.id, storeId }))
-    .filter((b) => b.total_owed > 0 || b.pending_costs > 0)
+    .filter((b) => b.total_owed !== 0 || b.pending_costs > 0)
     .map(({ items, ...rest }) => ({ ...rest, unpaid_items: items.length }));
 }
 
@@ -221,9 +229,16 @@ function createPayout({ storeId, staffId, courierId, method, paymentRef, items }
     }
     if (chosen.length === 0) throw new ApiError(409, 'There is nothing to pay this courier.');
 
-    const feesTotal = sumBy(chosen, 'package_fee');
-    const costsTotal = sumBy(chosen, 'courier_cost');
+    // A correction can push one side below zero (a fee taken back with no fee owed this time). Money is netted across the two
+    // sides so neither goes negative; if everything together is not positive, there is nothing to pay.
+    let feesTotal = sumBy(chosen, 'package_fee');
+    let costsTotal = sumBy(chosen, 'courier_cost');
+    if (feesTotal < 0) { costsTotal += feesTotal; feesTotal = 0; }
+    if (costsTotal < 0) { feesTotal += costsTotal; costsTotal = 0; }
     const total = feesTotal + costsTotal;
+    if (total <= 0) {
+      throw new ApiError(409, 'After corrections, this courier is owed nothing right now (they have been paid more than they earned). The difference comes off their next earnings.', null, 'PAYOUT_NOT_POSITIVE');
+    }
     const ref = paymentRef?.trim() || null;
     const label = `${courier.name} (${method}${ref ? ` ${ref}` : ''})`;
 
@@ -236,8 +251,10 @@ function createPayout({ storeId, staffId, courierId, method, paymentRef, items }
     `).run(storeId, courierId, feesTotal, costsTotal, total, method, ref, staffId, feesExpenseId, costsExpenseId).lastInsertRowid;
 
     const insertItem = db.prepare(`INSERT INTO rider_payout_items (payout_id, package_fee_id, courier_cost_id, amount) VALUES (?, ?, ?, ?)`);
+    const settleAdjustment = db.prepare(`UPDATE delivery_adjustments SET settled_via = 'rider_payout', settled_payout_id = ? WHERE id = ? AND settled_payout_id IS NULL`);
     for (const i of chosen) {
-      insertItem.run(payoutId, i.type === 'package_fee' ? i.id : null, i.type === 'courier_cost' ? i.id : null, i.amount);
+      if (i.type === 'adjustment') settleAdjustment.run(payoutId, i.id);
+      else insertItem.run(payoutId, i.type === 'package_fee' ? i.id : null, i.type === 'courier_cost' ? i.id : null, i.amount);
     }
     const payout = getPayout({ payoutId, storeId });
     logStaffAction({ staffId, action: 'create', entityType: 'courier_payout', entityId: payoutId, after: { ...payout, lines: undefined, item_count: chosen.length } });
@@ -263,7 +280,11 @@ function getPayout({ payoutId, storeId }) {
       FROM rider_payout_items i JOIN courier_costs c ON c.id = i.courier_cost_id
      WHERE i.payout_id = ? ORDER BY i.id
   `).all(payoutId);
-  return { ...payout, fee_lines, cost_lines };
+  const adjustment_lines = db.prepare(`
+    SELECT a.id, a.delta AS amount, a.target_type, a.reason, a.order_id FROM delivery_adjustments a
+     WHERE a.settled_via = 'rider_payout' AND a.settled_payout_id = ? ORDER BY a.id
+  `).all(payoutId);
+  return { ...payout, fee_lines, cost_lines, adjustment_lines };
 }
 
 function listPayouts({ storeId, courierId }) {

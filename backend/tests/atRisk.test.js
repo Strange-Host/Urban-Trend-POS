@@ -3,6 +3,7 @@ const { app, request, loginAsAdmin, cleanupTestDb } = require('./setup');
 const db = require('../src/config/db');
 const { moneyAtRisk, summarize } = require('../src/services/atRisk.service');
 const reconciliation = require('../src/services/paymentReconciliation.service');
+const deliverySettlement = require('../src/services/deliverySettlement.service');
 
 let token;
 let product;
@@ -40,6 +41,8 @@ describe('money at risk', () => {
   it('is empty for a healthy, fresh system, however old it gets', async () => {
     const o = await dispatched('0777100001');
     await pay(o.id, o.total); // fully paid -> dispatched_paid
+    // A healthy delivery is also confirmed and its settlement closed; one left open is itself flagged once it ages.
+    deliverySettlement.close({ orderId: o.id, storeId, staffId: adminId, writeOffReason: 'Customer did not pay the fee' });
     expect(moneyAtRisk({ storeId })).toEqual([]);
     expect(moneyAtRisk({ storeId, now: days(60) })).toEqual([]);
   });

@@ -157,7 +157,26 @@ function createStatement({ storeId, staffId, courierId, periodStart, periodEnd, 
          AND NOT EXISTS (SELECT 1 FROM payout_items i WHERE i.package_fee_id = f.id)
        ORDER BY f.id
     `).all(courierId, ...orderIds);
-    const feesTotal = fees.reduce((s, f) => s + f.amount, 0);
+    const packageFeesTotal = fees.reduce((s, f) => s + f.amount, 0);
+
+    // Extra legs the organization deducts from what it remits, and corrections to the fees we owe it, are netted here too:
+    // otherwise money it keeps beyond its package fee would look like cash it still owes us. A reversal or a take-back is a
+    // credit that applies whichever parcel it was entered against; a cost or an increase counts for the parcels listed.
+    const extraCosts = db.prepare(`
+      SELECT id, CASE WHEN reverses_cost_id IS NULL THEN amount ELSE -amount END AS signed FROM delivery_costs
+       WHERE store_id = ? AND courier_id = ? AND status = 'approved' AND paid_via = 'deducted_by_courier' AND netted_payout_id IS NULL
+         AND (order_id IN (${feeMarks}) OR reverses_cost_id IS NOT NULL)
+    `).all(storeId, courierId, ...orderIds);
+    const adjustments = db.prepare(`
+      SELECT id, delta AS signed FROM delivery_adjustments
+       WHERE store_id = ? AND courier_id = ? AND status = 'approved' AND settled_payout_id IS NULL
+         AND (order_id IN (${feeMarks}) OR delta < 0)
+    `).all(storeId, courierId, ...orderIds);
+    const extrasTotal = [...extraCosts, ...adjustments].reduce((s, x) => s + x.signed, 0);
+    const feesTotal = packageFeesTotal + extrasTotal;
+    if (feesTotal < 0) {
+      throw new ApiError(422, 'Corrections and credits come to more than the fees owed on these parcels. Include more parcels, or settle the credit on a later statement.', null, 'STATEMENT_NET_CREDIT');
+    }
 
     const settled = remitted + feesTotal;
     if (settled <= 0) throw new ApiError(422, 'Nothing was remitted and no fees are owed on these parcels, so there is nothing to settle.', null, 'STATEMENT_NOTHING_SETTLED');
@@ -171,6 +190,11 @@ function createStatement({ storeId, staffId, courierId, periodStart, periodEnd, 
         .run(storeId, courierId, feesTotal, ref, staffId).lastInsertRowid;
       const addItem = db.prepare('INSERT INTO payout_items (payout_id, package_fee_id, amount) VALUES (?, ?, ?)');
       for (const f of fees) addItem.run(payoutId, f.id, f.amount);
+      // What was netted beyond the package fees is marked against this payout, so it is netted once.
+      const markCost = db.prepare('UPDATE delivery_costs SET netted_payout_id = ? WHERE id = ? AND netted_payout_id IS NULL');
+      for (const x of extraCosts) markCost.run(payoutId, x.id);
+      const markAdj = db.prepare(`UPDATE delivery_adjustments SET settled_via = 'org_statement', settled_payout_id = ? WHERE id = ? AND settled_payout_id IS NULL`);
+      for (const x of adjustments) markAdj.run(payoutId, x.id);
     }
 
     const chargeVariance = chargeEntered - feesTotal;

@@ -186,6 +186,12 @@ const ADDITIVE_COLUMNS = {
   payment_notifications: [
     `direction TEXT NOT NULL DEFAULT 'incoming' CHECK (direction IN ('incoming','outgoing'))`,
     `expense_id INTEGER REFERENCES expenses(id)`,
+    // Set when the money turned out to be a customer paying a delivery fee rather than goods (deliverySettlement.service.js).
+    `delivery_fee_receipt_id INTEGER REFERENCES delivery_fee_receipts(id)`,
+  ],
+  delivery_settlements: [
+    `fee_written_off INTEGER NOT NULL DEFAULT 0`,
+    `write_off_reason TEXT`,
   ],
   // Batch costing, expiry and recall (services/costing.service.js).
   stock_receipt_items: [
@@ -846,6 +852,17 @@ function migrate() {
 
   for (const [table, columns] of Object.entries(CURRENCY_COLUMNS)) {
     migrateCurrencyColumnToCents(table, columns);
+  }
+
+  // delivery_costs gained courier_id / netted_payout_id and a wider paid_via check before it was ever used in production.
+  // An older, still-empty copy is dropped so schema.sql recreates it; one that already holds rows is left alone and the
+  // new features that need those columns refuse to run, rather than guess.
+  if (tableExists('delivery_costs')) {
+    const cols = db.prepare('PRAGMA table_info(delivery_costs)').all().map((c) => c.name);
+    if (!cols.includes('courier_id') && db.prepare('SELECT COUNT(*) AS n FROM delivery_costs').get().n === 0) {
+      db.exec('DROP TABLE delivery_costs');
+      console.log('  ~ recreated empty delivery_costs with the courier-deduction columns');
+    }
   }
 
   // First pass: creates any brand-new tables (income_sources, settings,

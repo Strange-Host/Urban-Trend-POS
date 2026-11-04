@@ -24,6 +24,22 @@ orders imported from an online store. A total change withdraws a COD confirmatio
 awaiting dispatch; `POST /api/orders/merge` merges them only with `confirm: true` (orders must be awaiting dispatch, unpaid, same customer/channel/payment type). The
 merged-away orders are cancelled and zeroed with `merged_into_order_id` pointing at the survivor. The Orders screen shows the notice and asks before merging.
 
+**Follow-up: closing the gaps in delivery accounting.**
+- *Fee payments are checked against real money.* A mobile-money or bank fee needs its reference. It is verified when a real incoming payment with that reference and
+  amount is (or later becomes) present in the reconciliation queue; the same money is then never applied to the goods. A reference can back one payment only
+  (fee receipts, goods payments and matched notifications are all checked). Cash is confirmed by a manager as deposited, with a note. Whoever recorded a payment cannot
+  confirm it (an administrator may). A settlement cannot close while a fee payment is unconfirmed. `GET /api/delivery/fee-receipts/unverified`, `POST .../:id/verify`.
+- *Corrections.* `POST /api/orders/:id/delivery/adjustments` corrects a wrong package fee or an approved rider cost with a signed amount, a reason and an approval, without
+  touching the original (`delivery_adjustments`, immutable). A rider's next payout carries the difference (a take-back is held against their next earnings and a payout
+  that nets to nothing is refused); an organization's next statement nets it. Profit counts the correction once.
+- *Legs a courier organization deducts* (`paid_via: deducted_by_courier`) are netted off its next statement with the package fee, once; a later reversal comes back as a credit.
+- *Unpaid fees are decided, not forgotten.* Closing with part of the fee unpaid needs a write-off reason, recorded on the settlement; collecting later is possible after a reopen.
+- *Alerts.* The money-at-risk page flags fee payments unconfirmed after a day, extra costs or corrections waiting for approval after a day, and deliveries left open after two weeks
+  (settings thresholds `feeUnverifiedDays`, `costPendingDays`, `settlementOpenDays`).
+- *Approvals.* Administrators and managers approve; a manager cannot approve their own entry, an administrator can (written to the staff log as `self_decided`). Rider cost approval
+  keeps its separate database-level two-person rule.
+- New integrity rule 13 (fee never paid beyond what was charged; reversals never beyond the cost) and guards on the new tables.
+
 # Shop catalogue and online catalogue kept apart
 
 The shop and the online store hold separate physical stock, so the two catalogues no longer share one set of numbers.

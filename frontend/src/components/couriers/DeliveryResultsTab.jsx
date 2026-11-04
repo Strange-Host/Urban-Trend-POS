@@ -29,13 +29,26 @@ export default function DeliveryResultsTab() {
     queryFn: () => deliveryApi.pendingCosts().then((r) => r.data.data),
   });
 
+  const { data: unverified } = useQuery({
+    queryKey: ['delivery', 'unverified-receipts'],
+    queryFn: () => deliveryApi.unverifiedReceipts().then((r) => r.data),
+  });
+  async function verify(r) {
+    const note = await dialog.prompt({
+      title: r.method === 'cash' ? 'How do you know this cash reached the shop?' : 'How was this payment confirmed?',
+      placeholder: r.method === 'cash' ? 'Deposit slip number, who handed it in' : 'Statement line or M-Pesa message seen', required: true,
+    });
+    if (note) await decide(() => deliveryApi.verifyReceipt(r.id, note), 'Fee payment confirmed.');
+  }
+
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['delivery'] });
   async function decide(fn, success) {
     try { await fn(); toast.success(success); refresh(); queryClient.invalidateQueries({ queryKey: ['orders'] }); } catch (err) { toast.error(getErrorMessage(err, 'Could not save that decision.')); }
   }
   async function reject(c) {
-    const reason = await dialog.prompt({ title: 'Why is this cost being rejected?', placeholder: 'Reason', required: true });
-    if (reason) await decide(() => deliveryApi.rejectCost(c.id, reason), 'Cost rejected.');
+    const reason = await dialog.prompt({ title: 'Why is this being rejected?', placeholder: 'Reason', required: true });
+    if (!reason) return;
+    await decide(() => (c.item_type === 'adjustment' ? deliveryApi.rejectAdjustment(c.id, reason) : deliveryApi.rejectCost(c.id, reason)), 'Rejected.');
   }
 
   const t = data?.totals;
@@ -47,7 +60,7 @@ export default function DeliveryResultsTab() {
           <StatCard label="Fees collected" value={money(t.fee_collected)} sub={`of ${money(t.fee_charged)} charged`} />
           <StatCard label="Delivery costs" value={money(t.costs_total)} sub={`${t.deliveries} deliveries`} />
           <StatCard label={t.result < 0 ? 'Cost to the shop' : 'Earned'} value={money(Math.abs(t.result))} sub={`${t.losing_deliveries} lost money`} />
-          <StatCard label="Still open" value={String(t.open)} sub="awaiting confirmation" />
+          <StatCard label="Still open" value={String(t.open)} sub={`awaiting confirmation · ${money(t.fee_outstanding)} of fees unpaid`} />
         </div>
       )}
 
@@ -56,18 +69,39 @@ export default function DeliveryResultsTab() {
           <div className="text-sm font-medium mb-2">Extra delivery costs waiting for approval ({pending.length})</div>
           <ul className="space-y-2">
             {pending.map((c) => (
-              <li key={c.id} className="flex flex-wrap items-center justify-between gap-2 text-sm">
+              <li key={`${c.item_type}-${c.id}`} className="flex flex-wrap items-center justify-between gap-2 text-sm">
                 <div className="min-w-0">
-                  <div>{c.reverses_cost_id ? 'Reversal' : c.kind.replace(/_/g, ' ')} · order #{c.order_id} · <span className="font-mono">{money(c.amount)}</span></div>
+                  <div>{c.item_type === 'adjustment' ? `Correction to ${c.target_type.replace('_', ' ')} (${c.delta < 0 ? 'take back' : 'owe more'})` : c.reverses_cost_id ? 'Reversal' : c.kind.replace(/_/g, ' ')} · order #{c.order_id} · <span className="font-mono">{money(c.amount)}</span></div>
                   <div className="text-xs text-text-muted">{c.reason} · entered by {c.recorded_by_name}</div>
                 </div>
-                {c.recorded_by === user?.id ? (
+                {c.recorded_by === user?.id && user?.role !== 'admin' ? (
                   <span className="text-xs text-text-muted">Someone else must approve this</span>
                 ) : (
                   <span className="whitespace-nowrap">
-                    <button type="button" onClick={() => decide(() => deliveryApi.approveCost(c.id), 'Cost approved.')} className="text-xs font-medium text-success hover:underline mr-3">Approve</button>
+                    <button type="button" onClick={() => decide(() => (c.item_type === 'adjustment' ? deliveryApi.approveAdjustment(c.id) : deliveryApi.approveCost(c.id)), 'Approved.')} className="text-xs font-medium text-success hover:underline mr-3">Approve</button>
                     <button type="button" onClick={() => reject(c)} className="text-xs font-medium text-danger hover:underline">Reject</button>
                   </span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {unverified?.rows?.length > 0 && (
+        <div className="bg-surface border border-line rounded-xl p-4">
+          <div className="text-sm font-medium mb-2">Fee payments not yet confirmed as real money ({unverified.rows.length} · {money(unverified.total)})</div>
+          <ul className="space-y-2">
+            {unverified.rows.map((r) => (
+              <li key={r.id} className="flex flex-wrap items-center justify-between gap-2 text-sm">
+                <div className="min-w-0">
+                  <div>Order #{r.order_id} · {r.customer_name} · <span className="font-mono">{money(r.amount)}</span> · {r.method.replace('_', ' ')}{r.reference ? ` · ${r.reference}` : ''}</div>
+                  <div className="text-xs text-text-muted">entered by {r.recorded_by_name} on {shortDate(r.recorded_at)}</div>
+                </div>
+                {r.recorded_by === user?.id && user?.role !== 'admin' ? (
+                  <span className="text-xs text-text-muted">Someone else must confirm this</span>
+                ) : (
+                  <button type="button" onClick={() => verify(r)} className="text-xs font-medium underline">{r.method === 'cash' ? 'Confirm deposited' : 'Confirm received'}</button>
                 )}
               </li>
             ))}

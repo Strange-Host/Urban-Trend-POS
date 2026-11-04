@@ -67,4 +67,15 @@ describe('DispatchSheet', () => {
     fireEvent.click(screen.getByRole('button', { name: /Dispatch — deducts stock/ }));
     await waitFor(() => expect(dispatch).toHaveBeenCalledWith(7, {}));
   });
+
+  it('needs the M-Pesa code or bank reference when the fee was not paid in cash', async () => {
+    mount();
+    fireEvent.click(screen.getByRole('button', { name: 'Yes, paid' }));
+    fireEvent.click(screen.getByRole('button', { name: /Dispatch — deducts stock/ }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(/M-Pesa code or bank reference/);
+    expect(dispatch).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText('Payment reference'), { target: { value: 'QWE123XYZ' } });
+    fireEvent.click(screen.getByRole('button', { name: /Dispatch — deducts stock/ }));
+    await waitFor(() => expect(dispatch).toHaveBeenCalledWith(7, { delivery_fee_paid: true, delivery_fee_collected: 30000, delivery_fee_method: 'mobile_money', delivery_fee_reference: 'QWE123XYZ' }));
+  });
 });

@@ -37,10 +37,11 @@ router.put('/:id/items', validate(replaceItemsSchema), ctrl.replaceItems);
 
 // Delivery settlement: what this delivery earned against what it cost. See services/deliverySettlement.service.js.
 const delivery = require('../controllers/delivery.controller');
-const { feeReceiptSchema, recordDeliveryCostSchema, closeSettlementSchema, reopenSettlementSchema } = require('../validation/delivery.schema');
+const { feeReceiptSchema, recordDeliveryCostSchema, closeSettlementSchema, reopenSettlementSchema, adjustmentSchema } = require('../validation/delivery.schema');
 router.get('/:id/delivery', delivery.get);
 router.post('/:id/delivery/fee-receipts', requirePermission('delivery.costs.record'), validate(feeReceiptSchema), delivery.recordFeeReceipt);
 router.post('/:id/delivery/costs', requirePermission('delivery.costs.record'), validate(recordDeliveryCostSchema), delivery.recordCost);
+router.post('/:id/delivery/adjustments', requirePermission('delivery.costs.record'), validate(adjustmentSchema), delivery.recordAdjustment);
 router.post('/:id/delivery/close', requirePermission('delivery.settlement.close'), validate(closeSettlementSchema), delivery.close);
 router.post('/:id/delivery/reopen', requireRole('admin'), validate(reopenSettlementSchema), delivery.reopen);
 router.post('/:id/confirm-cod', ctrl.confirmCod);

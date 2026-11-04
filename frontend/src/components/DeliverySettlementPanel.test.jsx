@@ -7,18 +7,21 @@ const addDeliveryCost = vi.fn();
 const closeDelivery = vi.fn();
 const approveCost = vi.fn();
 const confirm = vi.fn();
+const prompt = vi.fn();
+const addAdjustment = vi.fn();
+const verifyReceipt = vi.fn();
 let perms = new Set();
 let me = { id: 5, role: 'manager' };
 
 vi.mock('../api/endpoints', () => ({
   ordersApi: {
     delivery: (...a) => delivery(...a), addDeliveryCost: (...a) => addDeliveryCost(...a), closeDelivery: (...a) => closeDelivery(...a),
-    addFeeReceipt: vi.fn(), reopenDelivery: vi.fn(),
+    addFeeReceipt: vi.fn(), reopenDelivery: vi.fn(), addAdjustment: (...a) => addAdjustment(...a),
   },
-  deliveryApi: { approveCost: (...a) => approveCost(...a), rejectCost: vi.fn(), reverseCost: vi.fn() },
+  deliveryApi: { approveCost: (...a) => approveCost(...a), rejectCost: vi.fn(), reverseCost: vi.fn(), approveAdjustment: vi.fn(), rejectAdjustment: vi.fn(), verifyReceipt: (...a) => verifyReceipt(...a) },
 }));
 vi.mock('../context/AuthContext', () => ({ useAuth: () => ({ user: me, can: (p) => perms.has(p) }) }));
-vi.mock('../context/UIContext', () => ({ useToast: () => ({ success: vi.fn(), error: vi.fn() }), useDialog: () => ({ confirm, prompt: vi.fn() }) }));
+vi.mock('../context/UIContext', () => ({ useToast: () => ({ success: vi.fn(), error: vi.fn() }), useDialog: () => ({ confirm, prompt }) }));
 
 import DeliverySettlementPanel from './DeliverySettlementPanel';
 
@@ -26,17 +29,19 @@ const base = {
   order: { id: 7 }, settlement: { status: 'open', outcome: null },
   fee_charged: 30000, fee_collected: 10000, fee_uncollected: 20000, package_fee: 10000, package_fee_courier: 'Juma',
   costs_total: 18000, result: -8000, pending_count: 1,
-  fee_receipts: [], rider_cost_lines: [],
+  fee_outstanding: 20000, fee_written_off: 0, unverified_receipts: 1, adjustment_lines: [],
+  fee_receipts: [{ id: 3, amount: 10000, method: 'cash', reference: null, recorded_by: 9, by: 'Amina', verified_via: null }],
+  rider_cost_lines: [],
   extra_cost_lines: [
     { id: 1, kind: 'outpost_leg', amount: 8000, reason: 'Outpost to Kitale', status: 'approved', recorded_by: 9, recorded_by_name: 'Amina', reverses_cost_id: null },
     { id: 2, kind: 'handling', amount: 2000, reason: 'Repacking', status: 'pending', recorded_by: 9, recorded_by_name: 'Amina', reverses_cost_id: null },
   ],
 };
-const order = { id: 7, status: 'dispatched_unpaid' };
-const mount = () => render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><DeliverySettlementPanel order={order} /></QueryClientProvider>);
+const order = { id: 7, status: 'dispatched_unpaid', courier: { kind: 'rider' } };
+const mount = (o = order) => render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><DeliverySettlementPanel order={o} /></QueryClientProvider>);
 
 beforeEach(() => {
-  [delivery, addDeliveryCost, closeDelivery, approveCost, confirm].forEach((f) => f.mockReset());
+  [delivery, addDeliveryCost, closeDelivery, approveCost, confirm, prompt, addAdjustment, verifyReceipt].forEach((f) => f.mockReset());
   delivery.mockResolvedValue({ data: { data: base } });
   perms = new Set(['delivery.costs.record', 'delivery.costs.approve', 'delivery.settlement.close']);
   me = { id: 5, role: 'manager' };
@@ -99,5 +104,42 @@ describe('DeliverySettlementPanel', () => {
     expect(await screen.findByText(/Closed · delivered/)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '+ Add a cost' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Confirm delivered and close' })).not.toBeInTheDocument();
+  });
+
+  it('a cash fee is marked "not confirmed" until a manager confirms it, with a note', async () => {
+    prompt.mockResolvedValue('Deposit slip DS-9');
+    verifyReceipt.mockResolvedValue({});
+    mount();
+    expect(await screen.findByText('not confirmed')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm deposited' }));
+    await waitFor(() => expect(verifyReceipt).toHaveBeenCalledWith(3, 'Deposit slip DS-9'));
+  });
+
+  it('asks why when a fee that was charged was never paid, before closing', async () => {
+    confirm.mockResolvedValue(true);
+    prompt.mockResolvedValue('Customer refused the rest');
+    closeDelivery.mockResolvedValue({});
+    mount();
+    fireEvent.click(await screen.findByRole('button', { name: 'Confirm delivered and close' }));
+    await waitFor(() => expect(closeDelivery).toHaveBeenCalledWith(7, undefined, 'Customer refused the rest'));
+  });
+
+  it('offers "deducted by the courier" only for a courier organization', async () => {
+    mount();
+    fireEvent.click(await screen.findByRole('button', { name: '+ Add a cost' }));
+    expect(screen.queryByRole('option', { name: /Deducted by the courier/ })).not.toBeInTheDocument();
+  });
+
+  it('lets a correction to the package fee be entered with a reason', async () => {
+    addAdjustment.mockResolvedValue({});
+    mount();
+    fireEvent.click(await screen.findByRole('button', { name: 'Correct a fee or cost' }));
+    fireEvent.change(screen.getByLabelText('Direction of the correction'), { target: { value: 'less' } });
+    fireEvent.change(screen.getByLabelText('Correction amount'), { target: { value: '30' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Enter correction' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(/Say why/);
+    fireEvent.change(screen.getByLabelText('Reason for the correction'), { target: { value: 'Fee was for another parcel' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Enter correction' }));
+    await waitFor(() => expect(addAdjustment).toHaveBeenCalledWith(7, { target_type: 'package_fee', delta: -3000, reason: 'Fee was for another parcel' }));
   });
 });
