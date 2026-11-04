@@ -47,3 +47,15 @@ const bulkApply = bulkChange.extend({ reason, fingerprint: z.string().min(8).max
 const bulkRevert = z.object({ reason: text(300).optional() });
 
 module.exports = { createProduct, patchProduct, createCategory, patchCategory, reorderCategories, bulkChange, bulkApply, bulkRevert, cents, id, reason, text };
+
+// ---- stock-takes
+const startStockTake = z.object({
+  scope: z.object({ type: z.enum(['all', 'category']), categoryId: id.nullish() }),
+  note: text(300).optional(),
+});
+const stockTakeLines = z.object({
+  lines: z.array(z.object({ productId: id, countedQty: z.number().int().min(0).max(1_000_000) })).min(1).max(500),
+});
+const approveStockTake = z.object({ note: text(300).optional() });
+const rejectStockTake = z.object({ reason });
+Object.assign(module.exports, { startStockTake, stockTakeLines, approveStockTake, rejectStockTake });

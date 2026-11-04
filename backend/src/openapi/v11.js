@@ -103,6 +103,45 @@ const ENDPOINTS = [
     description: 'Only products still at the price the batch gave them are reverted; the rest are reported as skipped.',
     responses: { 201: { description: 'Reverted', schema: res.BulkReverted }, 401: UNAUTH, 403: FORBIDDEN, 404: NOT_FOUND, 409: err('ALREADY_REVERTED, NOT_REVERTIBLE or NOTHING_TO_REVERT') },
   },
+
+  // ---- stock-take
+  {
+    method: 'post', path: '/stock-takes', tag: 'Stock-take', auth: true, operationId: 'startStockTake',
+    summary: 'Start a stock-take sheet, or resume your open one for the same area', body: req.startStockTake,
+    description: 'Needs stock.count. The draft lives on the server, so nothing counted is lost if the app is closed.',
+    responses: { 200: { description: 'Your existing draft for that area', schema: res.StockTake }, 201: { description: 'A new draft', schema: res.StockTake }, 400: BAD, 401: UNAUTH, 403: FORBIDDEN },
+  },
+  {
+    method: 'get', path: '/stock-takes', tag: 'Stock-take', auth: true, operationId: 'listStockTakes', summary: 'Stock-takes (yours, or everyone\'s with stock.review)',
+    query: [{ name: 'status', description: 'draft, applied, pending_approval or rejected', schema: { type: 'string' } }, { name: 'mine', description: '1 = only mine', schema: { type: 'string' } }, ...pageQuery],
+    responses: { 200: { description: 'Newest first', schema: res.StockTakeList }, 401: UNAUTH, 403: FORBIDDEN },
+  },
+  {
+    method: 'get', path: '/stock-takes/{id}', tag: 'Stock-take', auth: true, operationId: 'getStockTake', summary: 'One stock-take with its counted lines', pathParams: [idParam],
+    responses: { 200: { description: 'systemQty is live while a draft and frozen at submit', schema: res.StockTakeDetail }, 401: UNAUTH, 403: FORBIDDEN, 404: NOT_FOUND },
+  },
+  {
+    method: 'post', path: '/stock-takes/{id}/lines', tag: 'Stock-take', auth: true, operationId: 'saveStockTakeLines',
+    summary: 'Save counted quantities (up to 500 per call)', pathParams: [idParam], body: req.stockTakeLines,
+    description: 'Idempotent: sending a product again replaces its count. All-or-nothing. Only the creator, only while a draft.',
+    responses: { 200: { description: 'The draft with its lines', schema: res.StockTakeDetail }, 400: BAD, 401: UNAUTH, 403: FORBIDDEN, 404: NOT_FOUND, 409: err('NOT_DRAFT'), 422: err('NOT_IN_SCOPE') },
+  },
+  {
+    method: 'post', path: '/stock-takes/{id}/submit', tag: 'Stock-take', auth: true, operationId: 'submitStockTake',
+    summary: 'Submit the sheet', pathParams: [idParam],
+    description: 'Differences up to the approval limit are applied to stock now; bigger ones wait for an owner or manager. Products not counted are left alone.',
+    responses: { 200: { description: 'What was applied and what waits', schema: res.StockTakeSubmitted }, 401: UNAUTH, 403: FORBIDDEN, 404: NOT_FOUND, 409: err('NOT_DRAFT'), 422: err('NO_LINES') },
+  },
+  {
+    method: 'post', path: '/stock-takes/{id}/approve', tag: 'Stock-take', auth: true, operationId: 'approveStockTake',
+    summary: 'Approve the big differences (stock.review)', pathParams: [idParam], body: req.approveStockTake,
+    responses: { 200: { description: 'Applied', schema: res.StockTakeDetail }, 401: UNAUTH, 403: err('FORBIDDEN or SELF_APPROVAL'), 404: NOT_FOUND, 409: err('NOT_PENDING') },
+  },
+  {
+    method: 'post', path: '/stock-takes/{id}/reject', tag: 'Stock-take', auth: true, operationId: 'rejectStockTake',
+    summary: 'Reject the big differences (stock.review)', pathParams: [idParam], body: req.rejectStockTake,
+    responses: { 200: { description: 'Rejected', schema: res.StockTakeDetail }, 400: BAD, 401: UNAUTH, 403: err('FORBIDDEN or SELF_APPROVAL'), 404: NOT_FOUND, 409: err('NOT_PENDING') },
+  },
 ];
 
 module.exports = { ENDPOINTS, helpers: { err, UNAUTH, BAD, FORBIDDEN, NOT_FOUND, CONFLICT, idParam, pageQuery } };
