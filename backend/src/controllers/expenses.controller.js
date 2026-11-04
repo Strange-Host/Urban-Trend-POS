@@ -5,6 +5,7 @@ const { parsePagination, paginatedResponse } = require('../utils/paginate');
 const { logStaffAction } = require('../utils/auditLog');
 const notifications = require('../services/notifications.service');
 const { floatFigures } = require('../services/pettyCash.service');
+const expenseDecisions = require('../services/expenseDecisions.service');
 
 // Approval workflow
 //   - An expense recorded by an admin is approved on the spot (the admin is the final authority).
@@ -166,52 +167,14 @@ const update = asyncHandler(async (req, res) => {
   res.json({ data: expense });
 });
 
-function loadPendingForDecision(req) {
-  const expense = db.prepare('SELECT * FROM expenses WHERE id = ? AND store_id = ? AND deleted_at IS NULL')
-    .get(req.params.id, req.user.storeId);
-  if (!expense) throw new ApiError(404, 'Expense not found.');
-  if (expense.status !== 'pending') throw new ApiError(409, `This expense is already ${expense.status}.`);
-  if (expense.recorded_by_staff_id === req.user.id && !isAdmin(req.user)) {
-    throw new ApiError(403, 'You recorded this expense, so someone else has to approve it.');
-  }
-  return expense;
-}
-
 // POST /api/expenses/:id/approve
 const approve = asyncHandler(async (req, res) => {
-  const existing = loadPendingForDecision(req);
-  if (existing.paid_from === 'petty_cash') {
-    // already reserved while pending, so only the settled balance matters now
-    const { balance } = floatFigures(req.user.storeId, { excludeExpenseId: existing.id });
-    if (existing.amount > balance) {
-      throw new ApiError(409, 'The petty cash float does not hold enough yet. Approve the pending top-up first.', null, 'PETTY_CASH_INSUFFICIENT');
-    }
-  }
-  db.prepare(`UPDATE expenses SET status='approved', reviewed_by_staff_id=?, reviewed_at=datetime('now'), review_note=NULL, updated_at=datetime('now') WHERE id=?`)
-    .run(req.user.id, existing.id);
-  const expense = db.prepare('SELECT * FROM expenses WHERE id = ?').get(existing.id);
-  logStaffAction({ staffId: req.user.id, action: 'update', entityType: 'expense', entityId: expense.id, before: existing, after: expense });
-  notifications.notify({
-    storeId: req.user.storeId, userIds: [existing.recorded_by_staff_id], type: 'expense_approved',
-    title: 'Expense approved', body: `Your expense of ${(existing.amount / 100).toFixed(2)} was approved.`, entityType: 'expense', entityId: expense.id,
-  });
-  res.json({ data: expense });
+  res.json({ data: expenseDecisions.approve({ id: req.params.id, user: req.user }) });
 });
 
 // POST /api/expenses/:id/reject  { note }
 const reject = asyncHandler(async (req, res) => {
-  const existing = loadPendingForDecision(req);
-  const note = typeof req.body.note === 'string' ? req.body.note.trim() : '';
-  if (!note) throw new ApiError(400, 'Say why you are rejecting it (note is required).');
-  db.prepare(`UPDATE expenses SET status='rejected', reviewed_by_staff_id=?, reviewed_at=datetime('now'), review_note=?, updated_at=datetime('now') WHERE id=?`)
-    .run(req.user.id, note, existing.id);
-  const expense = db.prepare('SELECT * FROM expenses WHERE id = ?').get(existing.id);
-  logStaffAction({ staffId: req.user.id, action: 'update', entityType: 'expense', entityId: expense.id, before: existing, after: expense });
-  notifications.notify({
-    storeId: req.user.storeId, userIds: [existing.recorded_by_staff_id], type: 'expense_rejected', severity: 'warning',
-    title: 'Expense rejected', body: note, entityType: 'expense', entityId: expense.id,
-  });
-  res.json({ data: expense });
+  res.json({ data: expenseDecisions.reject({ id: req.params.id, user: req.user, note: req.body.note }) });
 });
 
 // DELETE /api/expenses/:id — soft delete. An approved expense is part of the books, so only an admin can remove it.

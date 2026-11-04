@@ -8,6 +8,7 @@ const sessionsService = require('../services/sessions.service');
 const loginGuard = require('../services/loginGuard.service');
 const devices = require('../services/devices.service');
 const { signAccessToken, toPublicUser } = require('./auth.controller');
+const { appSettings } = require('./mobileApi.controller');
 
 // Mobile sign-in. Same rules as the web login (account lockout, 2-step codes, rotation, replay detection,
 // token_version revocation) - the only difference is the transport: the refresh token travels in the JSON body, because
@@ -26,7 +27,7 @@ function issueMobileSession(user, req, deviceInput) {
   if (!known) devices.alertNewDevice({ user, device, ip: req.ip });
   return {
     token: signAccessToken(user, session), refreshToken, user: toPublicUser(user),
-    session: { id: session.id, expiresAt: session.absolute_expires_at },
+    session: { id: session.id, expiresAt: session.absolute_expires_at }, settings: appSettings(),
   };
 }
 
@@ -61,7 +62,7 @@ const refresh = asyncHandler(async (req, res) => {
   const { user, refreshToken, session } = authTokens.rotate(req.body.refreshToken, { ip: req.ip, client: 'mobile' });
   res.json({
     token: signAccessToken(user, session), refreshToken, user: toPublicUser(user),
-    session: { id: session.id, expiresAt: session.absolute_expires_at },
+    session: { id: session.id, expiresAt: session.absolute_expires_at }, settings: appSettings(),
   });
 });
 

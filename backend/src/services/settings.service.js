@@ -115,6 +115,12 @@ const DEFAULTS = {
   // Mobile home screen (services/homeFeed.service.js): a closed till whose count differs from what it should hold by at
   // least this much (whole KES) shows up on the owner's "needs attention" list.
   attention_cash_variance_kes: '500',
+  // Mobile app rules (routes/v1). Stock adjustments of this many units or more, asked for by anyone but the owner, wait for
+  // the owner's approval instead of applying; approving a void/refund/expense above this many whole KES needs the phone's
+  // biometric check; the app locks after this many seconds in the background.
+  stock_adjust_approval_units: '25',
+  approval_biometric_above_kes: '5000',
+  app_auto_lock_seconds: '120',
 };
 
 function getAll() {

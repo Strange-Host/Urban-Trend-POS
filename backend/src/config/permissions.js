@@ -56,6 +56,11 @@ const PERMISSIONS = {
   'couriers.pay':          { group: 'Money',     label: 'View courier payables and pay couriers',     roles: ['admin', 'manager'] },
   'custody.manage':        { group: 'Money',     label: 'See shop cash held by staff and mark it deposited', roles: ['admin', 'manager'] },
   'leads.intake_routes':   { group: 'Sales',     label: 'Manage web-form lead routing',               roles: ['admin', 'manager'] },
+  // Mobile app (routes/v1). Added as their own keys instead of reusing a broad role check, so an owner can grant or take
+  // away exactly these from one person.
+  'orders.view':           { group: 'Orders',    label: 'See the orders list and order details in the mobile app', roles: ['admin', 'manager'] },
+  'inventory.approve_adjust': { group: 'Stock',  label: 'Approve or reject large stock adjustments sent for approval', roles: ['admin'] },
+  'app.manage':            { group: 'Mobile app', label: 'Upload the mobile app (APK) and make download links', roles: ['admin'] },
 };
 
 // 'store' = the storekeeper who receives shipments. Deliberately narrower than cashier: no till, no sales,

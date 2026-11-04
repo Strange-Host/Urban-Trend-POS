@@ -25,7 +25,15 @@ const User = z.looseObject({
   permissions: z.array(z.string()).describe('What this person may do; the server re-checks on every request'),
 });
 
+// What the owner has set that the app must obey: how long before it locks, and above what amount an approval needs the
+// fingerprint / face check. Sent with every sign-in and refresh, so a change reaches phones within minutes.
+const AppSettings = z.looseObject({
+  autoLockSeconds: z.number().int(),
+  biometricApprovalAboveCents: cents.nullable().describe('null = never ask'),
+});
+
 const MobileSession = z.looseObject({
+  settings: AppSettings.optional(),
   token: z.string().describe('Short-lived access token (send as "Authorization: Bearer ...")'),
   refreshToken: z.string().describe('Single-use refresh token. Keep it in the Android Keystore. Each refresh returns a new one'),
   user: User,
@@ -97,10 +105,67 @@ const SummaryMine = z.looseObject({
 const Summary = z.discriminatedUnion('scope', [SummaryShop, SummaryMine])
   .describe('Whole-shop figures for people who may see reports; otherwise only your own sales today. Never cost or profit');
 
+// ---- approvals, alerts, stock, orders, preferences ----------------------------------------------------------------------
+const ApprovalLine = z.looseObject({ name: z.string(), qty: z.number().int(), priceCents: cents.nullable() });
+const Approval = z.looseObject({
+  id: z.string().describe('"<type>:<number>", e.g. "void:12"'),
+  type: z.enum(['void', 'refund', 'expense', 'requisition', 'stock_adjustment']),
+  status: z.enum(['pending', 'approved', 'rejected']),
+  title: z.string(),
+  requestedBy: z.string(), requestedAt: iso,
+  amountCents: cents.nullable(),
+  reason: z.string(),
+  items: z.array(ApprovalLine),
+  decidedBy: z.string().nullable(), decidedAt: iso.nullable(), decisionNote: z.string().nullable(),
+});
+const ApprovalsPage = z.looseObject({ items: z.array(Approval), nextCursor: z.string().nullable() });
+const ApprovalDecision = z.looseObject({
+  applied: z.boolean().describe('false = someone else decided first; `approval` is their decision and nothing changed'),
+  approval: Approval,
+});
+
+const NotificationItem = z.looseObject({
+  id: z.number().int(), type: z.string(), severity: z.enum(['info', 'warning', 'urgent']), title: z.string(), body: z.string(),
+  createdAt: iso, read: z.boolean(), deepLink: z.string().describe('"<entity>:<id>" or empty'),
+});
+const NotificationsPage = z.looseObject({ items: z.array(NotificationItem), nextCursor: z.string().nullable() });
+
+const StockItem = z.looseObject({
+  id: z.number().int(), sku: z.string(), barcode: z.string().nullable(), name: z.string(),
+  available: z.number().int(), awaitingDispatch: z.number().int(), dispatchedUnpaid: z.number().int(),
+  dispatchedPaid: z.number().int(), returned: z.number().int(),
+});
+const StockLookup = z.looseObject({ items: z.array(StockItem) });
+const AdjustResult = z.looseObject({
+  applied: z.boolean().describe('false = it is large, so it was not applied: it waits for the owner (approvalId)'),
+  approvalId: z.string().optional(), newAvailable: z.number().int().optional(),
+});
+
+const OrderStatus = z.enum(['awaiting_dispatch', 'dispatched_unpaid', 'dispatched_partial', 'dispatched_paid', 'returned_in_transit',
+  'returned_awaiting_inspection', 'returned_resellable', 'returned_damaged', 'cancelled']);
+const OrderSummary = z.looseObject({
+  id: z.number().int(), number: z.string(), customerName: z.string(), status: OrderStatus,
+  paymentState: z.enum(['paid', 'unpaid', 'partial']), courier: z.string().nullable(), totalCents: cents, createdAt: iso,
+});
+const OrdersPage = z.looseObject({ items: z.array(OrderSummary), nextCursor: z.string().nullable(), couriers: z.array(z.string()) });
+const OrderDetail = OrderSummary.extend({
+  customerPhone: z.string().nullable(), courierPhone: z.string().nullable(), deliveryFeeCents: cents,
+  items: z.array(ApprovalLine), notes: z.string().optional(),
+});
+
+const Preferences = z.looseObject({
+  quietHours: z.looseObject({ enabled: z.boolean(), start: z.string(), end: z.string() }),
+});
+
+const DownloadLink = z.looseObject({ url: z.string(), expiresAt: iso, version: z.string() });
+const ApkUpload = z.looseObject({ version: z.string(), sizeBytes: z.number().int(), latestVersion: z.string() });
+
 const Ok = z.looseObject({ ok: z.literal(true) });
 const RevokeResult = z.looseObject({ ok: z.literal(true), alreadyRevoked: z.boolean() });
 
 module.exports = {
   ErrorResponse, User, MobileSession, TwoFactorChallenge, LoginResponse, Device, AppVersion,
   AttentionItem, Attention, Summary, SummaryShop, SummaryMine, Ok, RevokeResult,
+  AppSettings, Approval, ApprovalsPage, ApprovalDecision, NotificationsPage, StockLookup, AdjustResult, OrdersPage, OrderDetail, Preferences,
+  DownloadLink, ApkUpload,
 };
