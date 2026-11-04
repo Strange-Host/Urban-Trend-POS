@@ -52,7 +52,43 @@ describe('Dashboard alert tiles', () => {
   it('shows an all-clear message when nothing needs attention', async () => {
     reportsApi.dashboardOverview.mockReturnValue(ok({ lowStockCount: 0, unpaidParcelsByCourier: [] }));
     mount();
-    expect(await screen.findByText(/Every product is above its reorder level/)).toBeTruthy();
-    expect(screen.getByText(/No dispatched parcel is waiting on payment/)).toBeTruthy();
+    expect(await screen.findByText('All clear')).toBeTruthy();
+    expect(screen.getByText(/Checked: Low stock, Unpaid parcels/)).toBeTruthy();
+    expect(screen.queryByText('Needs attention')).toBeNull();
+  });
+
+  it('shows only the checks that found something, worst first, and folds the rest into one line', async () => {
+    reportsApi.dashboardOverview.mockReturnValue(ok({ lowStockCount: 4, unpaidParcelsByCourier: [] }));
+    reportsApi.salesSummary.mockReturnValue(ok({ revenue: 100000, transaction_count: 3 }));
+    mount();
+    expect(await screen.findByText('Needs attention')).toBeTruthy();
+    expect(screen.getByText('Low stock')).toBeTruthy();
+    expect(screen.queryByText('Unpaid parcels', { selector: 'div' })).toBeNull(); // quiet: no tile
+    expect(screen.getByText(/All clear: Unpaid parcels/)).toBeTruthy();
+  });
+});
+
+describe('Dashboard revenue cards', () => {
+  it('shows how revenue moved against the previous period', async () => {
+    reportsApi.dashboardOverview.mockReturnValue(ok({ lowStockCount: 0, unpaidParcelsByCourier: [] }));
+    // first call = this period, second = the period before it
+    reportsApi.salesSummary
+      .mockReturnValueOnce(ok({ revenue: 150000, transaction_count: 3 }))
+      .mockReturnValue(ok({ revenue: 100000, transaction_count: 2 }));
+    mount();
+    expect(await screen.findByText('+50%')).toBeTruthy();
+    expect(screen.getAllByText('vs previous 30 days').length).toBeGreaterThan(0);
+  });
+
+  it('asks for the previous period of the same length, ending where this one starts', async () => {
+    reportsApi.dashboardOverview.mockReturnValue(ok({ lowStockCount: 0, unpaidParcelsByCourier: [] }));
+    mount();
+    await screen.findByText('Revenue');
+    const calls = reportsApi.salesSummary.mock.calls.map((c) => c[0]);
+    const current = calls.find((p) => !p.to);
+    const previous = calls.find((p) => p.to);
+    expect(previous.to).toBe(current.from);
+    const day = 86400000;
+    expect(Math.round((new Date(current.from) - new Date(previous.from)) / day)).toBe(30);
   });
 });
