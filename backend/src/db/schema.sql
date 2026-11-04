@@ -53,6 +53,8 @@ CREATE TABLE IF NOT EXISTS users (
   pin_failed_count   INTEGER NOT NULL DEFAULT 0,   -- PIN attempts are counted and locked separately, so guessing a till PIN can't lock someone out of password sign-in
   pin_locked_until   TEXT,
   password_changed_at TEXT,                     -- used to refuse reusing the same password and to show 'last changed'
+  quiet_start TEXT,                             -- mobile push quiet hours, 'HH:MM' shop time; both NULL = off
+  quiet_end TEXT,
   erased_at          TEXT,                      -- set when a former staff member's personal data was wiped (records kept)
   -- Pay terms (services/payTerms.service.js). 'fixed' = a set amount per unit sold (commission_fixed_cents, or the
   -- store's achievement tiers when that is NULL: how everyone was paid before this existed); 'percentage' = a share
@@ -1819,3 +1821,24 @@ CREATE TABLE IF NOT EXISTS delivery_settlements (
   opened_at     TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_delivery_settlements_status ON delivery_settlements(store_id, status);
+
+-- ---------------------------------------------------------------------
+-- STOCK ADJUSTMENT REQUESTS  (mobile app). An adjustment at or above settings.stock_adjust_approval_units that a non-owner
+-- asks for is NOT applied: it waits here for someone holding inventory.approve_adjust (the owner by default). Approving
+-- applies it through the same code as a direct adjustment (services/stockAdjust.service.js).
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS stock_adjustment_requests (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  store_id      INTEGER NOT NULL REFERENCES stores(id),
+  product_id    INTEGER NOT NULL REFERENCES products(id),
+  change_qty    INTEGER NOT NULL CHECK (change_qty != 0),
+  reason        TEXT NOT NULL,                 -- the app's reason code (damaged, lost, found, ...)
+  note          TEXT,
+  status        TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected','failed')),
+  requested_by  INTEGER NOT NULL REFERENCES users(id),
+  requested_at  TEXT NOT NULL DEFAULT (datetime('now')),
+  reviewed_by   INTEGER REFERENCES users(id),
+  reviewed_at   TEXT,
+  review_note   TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_stock_adj_req_store ON stock_adjustment_requests(store_id, status, id);

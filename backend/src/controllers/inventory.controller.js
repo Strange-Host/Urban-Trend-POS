@@ -2,6 +2,7 @@ const db = require('../config/db');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const reconciliationService = require('../services/reconciliation.service');
+const stockAdjust = require('../services/stockAdjust.service');
 const { parsePagination, paginatedResponse } = require('../utils/paginate');
 const { scopeStore } = require('./stockReceiving.controller');
 
@@ -57,31 +58,9 @@ const adjust = asyncHandler(async (req, res) => {
     throw new ApiError(400, 'reason must be restock, adjustment, or return.');
   }
 
-  const txn = db.transaction(() => {
-    const existing = db.prepare('SELECT * FROM inventory WHERE product_id = ? AND store_id = ?')
-      .get(product_id, req.user.storeId);
-
-    if (existing) {
-      const newQty = existing.quantity + change_qty;
-      if (newQty < 0) throw new ApiError(400, 'Adjustment would result in negative stock.');
-      db.prepare(`UPDATE inventory SET quantity = ?, updated_at = datetime('now') WHERE id = ?`)
-        .run(newQty, existing.id);
-    } else {
-      if (change_qty < 0) throw new ApiError(400, 'Cannot reduce stock that does not exist yet.');
-      db.prepare('INSERT INTO inventory (product_id, store_id, quantity) VALUES (?, ?, ?)')
-        .run(product_id, req.user.storeId, change_qty);
-    }
-
-    db.prepare(`
-      INSERT INTO inventory_movements (product_id, store_id, change_qty, reason, created_by)
-      VALUES (?, ?, ?, ?, ?)
-    `).run(product_id, req.user.storeId, change_qty, reason, req.user.id);
-
-    return db.prepare('SELECT * FROM inventory WHERE product_id = ? AND store_id = ?')
-      .get(product_id, req.user.storeId);
+  const result = stockAdjust.apply({
+    storeId: req.user.storeId, productId: product_id, changeQty: change_qty, movementReason: reason, userId: req.user.id,
   });
-
-  const result = txn();
   const product = db.prepare('SELECT name FROM products WHERE id = ?').get(product_id);
   require('../services/securityAlerts.service').stockAdjusted({
     storeId: req.user.storeId, actor: { id: req.user.id, name: req.user.name }, product: product?.name, qty: change_qty, reason,

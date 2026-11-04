@@ -87,7 +87,7 @@ function priceChanged({ storeId, actor, product, oldCents, newCents }) {
 function stockAdjusted({ storeId, actor, product, qty, reason }) {
   if (Math.abs(qty) < limits().stockUnits) return null;
   return raise({
-    storeId, type: 'stock_adjusted', severity: qty < 0 ? 'warning' : 'info', actorId: actor.id,
+    storeId, type: 'stock_adjusted', severity: 'warning', actorId: actor.id,   // up or down: a big change nobody asked about is worth a look (and a phone push)
     title: `Stock ${qty < 0 ? 'reduced' : 'increased'} by ${Math.abs(qty)} by ${actor.name}`,
     detail: `${product || 'A product'}: ${qty > 0 ? '+' : ''}${qty} units (${reason || 'adjustment'}).`,
   });
