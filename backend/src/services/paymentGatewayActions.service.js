@@ -4,6 +4,7 @@ const credentialsService = require('./paymentGatewayCredentials.service');
 const stkPushRequests = require('./stkPushRequests.service');
 const mpesaClient = require('../config/mpesa');
 const kcbClient = require('../config/kcb');
+const money = require('../utils/money');
 
 function requireCredentials(storeId, provider) {
   const cred = credentialsService.getRaw({ storeId, provider });
@@ -77,7 +78,7 @@ async function initiateMpesaStkPush(storeId, { phone, amount, accountReference, 
   }
   const base = requireAppBaseUrl();
   const callbackUrl = `${base}/api/integrations/payments/callbacks/c2b/${encodeURIComponent(cred.webhook_secret)}/stk`;
-  const amountCents = Math.round(amount * 100);
+  const amountCents = money.requireCents(amount, 'Amount', { allowBlank: false });
 
   const result = await mpesaClient.initiateStkPush(cred, { phone, amount, accountReference, description, callbackUrl });
 

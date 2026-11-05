@@ -50,7 +50,7 @@ const hmacBase64 = (secret, raw) => crypto.createHmac('sha256', secret).update(r
 function storeIdFor(source) {
   if (source.store_id) return source.store_id;
   const first = db.prepare('SELECT id FROM stores WHERE is_active = 1 ORDER BY id LIMIT 1').get();
-  if (!first) throw new Error('No store is configured.');
+  if (!first) throw new ApiError(409, 'No store is configured.');
   return first.id;
 }
 

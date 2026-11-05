@@ -3,6 +3,7 @@ const logger = require('../utils/logger');
 const reconciliationService = require('../services/paymentReconciliation.service');
 const stkPushRequests = require('../services/stkPushRequests.service');
 const adapters = require('../services/paymentCallbackAdapters');
+const money = require('../utils/money');
 
 // POST /api/integrations/payments/callbacks/mpesa/:token/validation
 // Safaricom calls this BEFORE the transaction completes. Must respond
@@ -72,7 +73,7 @@ const mpesaStkCallback = asyncHandler(async (req, res) => {
       storeId: pending.store_id,
       source: 'mpesa',
       method: 'mobile_money',
-      amount: Math.round(parseFloat(adapted.amount || 0) * 100),
+      amount: money.toCents(adapted.amount) ?? 0,
       externalReference: adapted.mpesaReceiptNumber,
       narrative: pending.account_reference, // the product code, recovered from what we stored at initiation
       payerName: adapted.phoneNumber ? String(adapted.phoneNumber) : null,

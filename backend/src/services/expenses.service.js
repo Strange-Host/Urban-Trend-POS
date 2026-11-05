@@ -4,6 +4,7 @@ const { parsePagination, paginatedResponse } = require('../utils/paginate');
 const { logStaffAction } = require('../utils/auditLog');
 const notifications = require('./notifications.service');
 const { floatFigures } = require('./pettyCash.service');
+const money = require('../utils/money');
 
 // Approval workflow
 //   - An expense recorded by an admin is approved on the spot (the admin is the final authority).
@@ -90,7 +91,7 @@ function getExpense({ params, user }) {
 function assertPettyCashCovers({ storeId, amount, excludeExpenseId }) {
   const { available } = floatFigures(storeId, { excludeExpenseId });
   if (amount > available) {
-    throw new ApiError(409, `Not enough petty cash: ${(available / 100).toFixed(2)} available, ${(amount / 100).toFixed(2)} requested. Top up the float first.`, null, 'PETTY_CASH_INSUFFICIENT');
+    throw new ApiError(409, `Not enough petty cash: ${money.formatMoney(available)} available, ${money.formatMoney(amount)} requested. Top up the float first.`, null, 'PETTY_CASH_INSUFFICIENT');
   }
 }
 
@@ -98,7 +99,7 @@ function notifyApprovers({ user }, expense) {
   notifications.notify({
     storeId: user.storeId, roles: ['admin', 'manager'], userIds: [], type: 'expense_pending',
     title: 'Expense waiting for approval',
-    body: `${user.name} recorded ${(expense.amount / 100).toFixed(2)}${expense.paid_from === 'petty_cash' ? ' from petty cash' : ''}.`,
+    body: `${user.name} recorded ${money.formatMoney(expense.amount)}${expense.paid_from === 'petty_cash' ? ' from petty cash' : ''}.`,
     entityType: 'expense', entityId: expense.id, dedupeKey: `expense_pending:${expense.id}`,
   });
 }
@@ -192,7 +193,7 @@ function approveExpense({ params, user }) {
   logStaffAction({ staffId: user.id, action: 'update', entityType: 'expense', entityId: expense.id, before: existing, after: expense });
   notifications.notify({
     storeId: user.storeId, userIds: [existing.recorded_by_staff_id], type: 'expense_approved',
-    title: 'Expense approved', body: `Your expense of ${(existing.amount / 100).toFixed(2)} was approved.`, entityType: 'expense', entityId: expense.id,
+    title: 'Expense approved', body: `Your expense of ${money.formatMoney(existing.amount)} was approved.`, entityType: 'expense', entityId: expense.id,
   });
   return { data: expense };
 }

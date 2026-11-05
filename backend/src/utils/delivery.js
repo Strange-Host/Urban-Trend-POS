@@ -1,3 +1,5 @@
+const money = require('./money');
+
 // Nairobi vs. outside-Nairobi drives both the delivery-timeline messaging
 // (§1: 2hrs vs 24-48hrs) and which courier gets auto-suggested. This is a
 // simple substring match on the customer's city/town — good enough for the
@@ -25,10 +27,9 @@ function suggestCourier(deliveryZone) {
 function computeDeliveryFee(orderTotalCents, settings) {
   const thresholdCents = parseInt(settings.delivery_fee_threshold_kes, 10) * 100;
   const flatFeeCents = parseInt(settings.delivery_fee_flat_kes, 10) * 100;
-  const percent = parseFloat(settings.delivery_fee_percent);
 
   if (orderTotalCents < thresholdCents) return flatFeeCents;
-  return Math.round(orderTotalCents * (percent / 100));
+  return money.percentOf(orderTotalCents, settings.delivery_fee_percent);
 }
 
 module.exports = { determineDeliveryZone, suggestCourier, computeDeliveryFee };

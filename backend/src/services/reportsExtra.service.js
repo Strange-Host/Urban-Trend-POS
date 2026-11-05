@@ -2,6 +2,7 @@ const db = require('../config/db');
 const payrollService = require('./payroll.service');
 const settingsService = require('./settings.service');
 const { dateOf } = require('../utils/storeTime');
+const money = require('../utils/money');
 
 // The Priority 5 reports that sit beside the P&L: discounts, VAT, and sales-agent performance.
 // Read-only, integer cents, scoped to one store.
@@ -104,10 +105,11 @@ function revenueByDay({ storeId, from, to }) {
 // VAT figure. This ESTIMATES the VAT inside what was sold: vat = gross x rate / (100 + rate), at
 // the rate in Settings. It is a working figure to reconcile against the return, not a tax record.
 function vatReport({ storeId, from, to }) {
-  const rate = parseFloat(settingsService.getAll().vat_rate_percent);
-  const ratePercent = Number.isFinite(rate) && rate >= 0 ? rate : 16;
+  const configured = settingsService.getAll().vat_rate_percent;
+  const configuredBp = money.percentToBp(configured);
+  const ratePercent = configuredBp !== null && configuredBp >= 0 ? configuredBp / 100 : 16;
   const split = (gross) => {
-    const vat = Math.round((gross * ratePercent) / (100 + ratePercent));
+    const vat = money.inclusivePart(gross, ratePercent);
     return { gross, vat, net: gross - vat };
   };
   const byDay = revenueByDay({ storeId, from, to });

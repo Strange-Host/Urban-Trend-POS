@@ -7,6 +7,7 @@ const cashSessionsService = require('./cashSessions.service');
 const { PAGINATION } = require('../config/limits');
 const settingsService = require('./settings.service');
 const { maxPercentFor } = require('../utils/discounts');
+const money = require('../utils/money');
 
 /**
  * items: [{ product_id, quantity, discount? }]
@@ -98,7 +99,7 @@ function checkout({ storeId, cashierId, customerId, cashSessionId, items, paymen
     // tolerance existed only to paper over float drift that can no longer
     // happen. Cents are formatted back to decimal only for the message.
     if (paymentsSum !== total) {
-      throw new ApiError(400, `Payment total (${(paymentsSum / 100).toFixed(2)}) does not match sale total (${(total / 100).toFixed(2)}).`);
+      throw new ApiError(400, `Payment total (${money.formatMoney(paymentsSum)}) does not match sale total (${money.formatMoney(total)}).`);
     }
 
     const paymentMethod = payments.length > 1 ? 'split' : payments[0].method;
