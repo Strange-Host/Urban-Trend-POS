@@ -1,5 +1,6 @@
 const db = require('../config/db');
 const logger = require('../utils/logger');
+const stock = require('./stock.service');
 
 /**
  * inventory.quantity is a running cache, kept in sync inline by every
@@ -48,9 +49,8 @@ function reconcile() {
   if (drifted.length === 0) return [];
 
   const txn = db.transaction(() => {
-    const updateQty = db.prepare(`UPDATE inventory SET quantity = ?, updated_at = datetime('now') WHERE product_id = ? AND store_id = ?`);
     for (const row of drifted) {
-      updateQty.run(Math.max(0, row.ledger_quantity), row.product_id, row.store_id);
+      stock.resetCache({ productId: row.product_id, storeId: row.store_id, quantity: Math.max(0, row.ledger_quantity) });
     }
   });
   txn();

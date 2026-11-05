@@ -2,6 +2,7 @@ const db = require('../config/db');
 const ApiError = require('../utils/ApiError');
 const { logStaffAction } = require('../utils/auditLog');
 const { todaySql } = require('../utils/storeTime');
+const stock = require('./stock.service');
 
 const REQUISITION_CATEGORY = 'Shop Requisitions';
 
@@ -95,19 +96,8 @@ function approve({ requisitionId, items, staffId, storeId }) {
       approvedQty.set(line.id, qtyApproved);
 
       if (qtyApproved > 0) {
-        // Multi-store aware: adjust the requesting staff member's store inventory row.
-        const existingInv = db.prepare('SELECT * FROM inventory WHERE product_id = ? AND store_id = ?').get(line.product_id, storeId);
-        if (existingInv) {
-          db.prepare(`UPDATE inventory SET quantity = quantity + ?, updated_at = datetime('now') WHERE id = ?`)
-            .run(qtyApproved, existingInv.id);
-        } else {
-          db.prepare(`INSERT INTO inventory (product_id, store_id, quantity) VALUES (?, ?, ?)`)
-            .run(line.product_id, storeId, qtyApproved);
-        }
-        db.prepare(`
-          INSERT INTO inventory_movements (product_id, store_id, change_qty, reason, reference_id, created_by)
-          VALUES (?, ?, ?, 'requisition', ?, ?)
-        `).run(line.product_id, storeId, qtyApproved, requisitionId, staffId);
+        // Multi-store aware: adds to the requesting staff member's store.
+        stock.applyMovement({ productId: line.product_id, storeId, change: qtyApproved, reason: 'requisition', referenceType: null, referenceId: requisitionId, userId: staffId });
       }
     }
 

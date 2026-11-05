@@ -16,6 +16,7 @@ const telesalesDistribution = require('./telesalesDistribution.service');
 const { assertLineDiscount, assertSaleDiscount, assertDiscountPercent } = require('../utils/discounts');
 const commissionReversal = require('./commissionReversal.service');
 const costing = require('./costing.service');
+const stock = require('./stock.service');
 
 // State machine — see schema.sql's CHECK on orders.status for the full
 // list. Stock deduction happens on the ONE transition into
@@ -554,13 +555,6 @@ function dispatch({ orderId, storeId, staffId, packageFee, packageFeeZeroReason,
 
     const items = db.prepare('SELECT * FROM order_items WHERE order_id = ?').all(orderId);
     const checkStock = db.prepare('SELECT quantity FROM inventory WHERE product_id = ? AND store_id = ?');
-    const decrementInventory = db.prepare(`
-      UPDATE inventory SET quantity = quantity - ?, updated_at = datetime('now') WHERE product_id = ? AND store_id = ? AND quantity >= ?
-    `);
-    const insertMovement = db.prepare(`
-      INSERT INTO inventory_movements (product_id, store_id, change_qty, reason, reference_type, reference_id, created_by)
-      VALUES (?, ?, ?, 'dispatch', 'order', ?, ?)
-    `);
 
     // An order that came from Shopify/WooCommerce is fulfilled from the online store's own stock, which the shop does
     // not track: it never checks, takes or returns shop stock. Only orders made in the shop ('manual') leave the shelf.
@@ -589,10 +583,10 @@ function dispatch({ orderId, storeId, staffId, packageFee, packageFeeZeroReason,
       }
       // Cost of the units leaving, fixed now and worked out before this line's movement (see costing.service.js).
       setLineCost.run(costing.costOfNextUnits(item.product_id, storeId, item.quantity).cost, item.id);
-      if (decrementInventory.run(item.quantity, item.product_id, storeId, item.quantity).changes !== 1) {
-        throw new ApiError(409, 'Stock changed while this order was being dispatched. Please try again.');
-      }
-      insertMovement.run(item.product_id, storeId, -item.quantity, orderId, staffId);
+      stock.applyMovement({
+        productId: item.product_id, storeId, change: -item.quantity, reason: 'dispatch', referenceType: 'order', referenceId: orderId, userId: staffId,
+        shortfall: () => new ApiError(409, 'Stock changed while this order was being dispatched. Please try again.'),
+      });
     }
 
     transitionTo(orderId, order, 'dispatched_unpaid', staffId);
@@ -727,16 +721,8 @@ function inspectReturn({ orderId, storeId, staffId, result, notes }) {
 
     if (result === 'good' && leavesShopStock(order)) {
       const items = db.prepare('SELECT * FROM order_items WHERE order_id = ?').all(orderId);
-      const restock = db.prepare(`
-        UPDATE inventory SET quantity = quantity + ?, updated_at = datetime('now') WHERE product_id = ? AND store_id = ?
-      `);
-      const insertMovement = db.prepare(`
-        INSERT INTO inventory_movements (product_id, store_id, change_qty, reason, reference_type, reference_id, created_by)
-        VALUES (?, ?, ?, 'return_resellable', 'order', ?, ?)
-      `);
       for (const item of items) {
-        restock.run(item.quantity, item.product_id, order.store_id);
-        insertMovement.run(item.product_id, order.store_id, item.quantity, orderId, staffId);
+        stock.applyMovement({ productId: item.product_id, storeId: order.store_id, change: item.quantity, reason: 'return_resellable', referenceType: 'order', referenceId: orderId, userId: staffId });
       }
     } else {
       // 'damaged' intentionally does NOT touch inventory — blocked from

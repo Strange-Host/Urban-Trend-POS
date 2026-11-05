@@ -6,21 +6,15 @@ afterAll(() => cleanupTestDb());
 
 // Guard rail for restructure stage R1 ("stock has exactly one writer").
 //
-// Today stock.service.applyMovement is the intended single writer, and transfers, counts, receiving, batches and
-// products already use it. Five other files still write the cache and ledger themselves. This test pins that exact
-// list. It fails if a NEW file starts writing stock directly. R1 then empties this list one file at a time, and the
-// final R1 commit sets ALLOWED_DIRECT_WRITERS to just [].
+// stock.service.applyMovement is the single writer of stock. This test fails if any other file under src/ (apart from
+// migrations and the first-run seed) inserts into or updates inventory or inventory_movements. If a genuine new case
+// appears, add a function to stock.service instead of adding a file to the allow-list.
 
 const SRC = path.join(__dirname, '..', '..', 'src');
-const STOCK_WRITE = /(UPDATE|INSERT INTO|INSERT OR REPLACE INTO|DELETE FROM)\s+(inventory|inventory_movements)\b(?!_)|(UPDATE|INSERT INTO|DELETE FROM)\s+inventory_movements\b/;
+const STOCK_WRITE = /\b(UPDATE|DELETE\s+FROM|REPLACE\s+INTO|INSERT(\s+OR\s+\w+)?\s+INTO)\s+(inventory|inventory_movements)\b/i;
 
-const ALLOWED_DIRECT_WRITERS = [
-  'controllers/inventory.controller.js',   // manual adjust
-  'services/orders.service.js',            // dispatch and resellable return
-  'services/sales.service.js',             // checkout and void
-  'services/reconciliation.service.js',    // repairs cache drift (reads the ledger, resets the cache)
-  'services/requisitions.service.js',      // approve requisition
-];
+// R1 is complete: services/stock.service.js is the only file that writes inventory or inventory_movements.
+const ALLOWED_DIRECT_WRITERS = [];
 const THE_WRITER = 'services/stock.service.js';
 const IGNORED = ['db/migrate.js', 'db/seed.js'];
 
@@ -41,7 +35,7 @@ describe('who is allowed to write stock', () => {
     expect(writers.filter((w) => !ALLOWED_DIRECT_WRITERS.includes(w))).toEqual([]);
   });
 
-  it('the allow-list has no stale entries (shrink it as R1 moves each writer over)', () => {
+  it('the allow-list has no stale entries', () => {
     expect(ALLOWED_DIRECT_WRITERS.filter((a) => !writers.includes(a))).toEqual([]);
   });
 

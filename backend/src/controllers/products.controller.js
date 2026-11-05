@@ -115,9 +115,7 @@ const create = asyncHandler(async (req, res) => {
   });
 
   // Initialize inventory row at 0 for the requester's store so it shows up immediately
-  db.prepare(`
-    INSERT OR IGNORE INTO inventory (product_id, store_id, quantity) VALUES (?, ?, 0)
-  `).run(result.lastInsertRowid, req.user.storeId);
+  stock.ensureRow(result.lastInsertRowid, req.user.storeId);
 
   const product = db.prepare('SELECT * FROM products WHERE id = ?').get(result.lastInsertRowid);
   if (proposing) {
