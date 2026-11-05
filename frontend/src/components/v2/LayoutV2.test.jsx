@@ -1,0 +1,201 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, within, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MemoryRouter, Routes, Route } from 'react-router-dom';
+import LayoutV2 from './LayoutV2';
+import { storesApi, cashSessionsApi } from '../../api/endpoints';
+import { canFor, hasRoleFor } from '../shell/testRoles';
+
+const auth = { role: 'admin' };
+vi.mock('../../context/AuthContext', () => ({
+  useAuth: () => ({
+    user: { name: 'Ann Admin', role: auth.role },
+    logout: vi.fn(), lock: vi.fn(),
+    hasRole: hasRoleFor(auth.role),
+    can: canFor(auth.role),
+  }),
+}));
+vi.mock('../../hooks/useModules', () => ({ default: () => ({ hr: true, control: true, loaded: true }) }));
+vi.mock('../NotificationBell', () => ({ default: () => <button type="button" aria-label="Notifications" /> }));
+vi.mock('../useStackedTableLabels', () => ({ default: () => {} }));
+vi.mock('../../api/endpoints', () => ({
+  storesApi: { list: vi.fn() },
+  cashSessionsApi: { current: vi.fn() },
+}));
+
+function mount(path = '/orders') {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={client}>
+      <MemoryRouter initialEntries={[path]}>
+        <Routes>
+          <Route element={<LayoutV2 />}>
+            <Route path="*" element={<div>The page</div>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+}
+const rail = () => within(screen.getByRole('navigation', { name: 'Workspaces' }));
+const labels = (nav) => nav.getAllByRole('link').map((a) => a.textContent);
+
+beforeEach(() => {
+  localStorage.clear();
+  auth.role = 'admin';
+  storesApi.list.mockResolvedValue({ data: { data: [{ id: 1, name: 'Main Branch', is_current: 1 }, { id: 2, name: 'Westlands', is_current: 0 }] } });
+  cashSessionsApi.current.mockResolvedValue({ data: { data: null } });
+});
+
+describe('the rail, per role', () => {
+  it('admin: five workspaces, with Settings in the bottom stack', () => {
+    mount();
+    expect(labels(rail())).toEqual(['Today', 'Sell', 'Stock', 'Money', 'Team']);
+    const aside = within(screen.getByRole('complementary', { name: 'Main navigation' }));
+    expect(aside.getByRole('link', { name: 'Settings' }).getAttribute('href')).toBe('/settings');
+  });
+
+  it('manager: the same five workspaces, no Settings', () => {
+    auth.role = 'manager';
+    mount();
+    expect(labels(rail())).toEqual(['Today', 'Sell', 'Stock', 'Money', 'Team']);
+    expect(screen.queryByRole('link', { name: 'Settings' })).toBeNull();
+  });
+
+  it('cashier: a flat rail of their seven pages', () => {
+    auth.role = 'cashier';
+    mount('/terminal');
+    expect(labels(rail())).toEqual(['Terminal', 'Orders', 'Leads', 'Sales history', 'Approvals', 'Requisitions', 'Attendance']);
+  });
+
+  it('storekeeper: a flat rail of two, and the logo goes to the catalog', () => {
+    auth.role = 'store';
+    mount('/catalog');
+    expect(labels(rail())).toEqual(['Catalog', 'Stock control']);
+    expect(screen.getByRole('link', { name: 'Urban Trends, home' }).getAttribute('href')).toBe('/catalog');
+  });
+
+  it('each workspace item goes to its first page', () => {
+    mount();
+    const href = (name) => rail().getByRole('link', { name }).getAttribute('href');
+    expect([href('Today'), href('Sell'), href('Stock'), href('Money'), href('Team')])
+      .toEqual(['/dashboard', '/terminal', '/catalog', '/finance', '/attendance']);
+  });
+});
+
+describe('where you are', () => {
+  it('marks the current workspace, including for sub-pages', () => {
+    mount('/attendance/end-of-day');
+    expect(rail().getByRole('link', { name: 'Team' }).getAttribute('aria-current')).toBe('page');
+    expect(rail().getByRole('link', { name: 'Sell' }).getAttribute('aria-current')).toBeNull();
+  });
+
+  it('shows the workspace pages as links, with the current one marked', () => {
+    mount('/orders');
+    const tabs = within(screen.getByRole('navigation', { name: 'Pages in this workspace' }));
+    expect(labels(tabs)).toEqual(['Terminal', 'Orders', 'Leads', 'Sales history', 'Approvals']);
+    expect(tabs.getByRole('link', { name: 'Orders' }).getAttribute('aria-current')).toBe('page');
+  });
+
+  it('shows no tab strip on the flat rail, or on a page outside the navigation', () => {
+    auth.role = 'cashier';
+    const { unmount } = mount('/orders');
+    expect(screen.queryByRole('navigation', { name: 'Pages in this workspace' })).toBeNull();
+    unmount();
+    auth.role = 'admin';
+    mount('/security');
+    expect(screen.queryByRole('navigation', { name: 'Pages in this workspace' })).toBeNull();
+    expect(rail().getAllByRole('link').every((a) => a.getAttribute('aria-current') === null)).toBe(true);
+  });
+
+  it('renders the page in the outlet and the preview marker', () => {
+    mount();
+    expect(screen.getByText('The page')).toBeTruthy();
+    expect(screen.getByTestId('ui-v2-marker')).toBeTruthy();
+  });
+});
+
+describe('search', () => {
+  it('opens from the Search button and from Ctrl+K', async () => {
+    const user = userEvent.setup();
+    mount();
+    expect(screen.queryByRole('dialog', { name: 'Go to' })).toBeNull();
+    await user.click(within(screen.getByRole('complementary')).getByRole('button', { name: 'Search pages' }));
+    expect(screen.getByRole('dialog', { name: 'Go to' })).toBeTruthy();
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog', { name: 'Go to' })).toBeNull();
+    await user.keyboard('{Control>}k{/Control}');
+    expect(screen.getByRole('dialog', { name: 'Go to' })).toBeTruthy();
+  });
+});
+
+describe('status line', () => {
+  const status = () => within(screen.getByLabelText('Status'));
+
+  it('shows the branch, the connection and the shift', async () => {
+    mount();
+    await waitFor(() => expect(status().getByText('Main Branch')).toBeTruthy());
+    expect(status().getByText('Online')).toBeTruthy();
+    await waitFor(() => expect(status().getByText('No shift open')).toBeTruthy());
+  });
+
+  it('says when a shift is open', async () => {
+    cashSessionsApi.current.mockResolvedValue({ data: { data: { id: 7, opened_at: '2026-11-05T08:12:00', opening_amount: 500000 } } });
+    mount();
+    await waitFor(() => expect(status().getByText(/^Shift open since/)).toBeTruthy());
+  });
+
+  it('leaves the shift out for a storekeeper, who has no till', async () => {
+    auth.role = 'store';
+    mount('/catalog');
+    await waitFor(() => expect(status().getByText('Main Branch')).toBeTruthy());
+    expect(cashSessionsApi.current).not.toHaveBeenCalled();
+    expect(status().queryByText(/shift/i)).toBeNull();
+  });
+
+  it('quietly leaves a part out when its lookup fails', async () => {
+    storesApi.list.mockRejectedValue(new Error('nope'));
+    cashSessionsApi.current.mockRejectedValue(new Error('nope'));
+    mount();
+    await waitFor(() => expect(storesApi.list).toHaveBeenCalled());
+    expect(status().getByText('Online')).toBeTruthy();
+    expect(status().queryByText('Main Branch')).toBeNull();
+    expect(status().queryByText(/shift/i)).toBeNull();
+  });
+});
+
+describe('phone bottom bar', () => {
+  const bar = () => within(screen.getByRole('navigation', { name: 'Mobile navigation' }));
+
+  it('shows four destinations and More, and the rest sits behind More', async () => {
+    const user = userEvent.setup();
+    mount('/orders');
+    expect(labels(bar())).toEqual(['Today', 'Sell', 'Stock', 'Money']);
+    expect(bar().getByRole('link', { name: 'Sell' }).getAttribute('aria-current')).toBe('page');
+    await user.click(bar().getByRole('button', { name: 'More' }));
+    const more = within(screen.getByRole('dialog', { name: 'More' }));
+    expect(more.getByRole('link', { name: 'Team' })).toBeTruthy();
+    expect(more.getByRole('link', { name: 'Settings' })).toBeTruthy();
+    expect(more.getByRole('button', { name: 'Search pages' })).toBeTruthy();
+    expect(more.getByRole('button', { name: 'Notifications' })).toBeTruthy();
+    expect(more.getByRole('button', { name: /account menu/i })).toBeTruthy();
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog', { name: 'More' })).toBeNull();
+  });
+
+  it('keeps the account menu reachable for a small role', async () => {
+    const user = userEvent.setup();
+    auth.role = 'store';
+    mount('/catalog');
+    expect(labels(bar())).toEqual(['Catalog', 'Stock control']);
+    await user.click(bar().getByRole('button', { name: 'More' }));
+    await user.click(within(screen.getByRole('dialog', { name: 'More' })).getByRole('button', { name: /account menu/i }));
+    expect(screen.getByRole('menuitem', { name: /lock screen/i })).toBeTruthy();
+  });
+
+  it('lights More when the current page is behind it', () => {
+    mount('/staff');
+    expect(bar().getByRole('button', { name: 'More' }).className).toContain('text-accent');
+  });
+});
