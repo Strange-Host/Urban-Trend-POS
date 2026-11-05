@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import TabBar from '../components/TabBar';
+import PageHeader from '../components/shell/PageHeader';
+import PageSection from '../components/shell/PageSection';
 import Payments from './Payments';
 import Expenses from './Expenses';
 import CashSessions from './CashSessions';
@@ -29,13 +30,15 @@ export default function Finance() {
 
   return (
     <div>
-      <TabBar tabs={tabs} active={tab} onChange={setTab} className="px-4 md:px-8 pt-4 md:pt-6" />
-      {tab === 'payments' && <Payments />}
-      {tab === 'expenses' && <Expenses />}
-      {tab === 'cash-sessions' && <CashSessions />}
-      {tab === 'couriers' && <Couriers />}
-      {tab === 'custody' && can('custody.manage') && <Custody />}
-      {tab === 'delivery-rates' && <DeliveryAreas />}
+      <PageHeader title="Finance" titleless padding="px-4 md:px-8 pt-4 md:pt-6" tabs={{ items: tabs, active: tab, onChange: setTab }} />
+      <PageSection>
+        {tab === 'payments' && <Payments />}
+        {tab === 'expenses' && <Expenses />}
+        {tab === 'cash-sessions' && <CashSessions />}
+        {tab === 'couriers' && <Couriers />}
+        {tab === 'custody' && can('custody.manage') && <Custody />}
+        {tab === 'delivery-rates' && <DeliveryAreas />}
+      </PageSection>
     </div>
   );
 }

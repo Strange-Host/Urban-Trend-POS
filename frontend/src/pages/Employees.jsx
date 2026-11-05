@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import PageHeader from '../components/shell/PageHeader';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { employeesApi, staffApi } from '../api/endpoints';
 import { getErrorMessage } from '../api/client';
@@ -64,11 +65,10 @@ export default function Employees() {
 
   return (
     <div className="p-4 md:p-6 max-w-4xl">
-      <h1 className="font-display font-700 text-2xl mb-1">Employee onboarding</h1>
-      <p className="text-text-muted text-sm mb-5">
-        Hires added here can't log in until their documents are uploaded and they've signed the staff
-        policy. For a quick internal account with no paperwork gate, use the Staff page instead.
-      </p>
+      <PageHeader
+        title="Employee onboarding"
+        description="Hires added here can't log in until their documents are uploaded and they've signed the staff policy. For a quick internal account with no paperwork gate, use the Staff page instead."
+      />
 
       {error && <div className="mb-4 px-3.5 py-2.5 rounded-lg bg-danger-soft text-danger text-sm">{error}</div>}
       {notice && <div className="mb-4 px-3.5 py-2.5 rounded-lg bg-success-soft text-success text-sm">{notice}</div>}

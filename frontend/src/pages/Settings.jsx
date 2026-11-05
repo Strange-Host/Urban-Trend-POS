@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import PageHeader from '../components/shell/PageHeader';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { settingsApi, incomeSourcesApi, backupsApi, paymentGatewaysApi } from '../api/endpoints';
 import { getErrorMessage } from '../api/client';
@@ -9,7 +10,6 @@ import { BranchesSection, SuppliersSection } from './SettingsBranches';
 import { ServerAddressSection, EmailSection, KcbAdvancedSection, LiveSyncControls, LiveSyncSettings } from './SettingsSystem';
 import { useSearchParams } from 'react-router-dom';
 import { modulesApi } from '../api/endpoints';
-import TabBar from '../components/TabBar';
 import { LoadingBlock } from '../components/Skeleton';
 
 const PLATFORM_LABEL = { shopify: 'Shopify', woocommerce: 'WooCommerce' };
@@ -1009,10 +1009,11 @@ export default function Settings() {
 
   return (
     <div className="p-4 md:p-8 max-w-4xl">
-      <h1 className="font-display font-700 text-2xl mb-1">Settings</h1>
-      <p className="text-text-muted text-sm mb-4">Business details, payments, messaging, your online stores, and the server.</p>
-
-      <TabBar tabs={SETTINGS_TABS} active={tab} onChange={selectTab} className="mb-5 -mx-4 px-4 md:mx-0 md:px-0" />
+      <PageHeader
+        title="Settings"
+        description="Business details, payments, messaging, your online stores, and the server."
+        tabs={{ items: SETTINGS_TABS, active: tab, onChange: selectTab, className: '-mx-4 px-4 md:mx-0 md:px-0' }}
+      />
 
       {tab === 'business' && (
         <>

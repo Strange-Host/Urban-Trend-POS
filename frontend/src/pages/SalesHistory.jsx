@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import PageHeader from '../components/shell/PageHeader';
 import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { salesApi } from '../api/endpoints';
 import { useAuth } from '../context/AuthContext';
@@ -59,12 +60,10 @@ export default function SalesHistory() {
 
   return (
     <div className="p-4 md:p-8 max-w-6xl">
-      <div className="flex items-center justify-between flex-wrap gap-3 mb-1">
-        <h1 className="font-display font-700 text-2xl">Sales history</h1>
-      </div>
-      <p className="text-text-muted text-sm mb-4">
-        {data?.total ?? '—'} transactions across every store and channel — local register plus any connected Shopify or WooCommerce sources.
-      </p>
+      <PageHeader
+        title="Sales history"
+        description={<>{data?.total ?? '—'} transactions across every store and channel — local register plus any connected Shopify or WooCommerce sources.</>}
+      />
 
       <TabBar tabs={CHANNELS} active={channel} onChange={(k) => { setChannel(k); pager.reset(); }} variant="filter" className="mb-6" />
 

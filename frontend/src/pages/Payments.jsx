@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import PageHeader from '../components/shell/PageHeader';
 import StatCard from '../components/StatCard';
 import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { paymentsApi } from '../api/endpoints';
@@ -88,16 +89,16 @@ export default function Payments() {
 
   return (
     <div className="p-4 md:p-8 max-w-4xl">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
-        <div>
-          <h1 className="font-display font-700 text-2xl">Payments</h1>
-          <p className="text-text-muted text-sm mt-1">Layaway/partial customer payments and outgoing supplier payments — separate from Terminal checkout.</p>
-        </div>
-        <button onClick={openNew}
-          className="px-4 py-2.5 rounded-lg bg-ink text-white text-sm font-medium hover:bg-ink-soft transition-colors whitespace-nowrap">
-          + Record payment
-        </button>
-      </div>
+      <PageHeader
+        title="Payments"
+        description="Layaway/partial customer payments and outgoing supplier payments — separate from Terminal checkout."
+        actions={(
+          <button onClick={openNew}
+            className="px-4 py-2.5 rounded-lg bg-ink text-white text-sm font-medium hover:bg-ink-soft transition-colors whitespace-nowrap">
+            + Record payment
+          </button>
+        )}
+      />
 
       <div className="grid grid-cols-2 gap-3 mb-6">
         <StatCard label="Incoming (completed)" value={`KES ${(incomingTotal / 100).toFixed(0)}`} />

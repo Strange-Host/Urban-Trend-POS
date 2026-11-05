@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import TabBar from '../components/TabBar';
+import PageHeader from '../components/shell/PageHeader';
+import PageSection from '../components/shell/PageSection';
 import Products from './Products';
 import Categories from './Categories';
 import { useAuth } from '../context/AuthContext';
@@ -24,12 +25,20 @@ export default function Catalog() {
   // A storekeeper can only propose products; managing categories needs the full products permission.
   const canManage = can('products.manage');
 
+  const body = tab === 'categories' && canManage ? <Categories />
+    : tab === 'online' && canManage ? <Products key="online" catalogue="online" />
+      : <Products key="shop" catalogue="shop" />;
+
+  // Only people who manage the catalog get the tabs (and so a header of their own). Everyone else sees Products on its own,
+  // which then draws its own page header.
   return (
     <div>
-      {canManage && <TabBar tabs={TABS} active={tab} onChange={setTab} className="px-4 md:px-8 pt-4 md:pt-6" />}
-      {tab === 'categories' && canManage ? <Categories />
-        : tab === 'online' && canManage ? <Products key="online" catalogue="online" />
-        : <Products key="shop" catalogue="shop" />}
+      {canManage ? (
+        <>
+          <PageHeader title="Catalog" titleless padding="px-4 md:px-8 pt-4 md:pt-6" tabs={{ items: TABS, active: tab, onChange: setTab }} />
+          <PageSection>{body}</PageSection>
+        </>
+      ) : body}
     </div>
   );
 }

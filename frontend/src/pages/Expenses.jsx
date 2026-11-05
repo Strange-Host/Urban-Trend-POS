@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import PageHeader from '../components/shell/PageHeader';
 import StatCard from '../components/StatCard';
 import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { expensesApi, pettyCashApi } from '../api/endpoints';
@@ -180,18 +181,16 @@ export default function Expenses() {
 
   return (
     <div className="p-4 md:p-8 max-w-4xl">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
-        <div>
-          <h1 className="font-display font-700 text-2xl">Expenses</h1>
-          <p className="text-text-muted text-sm mt-1">Rent, utilities, supplies, wages, and other outgoings. An expense counts once it is approved.</p>
-        </div>
-        {canManage && (
+      <PageHeader
+        title="Expenses"
+        description="Rent, utilities, supplies, wages, and other outgoings. An expense counts once it is approved."
+        actions={canManage ? (
           <button onClick={openNew}
             className="px-4 py-2.5 rounded-lg bg-ink text-white text-sm font-medium hover:bg-ink-soft transition-colors whitespace-nowrap">
             + Record expense
           </button>
-        )}
-      </div>
+        ) : null}
+      />
 
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-6">
         <StatCard label="Approved (all time)" value={summary ? kes(summary.grand_total) : '—'} />

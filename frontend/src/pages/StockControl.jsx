@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import PageHeader from '../components/shell/PageHeader';
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { stockApi, suppliersApi, storesApi, productsApi, categoriesApi, inventoryApi, reportsApi } from '../api/endpoints';
 import { getErrorMessage } from '../api/client';
@@ -1037,25 +1038,17 @@ export default function StockControl() {
 
   return (
     <div className="p-4 md:p-8 max-w-5xl">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
-        <div>
-          <h1 className="font-display font-700 text-2xl">Stock control</h1>
-          <p className="text-text-muted text-sm mt-1">{viewing ? `${viewing.name}${viewing.is_main ? ' (main store)' : ''}` : 'Receiving, transfers and counts.'}</p>
-        </div>
-        {canPickStore && (
+      <PageHeader
+        title="Stock control"
+        description={viewing ? `${viewing.name}${viewing.is_main ? ' (main store)' : ''}` : 'Receiving, transfers and counts.'}
+        actions={canPickStore ? (
           <div className="sm:w-60">
             <Picker value={viewStore || (current ? String(current.id) : '')} onChange={(v) => setViewStore(String(v) === String(current?.id) ? '' : String(v))} title="Branch" aria-label="Branch"
               options={stores.map((s) => ({ value: String(s.id), label: s.name + (s.is_main ? ' (main)' : '') }))} />
           </div>
-        )}
-      </div>
-
-      <div className="flex gap-1 mb-6 overflow-x-auto border-b border-line" role="tablist">
-        {tabs.map((t) => (
-          <button key={t.id} role="tab" aria-selected={tab === t.id} onClick={() => setTab(t.id)}
-            className={`px-4 py-2.5 text-sm font-medium whitespace-nowrap border-b-2 -mb-px ${tab === t.id ? 'border-text text-text' : 'border-transparent text-text-muted hover:text-text'}`}>{t.label}</button>
-        ))}
-      </div>
+        ) : null}
+        tabs={{ items: tabs.map((t) => ({ key: t.id, label: t.label })), active: tab, onChange: setTab, appearance: 'underline' }}
+      />
 
       {tab === 'receive' && <ReceiveTab storeParams={storeParams} isMainStore={Boolean(viewing?.is_main) && isOwnStore} />}
       {tab === 'issue' && <IssueTab storeParams={storeParams} isOwnStore={isOwnStore} />}

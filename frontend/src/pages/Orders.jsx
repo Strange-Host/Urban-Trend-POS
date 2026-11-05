@@ -184,20 +184,16 @@ export default function Orders() {
             <PullOnlineOrders onPulled={invalidate} />
           </div>
         )}
-      />
-
-      {isManager && (
-        <TabBar
-          tabs={[
+        tabs={isManager ? {
+          items: [
             { key: 'orders', label: 'All orders' },
             { key: 'decisions', label: pendingDecisions > 0 ? `Needs decision (${pendingDecisions})` : 'Needs decision' },
             { key: 'integrity', label: 'Integrity' },
-          ]}
-          active={view}
-          onChange={(k) => { setView(k); setError(''); }}
-          className="mb-4"
-        />
-      )}
+          ],
+          active: view,
+          onChange: (k) => { setView(k); setError(''); },
+        } : undefined}
+      />
 
       {view === 'orders' && <TabBar tabs={CHANNELS} active={channel} onChange={(k) => { setChannel(k); pager.reset(); setSelectedId(null); }} variant="filter" className="mb-4" />}
 

@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import TabBar from '../components/TabBar';
+import PageHeader from '../components/shell/PageHeader';
+import PageSection from '../components/shell/PageSection';
 import PayrollRuns from './PayrollRuns';
 import PayrollSummary from './PayrollSummary';
 import PayTerms from './PayTerms';
@@ -20,10 +21,12 @@ export default function Payroll() {
   const [tab, setTab] = useState('runs');
   return (
     <div>
-      <TabBar tabs={user?.role === 'admin' ? ADMIN_TABS : TABS} active={tab} onChange={setTab} className="px-4 md:px-6 pt-4 md:pt-6" />
-      {tab === 'runs' && <PayrollRuns />}
-      {tab === 'live' && <PayrollSummary />}
-      {tab === 'terms' && <PayTerms />}
+      <PageHeader title="Payroll" titleless padding="px-4 md:px-6 pt-4 md:pt-6" tabs={{ items: user?.role === 'admin' ? ADMIN_TABS : TABS, active: tab, onChange: setTab }} />
+      <PageSection>
+        {tab === 'runs' && <PayrollRuns />}
+        {tab === 'live' && <PayrollSummary />}
+        {tab === 'terms' && <PayTerms />}
+      </PageSection>
     </div>
   );
 }

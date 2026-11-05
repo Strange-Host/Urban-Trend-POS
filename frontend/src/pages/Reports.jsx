@@ -5,7 +5,7 @@ import { downloadFile, getErrorMessage } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/UIContext';
 import StatCard from '../components/StatCard';
-import TabBar from '../components/TabBar';
+import PageHeader from '../components/shell/PageHeader';
 import Panel from '../components/Panel';
 import { inputCls } from '../components/SettingsUI';
 import { LoadingBlock } from '../components/Skeleton';
@@ -312,8 +312,7 @@ export default function Reports() {
 
   return (
     <div className="p-4 md:p-8">
-      <h1 className="font-display font-700 text-2xl tracking-tight mb-4">Reports</h1>
-      <TabBar tabs={TABS} active={tab} onChange={setTab} className="mb-4" />
+      <PageHeader title="Reports" tabs={{ items: TABS, active: tab, onChange: setTab }} />
       <div className="flex flex-wrap items-end gap-3 mb-4">
         {!NO_DATE_RANGE.has(tab) && (<>
           <label className="text-xs font-medium text-text-muted">From

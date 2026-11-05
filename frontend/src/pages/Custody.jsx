@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import PageHeader from '../components/shell/PageHeader';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { custodyApi } from '../api/endpoints';
 import { getErrorMessage } from '../api/client';
@@ -54,10 +55,10 @@ export default function Custody() {
 
   return (
     <div className="p-4 md:p-8 max-w-5xl">
-      <div className="mb-6">
-        <h1 className="font-display font-700 text-2xl">Custody</h1>
-        <p className="text-text-muted text-sm mt-1">Shop cash still in someone&apos;s hands, oldest first. Record the deposit once it has reached the till or bank.</p>
-      </div>
+      <PageHeader
+        title="Custody"
+        description="Shop cash still in someone's hands, oldest first. Record the deposit once it has reached the till or bank."
+      />
 
       <div className="grid grid-cols-3 gap-3 mb-5">
         <StatCard label="Held, not deposited" value={money(total)} sub={`${records.length} record${records.length === 1 ? '' : 's'}`} />

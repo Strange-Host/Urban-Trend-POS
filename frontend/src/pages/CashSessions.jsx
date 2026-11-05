@@ -1,4 +1,5 @@
 import { useQuery, keepPreviousData } from '@tanstack/react-query';
+import PageHeader from '../components/shell/PageHeader';
 import { cashSessionsApi } from '../api/endpoints';
 import Pager, { usePager } from '../components/Pager';
 import { SkeletonRows } from '../components/Skeleton';
@@ -19,8 +20,10 @@ export default function CashSessions() {
 
   return (
     <div className="p-4 md:p-8 max-w-6xl">
-      <h1 className="font-display font-700 text-2xl mb-1">Cash sessions</h1>
-      <p className="text-text-muted text-sm mb-6">Shift-by-shift cash drawer reconciliation — opening float vs. what was actually counted at close.</p>
+      <PageHeader
+        title="Cash sessions"
+        description="Shift-by-shift cash drawer reconciliation — opening float vs. what was actually counted at close."
+      />
 
       <div className="bg-surface border border-line rounded-xl overflow-hidden scroll-x">
         <table className="stack-sm w-full text-sm min-w-[760px]">

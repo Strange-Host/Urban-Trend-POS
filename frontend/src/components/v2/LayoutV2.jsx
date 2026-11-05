@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import { Lock, Monitor, Moon, Sun } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
@@ -12,6 +12,7 @@ import Rail from '../shell/Rail';
 import BottomBar from '../shell/BottomBar';
 import StatusLine from '../shell/StatusLine';
 import WorkspaceTabs from '../shell/WorkspaceTabs';
+import { ShellChromeContext } from '../shell/pageChromeContext';
 import { activeEntryId, buildRail } from '../shell/railModel';
 
 // The redesigned shell, shown instead of Layout while the ut_ui=v2 flag is on: a 76px rail on large screens, a bottom
@@ -46,6 +47,19 @@ export default function LayoutV2() {
   // The pages of the current workspace, as links (workspace rail only: the flat rail already lists every page).
   const tabPages = rail.flat ? null : rail.entries.find((e) => e.id === activeId)?.pages;
 
+  // A page's PageHeader draws the status line and workspace tabs under its own title and "claims" them, so this shell
+  // draws them only above pages that have no header (the till, the dashboard for now).
+  const [claims, setClaims] = useState(0);
+  const claim = useCallback(() => {
+    setClaims((n) => n + 1);
+    return () => setClaims((n) => n - 1);
+  }, []);
+  const chrome = {
+    claim,
+    status: <StatusLine inline />,
+    workspaceTabs: <WorkspaceTabs pages={tabPages} path={activePath} inline />,
+  };
+
   const paletteActions = [
     { id: 'lock', label: 'Lock screen', icon: Lock, keywords: 'secure away', run: lock },
     { id: 'theme-dark', label: 'Theme: dark', icon: Moon, keywords: 'night appearance colours', run: () => setThemePreference('dark') },
@@ -59,10 +73,16 @@ export default function LayoutV2() {
       <Rail entries={rail.entries} settings={rail.settings} activeId={activeId} homeRoute={homeRoute} onSearch={openSearch} />
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <StatusLine />
-        <WorkspaceTabs pages={tabPages} path={activePath} />
+        {claims === 0 && (
+          <>
+            <StatusLine />
+            <WorkspaceTabs pages={tabPages} path={activePath} />
+          </>
+        )}
         <main ref={mainRef} className="min-w-0 flex-1 overflow-y-auto pb-[calc(3.5rem+env(safe-area-inset-bottom))] lg:pb-0">
-          <Outlet />
+          <ShellChromeContext.Provider value={chrome}>
+            <Outlet />
+          </ShellChromeContext.Provider>
         </main>
       </div>
 

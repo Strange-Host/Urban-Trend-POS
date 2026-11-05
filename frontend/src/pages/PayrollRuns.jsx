@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import PageHeader from '../components/shell/PageHeader';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { payrollApi } from '../api/endpoints';
 import { getErrorMessage } from '../api/client';
@@ -74,11 +75,10 @@ export default function PayrollRuns() {
 
   return (
     <div className="p-4 md:p-6 max-w-5xl">
-      <h1 className="font-display font-700 text-2xl mb-1">Pay runs</h1>
-      <p className="text-text-muted text-sm mb-5">
-        Each month is worked, calculated, reviewed, approved (which locks the figures) and paid on the {cycle?.payDay ?? 3}rd of the next month. A locked run never changes,
-        and commission is paid only on secured money, once per order. Commission targets start again every month.
-      </p>
+      <PageHeader
+        title="Pay runs"
+        description={<>Each month is worked, calculated, reviewed, approved (which locks the figures) and paid on the {cycle?.payDay ?? 3}rd of the next month. A locked run never changes, and commission is paid only on secured money, once per order. Commission targets start again every month.</>}
+      />
 
       {cycle && <CycleBanner cycle={cycle} />}
 
