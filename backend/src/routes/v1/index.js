@@ -97,6 +97,7 @@ const reviewKey = requirePermission('stock.review');
 router.post('/stock-takes', authenticate, countKey, validate(v11.startStockTake), stockTakes.start);
 router.get('/stock-takes', authenticate, countKey, stockTakes.list);
 router.get('/stock-takes/:id', authenticate, countKey, stockTakes.get);
+router.get('/stock-takes/:id/products', authenticate, countKey, stockTakes.products);
 router.post('/stock-takes/:id/lines', authenticate, countKey, validate(v11.stockTakeLines), stockTakes.saveLines);
 router.post('/stock-takes/:id/submit', authenticate, countKey, stockTakes.submit);
 router.post('/stock-takes/:id/approve', authenticate, reviewKey, validate(v11.approveStockTake), stockTakes.approve);

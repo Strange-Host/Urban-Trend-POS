@@ -105,7 +105,7 @@ const CourierBalances = z.looseObject({
   })),
 });
 const CourierCollections = z.looseObject({
-  items: z.array(z.looseObject({ collectionId: z.number().int(), orderId: z.number().int(), orderNumber: z.string(), customerName: z.string(), amountCents: cents, collectedOn: z.string() })),
+  items: z.array(z.looseObject({ collectionId: z.number().int(), orderId: z.number().int(), orderNumber: z.string(), customerName: z.string(), amountCents: cents, feeCents: cents, collectedOn: z.string() })),
 });
 const CourierRemittances = list(z.looseObject({
   id: z.number().int(), createdAt: iso, createdBy: z.looseObject({ id: z.number().int(), name: z.string() }),
@@ -122,3 +122,6 @@ const AttendanceToday = z.looseObject({
   }).nullable(),
 });
 Object.assign(module.exports, { UnmatchedPayments, PaymentSuggestions, PaymentMatched, PaymentIgnored, CourierBalances, CourierCollections, CourierRemittances, RemittanceCreated, AttendanceToday });
+
+const StockTakeProducts = z.looseObject({ items: z.array(z.looseObject({ productId: z.number().int(), name: z.string(), sku: z.string(), barcode: z.string().nullable(), systemQty: z.number().int() })) });
+Object.assign(module.exports, { StockTakeProducts });

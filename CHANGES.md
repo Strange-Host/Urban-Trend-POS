@@ -23,14 +23,14 @@ and leaves alone any product repriced since. New tables `price_history`, `price_
 **Stock-take** (`stock.count` to count, `stock.review` to decide). The counted sheet is a draft on the server (`POST /stock-takes`, `POST .../lines` up to 500 at a
 time, idempotent), so a closed app loses nothing. `POST .../submit` posts differences up to the new setting `stocktake_approval_units` (10) through the stock ledger
 (reason `stocktake`); bigger ones wait for a different owner or manager (`.../approve`, `.../reject` with a reason; an administrator may decide their own). Products
-not counted are left alone. New tables `stock_takes`, `stock_take_lines`. This is separate from the website's opening/closing outlet counts.
+not counted are left alone. `GET /stock-takes/:id/products?barcode=|q=` finds a product on the sheet's area for someone who may count but not browse the catalog (no cost). New tables `stock_takes`, `stock_take_lines`. This is separate from the website's opening/closing outlet counts.
 
 **Unmatched payments** (`payments.reconcile`). `GET /payments/unmatched`, `GET /payments/:id/suggestions` (by product code, equal balance, phone, payer name),
 `POST /payments/:id/match`, `POST /payments/:id/ignore`. Goes through the website's matching code, so a payment becomes revenue once; a second match is
 `ALREADY_MATCHED`, and a payment larger than the order's balance is `AMOUNT_EXCEEDS_BALANCE`.
 
 **Courier remittance** (`couriers.settle`). `GET /couriers/balances`, `GET /couriers/:id/collections`, `GET|POST /couriers/:id/remittances`: records money received from
-a courier organization with the website's statement code (fees we owe are netted, variance kept, immutable). A parcel already settled is `ALREADY_SETTLED`.
+a courier organization (`/collections` includes the fee we owe per parcel, so the phone can show the expected cash) with the website's statement code (fees we owe are netted, variance kept, immutable). A parcel already settled is `ALREADY_SETTLED`.
 There is no receipt photo yet: the server has no file upload.
 
 **Attendance.** `GET /attendance/me`, `POST /attendance/clock-in` (needs `confirm: true`; no location is read) and `/clock-out`, with the website's clock-out gate

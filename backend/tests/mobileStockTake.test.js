@@ -89,6 +89,25 @@ describe('draft', () => {
   });
 });
 
+describe('finding products while counting', () => {
+  it('resolves a scan or a name inside the sheet\'s area for a counter who cannot browse the catalog, never with cost', async () => {
+    const cat = H.makeCategory('STscan'); const other = H.makeCategory('STscanOther');
+    const mine = H.makeProduct({ categoryId: cat }); const foreign = H.makeProduct({ categoryId: other }); setQty(mine.id, 12);
+    const bar = (id) => db.prepare('SELECT barcode, name FROM products WHERE id = ?').get(id);
+    const t = await start(cashier, { type: 'category', categoryId: cat });
+    const noCatalog = await request(app).get('/api/v1/products').set(auth(cashier));
+    expect(noCatalog.status).toBe(403);                                  // the cashier really has no catalog access
+    const hit = await request(app).get(`/api/v1/stock-takes/${t.body.id}/products?barcode=${bar(mine.id).barcode}`).set(auth(cashier));
+    expect(hit.status).toBe(200);
+    expect(hit.body.items).toEqual([{ productId: mine.id, name: bar(mine.id).name, sku: mine.sku, barcode: bar(mine.id).barcode, systemQty: 12 }]);
+    expect(JSON.stringify(hit.body)).not.toMatch(/cost|margin/i);
+    expect((await request(app).get(`/api/v1/stock-takes/${t.body.id}/products?barcode=${bar(foreign.id).barcode}`).set(auth(cashier))).body.items).toEqual([]);
+    expect((await request(app).get(`/api/v1/stock-takes/${t.body.id}/products?q=${encodeURIComponent(bar(mine.id).name)}`).set(auth(cashier))).body.items).toHaveLength(1);
+    expect((await request(app).get(`/api/v1/stock-takes/${t.body.id}/products`).set(auth(cashier))).body.items).toEqual([]);
+    expect((await request(app).get(`/api/v1/stock-takes/${t.body.id}/products?q=a`).set(auth(cashier2))).status).toBe(404);   // someone else's sheet
+  });
+});
+
 describe('submit', () => {
   it('applies small differences through the ledger (reason stocktake), leaves matches and uncounted products alone', async () => {
     const cat = H.makeCategory('STapply');
