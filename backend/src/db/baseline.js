@@ -1,0 +1,946 @@
+// FROZEN: this file and schema.sql together are baseline migration 0001. They bring any database, from an empty file
+// to one created by any earlier release, up to the schema as it stood at restructure stage R3. Do not edit them.
+// Every new schema change goes in a numbered file under migrations/ (see migrations/README.md). A test
+// (tests/migrations.test.js) pins a checksum of both files and fails if either changes.
+//
+// This is a runner-less module now: db/migrate.js decides whether and when to call applyBaseline().
+
+const fs = require('fs');
+const path = require('path');
+const db = require('../config/db');
+
+// Columns added after the original table was created. `CREATE TABLE IF NOT
+// EXISTS` is a no-op on a table that already exists, so anyone with an
+// existing database needs these backfilled by hand — this does it safely,
+// column by column, without ever touching existing data.
+const ADDITIVE_COLUMNS = {
+  stores: [
+    `is_main INTEGER NOT NULL DEFAULT 0`,
+  ],
+  products: [
+    `approval_status TEXT NOT NULL DEFAULT 'approved' CHECK (approval_status IN ('approved','pending','rejected'))`,
+    `submitted_by_staff_id INTEGER REFERENCES users(id)`,
+    `reviewed_by_staff_id INTEGER REFERENCES users(id)`,
+    `reviewed_at TEXT`,
+    `review_note TEXT`,
+    // Which catalogue: 'shop' (stocked, sold at the till) or 'online' (Shopify/WooCommerce listing, stock not tracked here).
+    // Every existing product stays 'shop', so nothing changes until someone moves one.
+    `catalogue TEXT NOT NULL DEFAULT 'shop' CHECK (catalogue IN ('shop','online'))`,
+  ],
+  expenses: [
+    // Rows recorded before the approval workflow existed were already counted, so they stay 'approved'.
+    `status TEXT NOT NULL DEFAULT 'approved' CHECK (status IN ('pending','approved','rejected'))`,
+    `reviewed_by_staff_id INTEGER REFERENCES users(id)`,
+    `reviewed_at TEXT`,
+    `review_note TEXT`,
+    `paid_from TEXT NOT NULL DEFAULT 'main' CHECK (paid_from IN ('main','petty_cash'))`,
+    // Approved shop requisitions are forwarded here (requisitions.service.js).
+    `requisition_id INTEGER REFERENCES requisitions(id)`,
+  ],
+  users: [
+    `token_version INTEGER NOT NULL DEFAULT 1`,
+    // Phase 7 (employee onboarding & e-signature) — 'active' default keeps
+    // every existing user and everyone made via the plain POST /api/staff
+    // endpoint unaffected; only POST /api/employees/onboard starts someone
+    // at 'pending_documents'.
+    `onboarding_status TEXT NOT NULL DEFAULT 'active' CHECK (onboarding_status IN ('pending_documents','pending_signature','active'))`,
+    // 2.1 — defaults to 0 so every existing account (which already has a
+    // real password someone chose) is completely unaffected; only newly
+    // seeded/reset accounts with a one-time password get this set to 1.
+    `must_change_password INTEGER NOT NULL DEFAULT 0`,
+    // SMS one-time code at login (see services/twoFactor.service.js). Opt-in
+    // per account, default off — nobody is affected until an admin enables it.
+    `two_factor_enabled INTEGER NOT NULL DEFAULT 0`,
+    // Login protection / staff removal (see services/loginGuard.service.js and users.service.js)
+    `failed_login_count INTEGER NOT NULL DEFAULT 0`,
+    `locked_until TEXT`,
+    `pin_failed_count INTEGER NOT NULL DEFAULT 0`,
+    `pin_locked_until TEXT`,
+    `password_changed_at TEXT`,
+    `erased_at TEXT`,
+  ],
+  categories: [
+    `is_archived INTEGER NOT NULL DEFAULT 0`,
+    `archived_at TEXT`,
+  ],
+  refresh_tokens: [
+    `session_id INTEGER REFERENCES auth_sessions(id)`,
+  ],
+  leads: [
+    // Web-form intake (services/leadIntake.service.js): the form's own entry
+    // id makes a re-delivered webhook idempotent; the raw payload is kept so
+    // nothing the customer typed is ever lost to a mapping gap.
+    `external_id TEXT`,
+    `form_name TEXT`,
+    `raw_payload TEXT`,
+    `interested_product_id INTEGER REFERENCES products(id)`,
+  ],
+  sales: [
+    `external_updated_at TEXT`,   // the store's own 'last changed' time of the order - lets us ignore a stale, out-of-order webhook
+    `source_type TEXT NOT NULL DEFAULT 'local'`,
+    `income_source_id INTEGER REFERENCES income_sources(id)`,
+    `external_order_id TEXT`,
+    `external_order_number TEXT`,
+    `synced_at TEXT`,
+    // Offline register support — no inline UNIQUE (SQLite can't add a
+    // UNIQUE column via ALTER TABLE); the guarantee comes from
+    // idx_sales_client_sale_id in schema.sql, created by the index pass below.
+    `client_sale_id TEXT`,
+  ],
+  shopify_staging_products: [
+    `platform TEXT NOT NULL DEFAULT 'shopify'`,
+    `income_source_id INTEGER REFERENCES income_sources(id)`,
+    `category_id INTEGER REFERENCES categories(id)`,
+  ],
+  income_sources: [
+    `token_expires_at TEXT`,
+    // Live sync (services/liveSync.service.js): the store tells us about changes the moment they happen.
+    `live_sync_enabled INTEGER NOT NULL DEFAULT 0`,
+    `webhook_secret TEXT`,          // WooCommerce signs deliveries with a per-store secret we generate (encrypted at rest)
+    `last_webhook_at TEXT`,
+    `last_poll_at TEXT`,            // the safety-net poll (catches anything a webhook missed)
+    `last_poll_error TEXT`,
+  ],
+  // Online-order Phase 1 (POS -> inventory management conversion, §2/§3):
+  customers: [
+    `phone_normalized TEXT`,
+    `city TEXT`,
+    `risk_flag TEXT NOT NULL DEFAULT 'none'`,
+    `prepay_required INTEGER NOT NULL DEFAULT 0`,
+    // No DEFAULT here deliberately — SQLite's ALTER TABLE ADD COLUMN rejects
+    // a non-constant default like datetime('now') (unlike CREATE TABLE,
+    // which allows it fine; that's why schema.sql's fresh-install version of
+    // this column has one and this additive one doesn't). Backfilled by the
+    // UPDATE just below instead; every future write goes through service
+    // code that sets updated_at explicitly anyway.
+    `updated_at TEXT`,
+  ],
+  payment_records: [
+    `order_id INTEGER REFERENCES orders(id)`,
+  ],
+  // Phase 2 (courier, dispatch & COD confirmation gate):
+  orders: [
+    `payment_type TEXT NOT NULL DEFAULT 'cod' CHECK (payment_type IN ('cod','prepaid','g4s_pickup_pay'))`,
+    `courier_type TEXT CHECK (courier_type IN ('boda','g4s'))`,
+    `delivery_zone TEXT CHECK (delivery_zone IN ('nairobi','outside'))`,
+    `delivery_fee INTEGER NOT NULL DEFAULT 0`,
+    // Set on an order that was merged away into another one (orders.mergeOrders); the order itself is cancelled and zeroed.
+    `merged_into_order_id INTEGER REFERENCES orders(id)`,
+    `courier_id INTEGER REFERENCES couriers(id)`, // a NAMED courier (couriers table); courier_type stays the fee/zone source of truth
+    `income_source_id INTEGER REFERENCES income_sources(id)`,
+    `sale_id INTEGER REFERENCES sales(id)`,
+    `cod_confirmed_at TEXT`,
+    `cod_confirmed_by INTEGER REFERENCES users(id)`,
+    `cod_confirmation_expires_at TEXT`,
+    // Phase 3 (payment reconciliation) — no inline UNIQUE (SQLite won't
+    // allow adding a UNIQUE column via ALTER TABLE ADD COLUMN); the unique
+    // guarantee comes from idx_orders_product_code in schema.sql instead.
+    `product_code TEXT`,
+    // Phase 4 (RMA — return reason codes & owner write-off/disposal decision):
+    `return_reason TEXT CHECK (return_reason IN ('rejected','damaged','wrong_item'))`,
+    `owner_notified_at TEXT`,
+    `owner_decision TEXT CHECK (owner_decision IN ('write_off','dispose'))`,
+    `owner_decision_by INTEGER REFERENCES users(id)`,
+    `owner_decision_at TEXT`,
+    `owner_decision_notes TEXT`,
+    // Phase 8 (dispute management):
+    `dispute_status TEXT CHECK (dispute_status IN ('open','resolved'))`,
+    `dispute_reason TEXT`,
+    `dispute_outcome TEXT CHECK (dispute_outcome IN ('refund','redelivered','closed'))`,
+    `dispute_opened_by INTEGER REFERENCES users(id)`,
+    `dispute_opened_at TEXT`,
+    `dispute_resolved_by INTEGER REFERENCES users(id)`,
+    `dispute_resolved_at TEXT`,
+    `dispute_resolution_notes TEXT`,
+  ],
+  // Phase 6 (salary-advance requisitions §10):
+  couriers: [
+    // Courier organizations (services/courierOrganizations.service.js). Existing couriers stay riders.
+    `kind TEXT NOT NULL DEFAULT 'rider' CHECK (kind IN ('rider','organization'))`,
+    `collects_payment INTEGER NOT NULL DEFAULT 0`,
+    `contact_person TEXT`,
+    `overdue_limit INTEGER CHECK (overdue_limit IS NULL OR overdue_limit >= 0)`,
+    `overdue_after_days INTEGER NOT NULL DEFAULT 14 CHECK (overdue_after_days > 0)`,
+  ],
+  requisitions: [
+    `type TEXT NOT NULL DEFAULT 'shop_operational' CHECK (type IN ('shop_operational','salary_advance'))`,
+    `amount INTEGER`,
+    // Employee acknowledgement: the requester's typed-name signature when asking, and again on receiving.
+    `request_signature_name TEXT`,
+    `request_signature_at TEXT`,
+    `receipt_signature_name TEXT`,
+    `receipt_signature_at TEXT`,
+  ],
+  // Pay cycle (fixed pay date, payout sign-off), per-employee pay types and commission reversals.
+  payroll_runs: [
+    `pay_date TEXT`,
+    `signed_off_by INTEGER REFERENCES users(id)`,
+    `signed_off_at TEXT`,
+    `signed_off_name TEXT`,
+  ],
+  payroll_adjustments: [
+    `reverses_order_id INTEGER REFERENCES orders(id)`,
+  ],
+  commissioned_orders: [
+    `commission INTEGER CHECK (commission IS NULL OR commission >= 0)`,
+  ],
+  users: [
+    `commission_type TEXT NOT NULL DEFAULT 'fixed' CHECK (commission_type IN ('fixed','percentage','combined'))`,
+    `commission_fixed_cents INTEGER CHECK (commission_fixed_cents IS NULL OR commission_fixed_cents >= 0)`,
+    `commission_percent_bp INTEGER NOT NULL DEFAULT 0 CHECK (commission_percent_bp BETWEEN 0 AND 10000)`,
+  ],
+  // Payment gateway credentials (M-Pesa/KCB in Settings) + outgoing-money mirroring:
+  payment_notifications: [
+    `direction TEXT NOT NULL DEFAULT 'incoming' CHECK (direction IN ('incoming','outgoing'))`,
+    `expense_id INTEGER REFERENCES expenses(id)`,
+    // Set when the money turned out to be a customer paying a delivery fee rather than goods (deliverySettlement.service.js).
+    `delivery_fee_receipt_id INTEGER REFERENCES delivery_fee_receipts(id)`,
+  ],
+  delivery_settlements: [
+    `fee_written_off INTEGER NOT NULL DEFAULT 0`,
+    `write_off_reason TEXT`,
+  ],
+  // Batch costing, expiry and recall (services/costing.service.js).
+  stock_receipt_items: [
+    `batch_no TEXT`,
+    `expiry_date TEXT`,
+    `unit_cost INTEGER CHECK (unit_cost IS NULL OR unit_cost >= 0)`,
+    `costed_by_staff_id INTEGER REFERENCES users(id)`,
+    `costed_at TEXT`,
+    `recalled_at TEXT`,
+    `recalled_by_staff_id INTEGER REFERENCES users(id)`,
+    `recall_note TEXT`,
+  ],
+  inventory_movements: [
+    `batch_id INTEGER REFERENCES stock_receipt_items(id)`,
+  ],
+  stock_issues: [
+    `batch_id INTEGER REFERENCES stock_receipt_items(id)`,
+  ],
+  sale_items: [
+    `cost_total INTEGER`,
+  ],
+  order_items: [
+    `cost_total INTEGER`,
+  ],
+};
+
+function ensureColumn(table, columnDef) {
+  const columnName = columnDef.trim().split(/\s+/)[0];
+  const existing = db.prepare(`PRAGMA table_info(${table})`).all();
+  const hasColumn = existing.some((c) => c.name === columnName);
+  if (!hasColumn) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${columnDef}`);
+    console.log(`  + added ${table}.${columnName}`);
+  }
+}
+
+function tableExists(name) {
+  return !!db.prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name = ?`).get(name);
+}
+
+// products.shopify_variant_id originally had an inline `UNIQUE` constraint —
+// global across every connected store. Two different WooCommerce stores can
+// legitimately both have a "product 15" (their ids are small, per-site
+// sequential numbers, unlike Shopify's globally-unique ones), so a plain
+// global UNIQUE either blocks importing the second store's product outright,
+// or — before the income_source_id scoping fix that goes with this — could
+// silently match and overwrite a different store's product entirely. Fixed
+// by a composite unique index scoped by (income_source_id, shopify_variant_id).
+//
+// SQLite can't ALTER a column to drop an inline UNIQUE constraint — it has to
+// be a full table rebuild. This is the standard SQLite-documented procedure
+// for schema changes on a table other tables have foreign keys pointing at
+// (https://www.sqlite.org/lang_altertable.html, "Making Other Kinds Of Table
+// Schema Changes") — verified against this project's actual data shape
+// (products -> inventory/sale_items/etc.) before shipping, because the
+// naive approach (rename products out of the way, recreate fresh) silently
+// rewrites every OTHER table's foreign key clause to point at the
+// renamed-away copy instead, which then breaks when that copy is dropped.
+// The fix is ordering: build the new shape under a temp name FIRST (old
+// `products` untouched throughout), copy the data across, only THEN drop
+// the old table and rename the temp one into place — foreign key clauses in
+// dependent tables are never rewritten because `products` (the name they
+// actually reference) is never the thing being renamed away.
+function needsProductsRebuild() {
+  if (!tableExists('products')) return false; // fresh install — schema.sql below creates it correctly already
+  const indexes = db.prepare(`PRAGMA index_list(products)`).all();
+  return indexes.some((idx) => {
+    if (!idx.unique) return false;
+    const cols = db.prepare(`PRAGMA index_info(${idx.name})`).all();
+    return cols.length === 1 && cols[0].name === 'shopify_variant_id';
+  });
+}
+
+function rebuildProductsTable() {
+  console.log('  Rebuilding products table to scope shopify_variant_id uniqueness per connected store...');
+  const wasForeignKeysOn = db.pragma('foreign_keys', { simple: true }) === 1;
+  db.pragma('foreign_keys = OFF');
+
+  const txn = db.transaction(() => {
+    db.exec(`
+      CREATE TABLE products_pre_scoped_uniqueness_new (
+        id                          INTEGER PRIMARY KEY AUTOINCREMENT,
+        sku                         TEXT NOT NULL UNIQUE,
+        barcode                     TEXT UNIQUE,
+        name                        TEXT NOT NULL,
+        description                 TEXT,
+        category_id                 INTEGER REFERENCES categories(id),
+        brand                       TEXT,
+        cost_price                  REAL NOT NULL DEFAULT 0,
+        sell_price                  REAL NOT NULL,
+        tax_rate                    REAL NOT NULL DEFAULT 0,
+        image_url                   TEXT,
+        is_active                   INTEGER NOT NULL DEFAULT 1,
+        shopify_product_id          TEXT,
+        shopify_variant_id          TEXT,
+        shopify_inventory_item_id   TEXT,
+        shopify_synced_at           TEXT,
+        income_source_id            INTEGER REFERENCES income_sources(id),
+        created_at                  TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at                  TEXT NOT NULL DEFAULT (datetime('now'))
+      )
+    `);
+
+    const oldColumns = db.prepare(`PRAGMA table_info(products)`).all().map((c) => c.name);
+    const cols = oldColumns.join(', '); // income_source_id (and any other new column) is absent from the
+                                          // old table and so defaults to NULL — correctly meaning "not linked
+                                          // to any specific connected store" for every pre-existing product.
+    db.exec(`INSERT INTO products_pre_scoped_uniqueness_new (${cols}) SELECT ${cols} FROM products`);
+    db.exec('DROP TABLE products');
+    db.exec('ALTER TABLE products_pre_scoped_uniqueness_new RENAME TO products');
+  });
+  txn();
+
+  const violations = db.pragma('foreign_key_check');
+  if (violations.length > 0) {
+    // Should be unreachable given the ordering above, but never silently
+    // continue with broken referential integrity if it somehow happens.
+    throw new Error(`products table rebuild left foreign key violations: ${JSON.stringify(violations)}`);
+  }
+
+  if (wasForeignKeysOn) db.pragma('foreign_keys = ON');
+  console.log('  + products table rebuilt, all existing products preserved, foreign keys verified intact');
+}
+
+// inventory_movements.reason had an inline CHECK that didn't yet know about
+// 'dispatch' / 'return_resellable' (added for the online-order lifecycle,
+// §1 Phase 1), and reference_type is a brand-new column. Same story as
+// products above: SQLite can't ALTER a CHECK constraint or add a CHECK to
+// an existing column in place, so this is a table rebuild — same
+// build-under-a-temp-name-first, copy, drop, rename ordering, for the same
+// reason (other tables don't reference this one by FK, but the table name
+// itself must never be vacated except for the instant between DROP and
+// RENAME, in case anything ever does).
+function needsInventoryMovementsRebuild() {
+  if (!tableExists('inventory_movements')) return false; // fresh install — schema.sql creates it correctly already
+  const columns = db.prepare(`PRAGMA table_info(inventory_movements)`).all();
+  return !columns.some((c) => c.name === 'reference_type');
+}
+
+function rebuildInventoryMovementsTable() {
+  console.log('  Rebuilding inventory_movements table to add reference_type and new dispatch/return reasons...');
+  const wasForeignKeysOn = db.pragma('foreign_keys', { simple: true }) === 1;
+  db.pragma('foreign_keys = OFF');
+
+  const txn = db.transaction(() => {
+    db.exec(`
+      CREATE TABLE inventory_movements_add_reference_type_new (
+        id             INTEGER PRIMARY KEY AUTOINCREMENT,
+        product_id     INTEGER NOT NULL REFERENCES products(id),
+        store_id       INTEGER NOT NULL REFERENCES stores(id),
+        change_qty     INTEGER NOT NULL,
+        reason         TEXT NOT NULL CHECK (reason IN (
+          'sale','restock','adjustment','return','void','requisition',
+          'dispatch','return_resellable'
+        )),
+        reference_type TEXT CHECK (reference_type IN ('sale','order','requisition','adjustment')),
+        reference_id   INTEGER,
+        created_by     INTEGER REFERENCES users(id),
+        created_at     TEXT NOT NULL DEFAULT (datetime('now'))
+      )
+    `);
+
+    const oldColumns = db.prepare(`PRAGMA table_info(inventory_movements)`).all().map((c) => c.name);
+    const cols = oldColumns.join(', '); // reference_type absent from the old table -> NULL for every
+                                          // existing row, backfilled just below based on `reason`.
+    db.exec(`INSERT INTO inventory_movements_add_reference_type_new (${cols}) SELECT ${cols} FROM inventory_movements`);
+    db.exec('DROP TABLE inventory_movements');
+    db.exec('ALTER TABLE inventory_movements_add_reference_type_new RENAME TO inventory_movements');
+
+    // Backfill: existing rows only ever came from a sale (reason 'sale'/'void')
+    // or a requisition (reason 'requisition') — 'restock'/'adjustment'/'return'
+    // predate any reference_id convention worth guessing at, so they stay NULL.
+    db.exec(`UPDATE inventory_movements SET reference_type = 'sale' WHERE reason IN ('sale','void')`);
+    db.exec(`UPDATE inventory_movements SET reference_type = 'requisition' WHERE reason = 'requisition'`);
+
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_movements_product ON inventory_movements(product_id)`);
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_movements_reference ON inventory_movements(reference_type, reference_id)`);
+  });
+  txn();
+
+  const violations = db.pragma('foreign_key_check');
+  if (violations.length > 0) {
+    throw new Error(`inventory_movements rebuild left foreign key violations: ${JSON.stringify(violations)}`);
+  }
+  if (wasForeignKeysOn) db.pragma('foreign_keys = ON');
+  console.log('  + inventory_movements rebuilt: reference_type added and backfilled, dispatch/return_resellable reasons available');
+}
+
+// Currency columns were REAL (float dollars/KES) — moving to INTEGER cents
+// (multiply by 100, round, store as a true integer) avoids float drift in
+// SQL-level SUM() aggregations over many rows (reports.controller.js does
+// this a lot) and removes the "REAL vs INTEGER money column" inconsistency
+// that existed between this table and expenses/payment_records, which
+// already used cents. The API layer converts back to decimal on the way
+// out (see utils/money.js) — this is purely a storage-layer change, no
+// API contract or frontend change needed.
+//
+// Rather than hand-transcribing each table's full CREATE TABLE DDL (risk
+// of a transcription slip on a table this important), this pulls the
+// table's actual current DDL straight from sqlite_master and surgically
+// swaps REAL -> INTEGER only for the named currency columns, preserving
+// every CHECK/DEFAULT/FK/UNIQUE clause exactly as SQLite itself has them.
+// Same "build under a temp name first, rename into place last" ordering
+// as rebuildProductsTable() above, and for the same reason: other tables'
+// FK clauses reference this table by name, and that name must never be
+// vacated except for the instant between DROP and RENAME.
+const CURRENCY_COLUMNS = {
+  products: ['cost_price', 'sell_price'],
+  cash_sessions: ['opening_amount', 'closing_amount', 'expected_amount'],
+  sales: ['subtotal', 'tax_total', 'discount_total', 'total'],
+  sale_items: ['unit_price', 'discount', 'line_total'],
+  payments: ['amount'],
+  shopify_staging_products: ['sell_price'],
+};
+
+function migrateCurrencyColumnToCents(tableName, currencyColumns) {
+  const row = db.prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name = ?`).get(tableName);
+  if (!row) return; // table doesn't exist yet — schema.sql below creates it correctly already
+
+  const tempName = `${tableName}_cents_migration_tmp`;
+  let newSql = row.sql.replace(new RegExp(`CREATE TABLE ${tableName}\\b`), `CREATE TABLE ${tempName}`);
+  let anyChanged = false;
+  for (const col of currencyColumns) {
+    const pattern = new RegExp(`(\\b${col}\\s+)REAL\\b`);
+    if (pattern.test(newSql)) {
+      newSql = newSql.replace(pattern, '$1INTEGER');
+      anyChanged = true;
+    }
+  }
+  if (!anyChanged) return; // already migrated (or columns not found) — nothing to do
+
+  console.log(`  Converting ${tableName}.[${currencyColumns.join(', ')}] from REAL to INTEGER cents...`);
+  const wasForeignKeysOn = db.pragma('foreign_keys', { simple: true }) === 1;
+  db.pragma('foreign_keys = OFF');
+
+  const txn = db.transaction(() => {
+    db.exec(newSql);
+    const oldColumns = db.prepare(`PRAGMA table_info(${tableName})`).all().map((c) => c.name);
+    const selectCols = oldColumns
+      .map((c) => (currencyColumns.includes(c) ? `CAST(ROUND(${c} * 100) AS INTEGER) AS ${c}` : c))
+      .join(', ');
+    const insertCols = oldColumns.join(', ');
+    db.exec(`INSERT INTO ${tempName} (${insertCols}) SELECT ${selectCols} FROM ${tableName}`);
+    db.exec(`DROP TABLE ${tableName}`);
+    db.exec(`ALTER TABLE ${tempName} RENAME TO ${tableName}`);
+  });
+  txn();
+
+  const violations = db.pragma('foreign_key_check');
+  if (violations.length > 0) {
+    throw new Error(`${tableName} currency migration left foreign key violations: ${JSON.stringify(violations)}`);
+  }
+  if (wasForeignKeysOn) db.pragma('foreign_keys = ON');
+  console.log(`  + ${tableName} currency columns converted, all rows preserved, foreign keys verified intact`);
+}
+
+// Phase 3 (payments): the Shopify integration originally had exactly one
+// shop, configured via SHOPIFY_SHOP/SHOPIFY_ACCESS_TOKEN env vars —
+// products.income_source_id and shopify_staging_products.income_source_id
+// were NULL for everything it touched (see schema.sql's comment on
+// products.income_source_id). Once income_sources (multi-store OAuth)
+// shipped, BOTH paths stayed live side by side: syncing the same physical
+// shop from the old env-var route AND from a configured income_sources
+// row created two DIFFERENT keys (idx_products_variant_per_source scopes
+// uniqueness by COALESCE(income_source_id, 0)) for the literal same
+// Shopify variant — approving both created two separate product rows for
+// one real item. Fixed by giving the env-var shop a real income_sources
+// row (if it doesn't already have one) and re-pointing every orphaned
+// NULL-income_source_id Shopify row at it, so there is only ever ONE id
+// in play for that shop from here on — see routes/shopify.routes.js and
+// controllers/shopify.controller.js, which now resolve to this same row
+// instead of passing `undefined` through to pullFromShopify().
+function migrateLegacyShopifyEnvToIncomeSource() {
+  const shop = process.env.SHOPIFY_SHOP;
+  const token = process.env.SHOPIFY_ACCESS_TOKEN;
+  if (!shop || !token) return; // nothing to migrate — legacy route was never configured
+
+  if (!tableExists('income_sources')) return; // schema.sql above will have just created it fresh
+
+  const normalizedShop = shop.trim().replace(/^https?:\/\//i, '').split('/')[0];
+  const existing = db.prepare('SELECT id FROM income_sources WHERE platform = ? AND shop_domain = ?').get('shopify', normalizedShop);
+  if (existing) return; // already migrated on a previous startup
+
+  console.log(`  Migrating legacy SHOPIFY_SHOP env config ("${normalizedShop}") into a real income_sources row...`);
+  const { encrypt } = require('../utils/crypto');
+  const defaultStore = db.prepare('SELECT id FROM stores WHERE is_active = 1 ORDER BY id LIMIT 1').get();
+
+  const result = db.prepare(`
+    INSERT INTO income_sources (name, platform, store_id, shop_domain, access_token, api_version)
+    VALUES (?, 'shopify', ?, ?, ?, ?)
+  `).run(
+    'Shopify (migrated from .env)',
+    defaultStore ? defaultStore.id : null,
+    normalizedShop,
+    encrypt(token),
+    process.env.SHOPIFY_API_VERSION || null
+  );
+  const newSourceId = result.lastInsertRowid;
+
+  // Re-point every row this shop's syncs already produced under NULL —
+  // both the staging queue (so nothing already pending gets orphaned) and
+  // any already-approved products (so a future sync from either entry
+  // point correctly matches and updates them instead of creating
+  // duplicates). shopify_variant_id IS NOT NULL scopes this to
+  // genuinely-Shopify-sourced products only, never a locally-created one.
+  const stagingUpdated = db.prepare(`
+    UPDATE shopify_staging_products SET income_source_id = ? WHERE platform = 'shopify' AND income_source_id IS NULL
+  `).run(newSourceId).changes;
+  const productsUpdated = db.prepare(`
+    UPDATE products SET income_source_id = ? WHERE income_source_id IS NULL AND shopify_variant_id IS NOT NULL
+  `).run(newSourceId).changes;
+
+  console.log(`  + created income_sources row #${newSourceId} for "${normalizedShop}", re-pointed ${stagingUpdated} staging row(s) and ${productsUpdated} product(s) to it`);
+}
+
+// leads.converted_order_id was declared REFERENCES sales(id), but a converted
+// lead becomes a row in `orders`, not `sales`. With foreign keys ON that either
+// rejected a valid order id outright, or - worse - quietly linked the lead to an
+// unrelated sale that happened to share the same number. SQLite cannot change a
+// column's foreign key in place, so this is a table rebuild, done the same
+// careful way as the products rebuild above (new table under a temp name, copy,
+// then drop the old one and rename).
+//
+// Existing values are only kept when they can be proven: the order must exist
+// AND already point back at this lead through orders.lead_id. Anything else was
+// pointing at the wrong table and is cleared. Leads that do have an order
+// pointing at them get their link filled in. The counts are logged.
+function needsLeadsConvertedOrderRebuild() {
+  if (!tableExists('leads')) return false; // fresh install - schema.sql creates it correctly already
+  return db.prepare(`PRAGMA foreign_key_list(leads)`).all()
+    .some((fk) => fk.from === 'converted_order_id' && fk.table !== 'orders');
+}
+
+function rebuildLeadsConvertedOrderFk() {
+  console.log('  Rebuilding leads table so converted_order_id points at orders...');
+  const wasForeignKeysOn = db.pragma('foreign_keys', { simple: true }) === 1;
+  db.pragma('foreign_keys = OFF');
+
+  const tmp = 'leads_converted_order_fk_new';
+  const originalSql = db.prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='leads'`).get().sql;
+  const fixedSql = originalSql
+    .replace(/^\s*CREATE\s+TABLE\s+(IF\s+NOT\s+EXISTS\s+)?["`]?leads["`]?/i, `CREATE TABLE ${tmp}`)
+    .replace(/(converted_order_id\s+INTEGER\s+REFERENCES\s+)["`]?sales["`]?(\s*\(\s*id\s*\))/i, '$1orders$2');
+  if (!/converted_order_id\s+INTEGER\s+REFERENCES\s+orders/i.test(fixedSql) || !fixedSql.includes(tmp)) {
+    throw new Error('Could not rewrite the leads table definition safely; leaving it unchanged.');
+  }
+
+  let cleared = 0;
+  let linked = 0;
+  const txn = db.transaction(() => {
+    db.exec(`DROP TABLE IF EXISTS ${tmp}`);
+    db.exec(fixedSql);
+
+    const cols = db.prepare(`PRAGMA table_info(leads)`).all().map((c) => c.name).join(', ');
+    db.exec(`INSERT INTO ${tmp} (${cols}) SELECT ${cols} FROM leads`);
+
+    const ordersHasLeadId = tableExists('orders')
+      && db.prepare(`PRAGMA table_info(orders)`).all().some((c) => c.name === 'lead_id');
+    if (ordersHasLeadId) {
+      cleared = db.prepare(`
+        UPDATE ${tmp} SET converted_order_id = NULL
+        WHERE converted_order_id IS NOT NULL
+          AND NOT EXISTS (SELECT 1 FROM orders o WHERE o.id = ${tmp}.converted_order_id AND o.lead_id = ${tmp}.id)
+      `).run().changes;
+      linked = db.prepare(`
+        UPDATE ${tmp} SET converted_order_id = (SELECT MIN(o.id) FROM orders o WHERE o.lead_id = ${tmp}.id)
+        WHERE converted_order_id IS NULL AND EXISTS (SELECT 1 FROM orders o WHERE o.lead_id = ${tmp}.id)
+      `).run().changes;
+    } else {
+      cleared = db.prepare(`UPDATE ${tmp} SET converted_order_id = NULL WHERE converted_order_id IS NOT NULL`).run().changes;
+    }
+
+    db.exec('DROP TABLE leads');
+    db.exec(`ALTER TABLE ${tmp} RENAME TO leads`);
+  });
+  txn();
+
+  const violations = db.pragma('foreign_key_check');
+  if (violations.length > 0) {
+    throw new Error(`leads table rebuild left foreign key violations: ${JSON.stringify(violations)}`);
+  }
+  if (wasForeignKeysOn) db.pragma('foreign_keys = ON');
+  console.log(`  + leads rebuilt; ${cleared} unverifiable converted_order_id value(s) cleared, ${linked} link(s) restored from orders.lead_id`);
+}
+
+// The users.role CHECK only allowed admin/manager/cashier. Adding the storekeeper ('store') role means changing that
+// CHECK, which SQLite can only do by rebuilding the table (same careful procedure as the rebuilds above: build the
+// replacement under a temp name with the original definition edited, copy every row across, drop, rename). Nothing
+// else about the table changes: all columns, ids and the indexes are carried over, and the foreign keys of other
+// tables keep pointing at `users` by name.
+function needsUsersStoreRoleRebuild() {
+  if (!tableExists('users')) return false; // fresh install - schema.sql already allows it
+  const row = db.prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='users'`).get();
+  return Boolean(row && row.sql && !/'store'/.test(row.sql));
+}
+
+function rebuildUsersForStoreRole() {
+  console.log("  Rebuilding users table to allow the 'store' role...");
+  const wasForeignKeysOn = db.pragma('foreign_keys', { simple: true }) === 1;
+  db.pragma('foreign_keys = OFF');
+
+  const tmp = 'users_store_role_new';
+  const originalSql = db.prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='users'`).get().sql;
+  const roleCheck = /CHECK\s*\(\s*role\s+IN\s*\(\s*'admin'\s*,\s*'manager'\s*,\s*'cashier'\s*\)\s*\)/i;
+  const fixedSql = originalSql
+    .replace(/^\s*CREATE\s+TABLE\s+(IF\s+NOT\s+EXISTS\s+)?["`]?users["`]?/i, `CREATE TABLE ${tmp}`)
+    .replace(roleCheck, "CHECK (role IN ('admin','manager','cashier','store'))");
+  if (!/'store'/.test(fixedSql) || !fixedSql.includes(tmp)) {
+    db.pragma(`foreign_keys = ${wasForeignKeysOn ? 'ON' : 'OFF'}`);
+    throw new Error('Could not rewrite the users table definition safely; leaving it unchanged.');
+  }
+
+  const indexSql = db.prepare(`SELECT sql FROM sqlite_master WHERE type='index' AND tbl_name='users' AND sql IS NOT NULL`).all().map((r) => r.sql);
+  const triggerSql = db.prepare(`SELECT sql FROM sqlite_master WHERE type='trigger' AND tbl_name='users' AND sql IS NOT NULL`).all().map((r) => r.sql);
+
+  let copied = 0;
+  const txn = db.transaction(() => {
+    db.exec(`DROP TABLE IF EXISTS ${tmp}`);
+    db.exec(fixedSql);
+    const cols = db.prepare(`PRAGMA table_info(users)`).all().map((c) => c.name).join(', ');
+    copied = db.prepare(`INSERT INTO ${tmp} (${cols}) SELECT ${cols} FROM users`).run().changes;
+    db.exec('DROP TABLE users');
+    db.exec(`ALTER TABLE ${tmp} RENAME TO users`);
+    for (const sql of [...indexSql, ...triggerSql]) db.exec(sql);
+  });
+  txn();
+
+  const violations = db.pragma('foreign_key_check');
+  if (violations.length > 0) {
+    throw new Error(`users table rebuild left foreign key violations: ${JSON.stringify(violations)}`);
+  }
+  if (wasForeignKeysOn) db.pragma('foreign_keys = ON');
+  console.log(`  + users rebuilt; ${copied} account(s) carried over`);
+}
+
+// Main-store inventory control adds new stock movement kinds: receipts, issues, transfers (out and in) and stocktake
+// adjustments. The reason and reference_type columns carry inline CHECKs, which SQLite can only widen by rebuilding the
+// table (same procedure as the rebuilds above: build the replacement under a temp name from the ORIGINAL definition
+// edited, copy every row, drop, rename, restore indexes). Existing rows and ids are untouched.
+function needsInventoryMovementsStockControlRebuild() {
+  if (!tableExists('inventory_movements')) return false; // fresh install - schema.sql already allows them
+  const row = db.prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='inventory_movements'`).get();
+  return Boolean(row && row.sql && !/'transfer_out'/.test(row.sql));
+}
+
+function rebuildInventoryMovementsForStockControl() {
+  console.log('  Rebuilding inventory_movements to allow receipt, issue, transfer and stocktake movements...');
+  const wasForeignKeysOn = db.pragma('foreign_keys', { simple: true }) === 1;
+  db.pragma('foreign_keys = OFF');
+
+  const tmp = 'inventory_movements_stock_control_new';
+  const originalSql = db.prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='inventory_movements'`).get().sql;
+  const reasonCheck = /'return_resellable'/;
+  const refCheck = /('sale'\s*,\s*'order'\s*,\s*'requisition'\s*,\s*'adjustment')/;
+  const fixedSql = originalSql
+    .replace(/^\s*CREATE\s+TABLE\s+(IF\s+NOT\s+EXISTS\s+)?["`]?inventory_movements["`]?/i, `CREATE TABLE ${tmp}`)
+    .replace(reasonCheck, "'return_resellable','receipt','issue','transfer_out','transfer_in','stocktake'")
+    .replace(refCheck, "$1,'receipt','issue','transfer','stocktake'");
+  if (!/'transfer_out'/.test(fixedSql) || !/'stocktake'\s*\)/.test(fixedSql) || !fixedSql.includes(tmp)) {
+    db.pragma(`foreign_keys = ${wasForeignKeysOn ? 'ON' : 'OFF'}`);
+    throw new Error('Could not rewrite the inventory_movements definition safely; leaving it unchanged.');
+  }
+
+  const indexSql = db.prepare(`SELECT sql FROM sqlite_master WHERE type='index' AND tbl_name='inventory_movements' AND sql IS NOT NULL`).all().map((r) => r.sql);
+  const triggerSql = db.prepare(`SELECT sql FROM sqlite_master WHERE type='trigger' AND tbl_name='inventory_movements' AND sql IS NOT NULL`).all().map((r) => r.sql);
+
+  let copied = 0;
+  const txn = db.transaction(() => {
+    db.exec(`DROP TABLE IF EXISTS ${tmp}`);
+    db.exec(fixedSql);
+    const cols = db.prepare(`PRAGMA table_info(inventory_movements)`).all().map((c) => c.name).join(', ');
+    copied = db.prepare(`INSERT INTO ${tmp} (${cols}) SELECT ${cols} FROM inventory_movements`).run().changes;
+    db.exec('DROP TABLE inventory_movements');
+    db.exec(`ALTER TABLE ${tmp} RENAME TO inventory_movements`);
+    for (const sql of [...indexSql, ...triggerSql]) db.exec(sql);
+  });
+  txn();
+
+  const violations = db.pragma('foreign_key_check');
+  if (violations.length > 0) {
+    throw new Error(`inventory_movements rebuild left foreign key violations: ${JSON.stringify(violations)}`);
+  }
+  if (wasForeignKeysOn) db.pragma('foreign_keys = ON');
+  console.log(`  + inventory_movements rebuilt; ${copied} movement(s) carried over`);
+}
+
+// A recall takes stock out of the main store under a new issue reason, 'recalled'. stock_issues.reason carries an inline CHECK,
+// so widening it means the same rebuild procedure as above: build the replacement under a temp name from the ORIGINAL
+// definition edited, copy every row, drop, rename, restore indexes. Existing rows and ids are untouched.
+function needsStockIssuesRecalledRebuild() {
+  if (!tableExists('stock_issues')) return false; // fresh install - schema.sql already allows it
+  const row = db.prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='stock_issues'`).get();
+  return Boolean(row && row.sql && !/'recalled'/.test(row.sql));
+}
+
+function rebuildStockIssuesForRecall() {
+  console.log('  Rebuilding stock_issues to allow the recalled reason...');
+  const wasForeignKeysOn = db.pragma('foreign_keys', { simple: true }) === 1;
+  db.pragma('foreign_keys = OFF');
+
+  const tmp = 'stock_issues_recall_new';
+  const originalSql = db.prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='stock_issues'`).get().sql;
+  const fixedSql = originalSql
+    .replace(/^\s*CREATE\s+TABLE\s+(IF\s+NOT\s+EXISTS\s+)?[\"`]?stock_issues[\"`]?/i, `CREATE TABLE ${tmp}`)
+    .replace(/'returned_to_supplier'\s*,\s*'other'/, "'returned_to_supplier','other','recalled'");
+  if (!/'recalled'/.test(fixedSql) || !fixedSql.includes(tmp)) {
+    db.pragma(`foreign_keys = ${wasForeignKeysOn ? 'ON' : 'OFF'}`);
+    throw new Error('Could not rewrite the stock_issues definition safely; leaving it unchanged.');
+  }
+
+  const indexSql = db.prepare(`SELECT sql FROM sqlite_master WHERE type='index' AND tbl_name='stock_issues' AND sql IS NOT NULL`).all().map((r) => r.sql);
+
+  let copied = 0;
+  const txn = db.transaction(() => {
+    db.exec(`DROP TABLE IF EXISTS ${tmp}`);
+    db.exec(fixedSql);
+    const cols = db.prepare(`PRAGMA table_info(stock_issues)`).all().map((c) => c.name).join(', ');
+    copied = db.prepare(`INSERT INTO ${tmp} (${cols}) SELECT ${cols} FROM stock_issues`).run().changes;
+    db.exec('DROP TABLE stock_issues');
+    db.exec(`ALTER TABLE ${tmp} RENAME TO stock_issues`);
+    for (const sql of indexSql) db.exec(sql);
+  });
+  txn();
+
+  const violations = db.pragma('foreign_key_check');
+  if (violations.length > 0) {
+    throw new Error(`stock_issues rebuild left foreign key violations: ${JSON.stringify(violations)}`);
+  }
+  if (wasForeignKeysOn) db.pragma('foreign_keys = ON');
+  console.log(`  + stock_issues rebuilt; ${copied} issue(s) carried over`);
+}
+
+// The main store is the one shipments are received into. Existing installs have exactly one store, which is the main one;
+// with several, the oldest active store is taken until an admin says otherwise.
+function ensureMainStore() {
+  if (!tableExists('stores')) return;
+  const hasMain = db.prepare('SELECT 1 FROM stores WHERE is_main = 1').get();
+  if (hasMain) return;
+  const first = db.prepare('SELECT id FROM stores ORDER BY is_active DESC, id ASC LIMIT 1').get();
+  if (first) db.prepare('UPDATE stores SET is_main = 1 WHERE id = ?').run(first.id);
+}
+
+// payroll_items had CHECK (commission = units_sold * rate), which only a per-unit pay type can satisfy. A percentage
+// or combined pay type earns a share of the order value, so that check has to become "only for fixed pay" - and
+// SQLite can only change a CHECK by rebuilding the table (same careful procedure as the rebuilds above: build the
+// replacement under a temp name from the definition in schema.sql, copy every row, drop, rename). Locked runs are
+// copied untouched: every figure, and the checksum on payroll_runs, stay exactly as approved. The triggers on the
+// run tables are dropped first (a trigger that mentions a table that is momentarily gone makes the rename fail) and
+// schema.sql puts them back.
+function needsPayrollItemsRebuild() {
+  if (!tableExists('payroll_items')) return false; // fresh install - schema.sql creates it correctly already
+  const row = db.prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='payroll_items'`).get();
+  return Boolean(row && row.sql && !/commission_type/.test(row.sql));
+}
+
+function rebuildPayrollItemsTable(schema) {
+  console.log('  Rebuilding payroll_items to allow percentage and combined commission...');
+  const match = schema.match(/CREATE TABLE IF NOT EXISTS payroll_items \(([\s\S]*?)\n\);/);
+  if (!match) throw new Error('Could not find the payroll_items definition in schema.sql; leaving the table unchanged.');
+  const tmp = 'payroll_items_pay_types_new';
+  const wasForeignKeysOn = db.pragma('foreign_keys', { simple: true }) === 1;
+  db.pragma('foreign_keys = OFF');
+
+  let copied = 0;
+  const txn = db.transaction(() => {
+    const triggers = db.prepare(`SELECT name FROM sqlite_master WHERE type='trigger' AND tbl_name IN ('payroll_items','payroll_item_lines')`).all();
+    for (const t of triggers) db.exec(`DROP TRIGGER IF EXISTS "${t.name}"`);
+    db.exec(`DROP TABLE IF EXISTS ${tmp}`);
+    db.exec(`CREATE TABLE ${tmp} (${match[1]}\n)`);
+    const cols = db.prepare(`PRAGMA table_info(payroll_items)`).all().map((c) => c.name).join(', ');
+    copied = db.prepare(`INSERT INTO ${tmp} (${cols}) SELECT ${cols} FROM payroll_items`).run().changes;
+    db.exec('DROP TABLE payroll_items');
+    db.exec(`ALTER TABLE ${tmp} RENAME TO payroll_items`);
+  });
+  txn();
+
+  const violations = db.pragma('foreign_key_check');
+  if (violations.length > 0) {
+    throw new Error(`payroll_items rebuild left foreign key violations: ${JSON.stringify(violations)}`);
+  }
+  if (wasForeignKeysOn) db.pragma('foreign_keys = ON');
+  console.log(`  + payroll_items rebuilt; ${copied} payroll line(s) carried over unchanged`);
+}
+
+// ---- "Shop day" expression indexes ---------------------------------------------------------------------------------
+// Reports ask "what happened on the shop's calendar day?", written as date(<utc column>, '+180 minutes') BETWEEN ? AND ?
+// (see utils/storeTime.js dateOf). Wrapping the column in date() stopped SQLite using a plain index on it, so every
+// report scanned all of a store's history. An index ON THE SAME EXPRESSION fixes that with no change to any query and
+// no change to any result: synced Shopify/WooCommerce rows store ISO-8601 timestamps with offsets, which a plain
+// string-range rewrite of the filter would have bucketed wrongly near midnight, whereas date() - and therefore this
+// index - understands them exactly as before.
+//
+// SQLite only uses an expression index when the query's expression text matches, and the text contains the shop's UTC
+// offset, so the offset is baked into the index name. Another STORE_TIMEZONE (or a daylight-saving flip, then a
+// restart) builds the matching index and drops the stale one; until then queries simply fall back to a scan - still
+// correct, just slower.
+const SHOP_DAY_INDEXES = [
+  { table: 'sales',               column: 'created_at',    lead: 'store_id' },
+  { table: 'orders',              column: 'dispatched_at', lead: 'store_id' },
+  { table: 'payments',            column: 'created_at',    lead: null },
+  { table: 'payment_records',     column: 'created_at',    lead: 'store_id' },
+  { table: 'leads',               column: 'created_at',    lead: 'store_id' },
+  { table: 'inventory_movements', column: 'created_at',    lead: 'store_id' },
+];
+
+function ensureShopDayIndexes() {
+  const { offsetMinutes, sqlOffset } = require('../utils/storeTime');
+  const minutes = offsetMinutes();
+  const literal = sqlOffset();                                   // e.g. '+180 minutes' (built from a number, never user input)
+  const tag = `${minutes >= 0 ? 'p' : 'm'}${Math.abs(minutes)}`;
+
+  for (const { table, column, lead } of SHOP_DAY_INDEXES) {
+    if (!tableExists(table)) continue;
+    const prefix = `idx_${table}_day_`;
+    const wanted = `${prefix}${tag}`;
+    try {
+      db.exec(`CREATE INDEX IF NOT EXISTS ${wanted} ON ${table}(${lead ? `${lead}, ` : ''}date(${column}, ${literal}))`);
+      const stale = db.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = ? AND name LIKE ? AND name <> ?")
+        .all(table, `${prefix}%`, wanted);
+      for (const { name } of stale) db.exec(`DROP INDEX IF EXISTS ${name}`);
+    } catch (err) {
+      // An index is an optimisation: never let it stop the server from starting.
+      console.warn(`Could not create the shop-day index on ${table}.${column}: ${err.message}`);
+    }
+  }
+}
+
+function migrate() {
+  const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8');
+
+  if (needsProductsRebuild()) {
+    rebuildProductsTable();
+  }
+
+  if (needsInventoryMovementsRebuild()) {
+    rebuildInventoryMovementsTable();
+  }
+
+  if (needsLeadsConvertedOrderRebuild()) {
+    rebuildLeadsConvertedOrderFk();
+  }
+
+  if (needsUsersStoreRoleRebuild()) {
+    rebuildUsersForStoreRole();
+  }
+
+  if (needsInventoryMovementsStockControlRebuild()) {
+    rebuildInventoryMovementsForStockControl();
+  }
+
+  if (needsStockIssuesRecalledRebuild()) {
+    rebuildStockIssuesForRecall();
+  }
+
+  if (needsPayrollItemsRebuild()) {
+    rebuildPayrollItemsTable(schema);
+  }
+
+  for (const [table, columns] of Object.entries(CURRENCY_COLUMNS)) {
+    migrateCurrencyColumnToCents(table, columns);
+  }
+
+  // delivery_costs gained courier_id / netted_payout_id and a wider paid_via check before it was ever used in production.
+  // An older, still-empty copy is dropped so schema.sql recreates it; one that already holds rows is left alone and the
+  // new features that need those columns refuse to run, rather than guess.
+  if (tableExists('delivery_costs')) {
+    const cols = db.prepare('PRAGMA table_info(delivery_costs)').all().map((c) => c.name);
+    if (!cols.includes('courier_id') && db.prepare('SELECT COUNT(*) AS n FROM delivery_costs').get().n === 0) {
+      db.exec('DROP TABLE delivery_costs');
+      console.log('  ~ recreated empty delivery_costs with the courier-deduction columns');
+    }
+  }
+
+  // First pass: creates any brand-new tables (income_sources, settings,
+  // etc.). On an EXISTING database this can fail partway through — e.g. the
+  // new idx_sales_source index references sales.source_type, which doesn't
+  // exist yet on an old table — so we don't let that stop us; we backfill
+  // the missing columns below and run the whole file again.
+  try {
+    db.exec(schema);
+  } catch (err) {
+    console.log(`  (first pass hit "${err.message}" — backfilling columns and retrying)`);
+  }
+
+  for (const [table, columns] of Object.entries(ADDITIVE_COLUMNS)) {
+    if (!tableExists(table)) continue; // schema.sql above will have just created it fresh, already correct
+    for (const columnDef of columns) {
+      ensureColumn(table, columnDef);
+    }
+  }
+
+  // Sessions now carry an idle timeout and a hard maximum (services/sessions.service.js). A refresh token that
+  // predates that has no session to enforce them, so it is retired: everyone signs in once after this update.
+  if (tableExists('refresh_tokens')) {
+    db.exec(`UPDATE refresh_tokens SET revoked_at = datetime('now') WHERE session_id IS NULL AND revoked_at IS NULL`);
+  }
+
+  // customers.phone_normalized is additive — backfill it for any pre-existing
+  // rows the same way leads already does it (last 9 digits, digits only),
+  // so duplicate-customer-by-phone lookups work retroactively, not just for
+  // customers created after this migration.
+  if (tableExists('customers')) {
+    db.exec(`
+      UPDATE customers SET phone_normalized = substr(
+        replace(replace(replace(replace(phone, '+', ''), '-', ''), ' ', ''), '(', ''), -9
+      )
+      WHERE phone IS NOT NULL AND (phone_normalized IS NULL OR phone_normalized = '')
+    `);
+    // updated_at has no ALTER-time default (see ADDITIVE_COLUMNS comment above) —
+    // backfill it once here so pre-existing rows aren't left with a NULL that
+    // a fresh install would never have.
+    db.exec(`UPDATE customers SET updated_at = datetime('now') WHERE updated_at IS NULL`);
+  }
+
+  // Phase 3: any order created before product_code existed needs one
+  // backfilled too, or it can never receive a reconciled payment. Same
+  // deterministic construction orders.service.js uses for new orders
+  // (UT + zero-padded id) — inherently unique since id is, so this is safe
+  // to run even though the uniqueness guarantee itself lives in the index.
+  if (tableExists('orders')) {
+    db.exec(`
+      UPDATE orders SET product_code = 'UT' || substr('000000' || id, -6, 6)
+      WHERE product_code IS NULL
+    `);
+  }
+
+  ensureMainStore();
+
+  migrateLegacyShopifyEnvToIncomeSource();
+
+  // Second pass: now that every column exists, this creates whatever indexes
+  // (and any tables) the first pass couldn't reach. Safe to run every time —
+  // everything in schema.sql is IF NOT EXISTS.
+  db.exec(schema);
+
+  ensureShopDayIndexes();
+
+  // Resend support was removed. Delete what it left behind - above all the encrypted API key, which
+  // should not sit in the database (and therefore in every backup of it) once nothing can use it.
+  db.prepare("DELETE FROM settings WHERE key IN ('mail_provider', 'resend_from', 'resend_api_key_enc')").run();
+
+  console.log('Migration complete: schema applied.');
+}
+
+module.exports = { applyBaseline: migrate };

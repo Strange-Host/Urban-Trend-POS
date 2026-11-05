@@ -169,6 +169,8 @@ describe('migration: leads.converted_order_id foreign key repair', () => {
       // Put it back into the legacy shape: leads.converted_order_id -> sales(id).
       const d = new Database(file);
       d.pragma('foreign_keys = OFF');
+      // back to a database from before versioned migrations (no schema_migrations table), so the frozen baseline runs on it again
+      d.exec('DROP TABLE IF EXISTS schema_migrations');
       const sql = d.prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='leads'`).get().sql;
       d.exec('DROP TABLE leads');
       d.exec(sql.replace(/(converted_order_id\s+INTEGER\s+REFERENCES\s+)orders/i, '$1sales'));

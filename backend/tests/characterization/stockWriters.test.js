@@ -16,7 +16,7 @@ const STOCK_WRITE = /\b(UPDATE|DELETE\s+FROM|REPLACE\s+INTO|INSERT(\s+OR\s+\w+)?
 // R1 is complete: services/stock.service.js is the only file that writes inventory or inventory_movements.
 const ALLOWED_DIRECT_WRITERS = [];
 const THE_WRITER = 'services/stock.service.js';
-const IGNORED = ['db/migrate.js', 'db/seed.js'];
+const IGNORED = ['db/baseline.js', 'db/migrate.js', 'db/seed.js'];
 
 function walk(dir) {
   return fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
