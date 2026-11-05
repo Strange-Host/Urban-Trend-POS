@@ -15,7 +15,7 @@ function getForDate(staffId, workDate) {
 function clockIn({ staffId, storeId }) {
   const workDate = todayDate();
   const existing = getForDate(staffId, workDate);
-  if (existing && existing.clock_in_at) throw new ApiError(409, 'Already clocked in today.');
+  if (existing && existing.clock_in_at) throw new ApiError(409, 'Already clocked in today.', null, 'ALREADY_CLOCKED_IN');
 
   if (existing) {
     db.prepare(`UPDATE staff_attendance SET clock_in_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(existing.id);
@@ -31,15 +31,15 @@ function clockIn({ staffId, storeId }) {
 // before it starts asking about open orders.
 function assertClockedInNow(staffId) {
   const existing = getForDate(staffId, todayDate());
-  if (!existing || !existing.clock_in_at) throw new ApiError(409, 'Not clocked in today.');
-  if (existing.clock_out_at) throw new ApiError(409, 'Already clocked out today.');
+  if (!existing || !existing.clock_in_at) throw new ApiError(409, 'Not clocked in today.', null, 'NOT_CLOCKED_IN');
+  if (existing.clock_out_at) throw new ApiError(409, 'Already clocked out today.', null, 'ALREADY_CLOCKED_OUT');
 }
 
 function clockOut({ staffId }) {
   const workDate = todayDate();
   const existing = getForDate(staffId, workDate);
-  if (!existing || !existing.clock_in_at) throw new ApiError(409, 'Not clocked in today.');
-  if (existing.clock_out_at) throw new ApiError(409, 'Already clocked out today.');
+  if (!existing || !existing.clock_in_at) throw new ApiError(409, 'Not clocked in today.', null, 'NOT_CLOCKED_IN');
+  if (existing.clock_out_at) throw new ApiError(409, 'Already clocked out today.', null, 'ALREADY_CLOCKED_OUT');
 
   db.prepare(`UPDATE staff_attendance SET clock_out_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(existing.id);
   return getForDate(staffId, workDate);

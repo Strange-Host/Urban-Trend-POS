@@ -14,6 +14,10 @@ const v11 = require('../../validation/mobile.v11.schema');
 const catalog = require('../../controllers/mobileCatalog.controller');
 const bulkPrice = require('../../controllers/mobileBulkPrice.controller');
 const stockTakes = require('../../controllers/mobileStockTakes.controller');
+const payments = require('../../controllers/mobilePayments.controller');
+const couriers = require('../../controllers/mobileCouriers.controller');
+const mobileAttendance = require('../../controllers/mobileAttendance.controller');
+const requireModule = require('../../middleware/requireModule');
 
 // The mobile app's API, mounted at /api/v1 (app.js). The rule for this prefix: fields may be ADDED to responses and
 // endpoints may be added, but nothing here is renamed or removed while an older app might still be installed - that
@@ -97,5 +101,21 @@ router.post('/stock-takes/:id/lines', authenticate, countKey, validate(v11.stock
 router.post('/stock-takes/:id/submit', authenticate, countKey, stockTakes.submit);
 router.post('/stock-takes/:id/approve', authenticate, reviewKey, validate(v11.approveStockTake), stockTakes.approve);
 router.post('/stock-takes/:id/reject', authenticate, reviewKey, validate(v11.rejectStockTake), stockTakes.reject);
+
+// ---- v1.1: unmatched payments, courier remittance, attendance
+const reconcileKey = requirePermission('payments.reconcile');
+const settleKey = requirePermission('couriers.settle');
+router.get('/payments/unmatched', authenticate, reconcileKey, payments.list);
+router.get('/payments/:id/suggestions', authenticate, reconcileKey, payments.suggest);
+router.post('/payments/:id/match', authenticate, reconcileKey, validate(v11.matchPayment), payments.match);
+router.post('/payments/:id/ignore', authenticate, reconcileKey, validate(v11.ignorePayment), payments.ignore);
+router.get('/couriers/balances', authenticate, settleKey, couriers.balances);
+router.get('/couriers/:id/collections', authenticate, settleKey, couriers.collections);
+router.get('/couriers/:id/remittances', authenticate, settleKey, couriers.remittances);
+router.post('/couriers/:id/remittances', authenticate, settleKey, validate(v11.createRemittance), couriers.createRemittance);
+// Attendance follows the website: it only exists while the HR module is switched on, and needs no permission beyond signing in.
+router.get('/attendance/me', authenticate, requireModule('hr'), mobileAttendance.me);
+router.post('/attendance/clock-in', authenticate, requireModule('hr'), validate(v11.clockIn), mobileAttendance.clockIn);
+router.post('/attendance/clock-out', authenticate, requireModule('hr'), validate(v11.clockOut), mobileAttendance.clockOut);
 
 module.exports = router;

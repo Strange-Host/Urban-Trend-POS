@@ -142,6 +142,65 @@ const ENDPOINTS = [
     summary: 'Reject the big differences (stock.review)', pathParams: [idParam], body: req.rejectStockTake,
     responses: { 200: { description: 'Rejected', schema: res.StockTakeDetail }, 400: BAD, 401: UNAUTH, 403: err('FORBIDDEN or SELF_APPROVAL'), 404: NOT_FOUND, 409: err('NOT_PENDING') },
   },
+
+  // ---- unmatched payments
+  {
+    method: 'get', path: '/payments/unmatched', tag: 'Payments', auth: true, operationId: 'listUnmatchedPayments', summary: 'Money received that is not tied to an order (oldest first)',
+    description: 'Needs payments.reconcile.', query: pageQuery,
+    responses: { 200: { description: 'A page, plus the total waiting', schema: res.UnmatchedPayments }, 401: UNAUTH, 403: FORBIDDEN },
+  },
+  {
+    method: 'get', path: '/payments/{id}/suggestions', tag: 'Payments', auth: true, operationId: 'getPaymentSuggestions', summary: 'Orders this payment probably belongs to',
+    pathParams: [idParam], query: [{ name: 'q', description: 'Also offer orders whose customer name, phone or code contains this', schema: { type: 'string' } }],
+    description: 'Only orders that can still take a payment. Best first, at most 5. A hint for a person to confirm.',
+    responses: { 200: { description: 'Suggested orders', schema: res.PaymentSuggestions }, 401: UNAUTH, 403: FORBIDDEN, 404: NOT_FOUND, 409: err('ALREADY_MATCHED or ALREADY_IGNORED') },
+  },
+  {
+    method: 'post', path: '/payments/{id}/match', tag: 'Payments', auth: true, operationId: 'matchPayment', summary: 'Match a payment to an order', pathParams: [idParam], body: req.matchPayment,
+    description: 'The payment is counted as revenue exactly once. A payment already matched is refused (ALREADY_MATCHED).',
+    responses: { 200: { description: 'Matched', schema: res.PaymentMatched }, 400: BAD, 401: UNAUTH, 403: FORBIDDEN, 404: err('NOT_FOUND or ORDER_NOT_FOUND'), 409: err('ALREADY_MATCHED, ALREADY_IGNORED or ORDER_NOT_PAYABLE'), 422: err('AMOUNT_EXCEEDS_BALANCE') },
+  },
+  {
+    method: 'post', path: '/payments/{id}/ignore', tag: 'Payments', auth: true, operationId: 'ignorePayment', summary: 'Set a payment aside, with a reason', pathParams: [idParam], body: req.ignorePayment,
+    responses: { 200: { description: 'Ignored', schema: res.PaymentIgnored }, 400: BAD, 401: UNAUTH, 403: FORBIDDEN, 404: NOT_FOUND, 409: err('ALREADY_MATCHED or ALREADY_IGNORED') },
+  },
+
+  // ---- courier remittance
+  {
+    method: 'get', path: '/couriers/balances', tag: 'Couriers', auth: true, operationId: 'getCourierBalances', summary: 'What each courier organization still owes the shop',
+    description: 'Needs couriers.settle. Collected, minus remitted, minus the fees we owe them.',
+    responses: { 200: { description: 'Biggest balance first', schema: res.CourierBalances }, 401: UNAUTH, 403: FORBIDDEN },
+  },
+  {
+    method: 'get', path: '/couriers/{id}/collections', tag: 'Couriers', auth: true, operationId: 'getCourierCollections', summary: 'Parcels the courier collected for that are not yet settled',
+    pathParams: [idParam], responses: { 200: { description: 'Open collections, oldest first', schema: res.CourierCollections }, 401: UNAUTH, 403: FORBIDDEN, 404: NOT_FOUND },
+  },
+  {
+    method: 'get', path: '/couriers/{id}/remittances', tag: 'Couriers', auth: true, operationId: 'listCourierRemittances', summary: 'Past remittances from this courier', pathParams: [idParam], query: pageQuery,
+    responses: { 200: { description: 'Newest first', schema: res.CourierRemittances }, 401: UNAUTH, 403: FORBIDDEN, 404: NOT_FOUND },
+  },
+  {
+    method: 'post', path: '/couriers/{id}/remittances', tag: 'Couriers', auth: true, operationId: 'createCourierRemittance', summary: 'Record money received from a courier', pathParams: [idParam], body: req.createRemittance,
+    description: 'Cannot be undone. Settling a parcel twice is refused (ALREADY_SETTLED). No receipt photo in this release.',
+    responses: { 201: { description: 'Recorded', schema: res.RemittanceCreated }, 400: BAD, 401: UNAUTH, 403: FORBIDDEN, 404: NOT_FOUND, 409: err('ALREADY_SETTLED or another STATEMENT_* code'), 422: err('A STATEMENT_* code explaining what is wrong with the amounts') },
+  },
+
+  // ---- attendance
+  {
+    method: 'get', path: '/attendance/me', tag: 'Attendance', auth: true, operationId: 'getMyAttendance', summary: 'My shift today',
+    description: 'Only while the HR module is on. gate says what clocking out will be checked against.',
+    responses: { 200: { description: 'Today\'s shift', schema: res.AttendanceToday }, 401: UNAUTH, 404: err('MODULE_DISABLED') },
+  },
+  {
+    method: 'post', path: '/attendance/clock-in', tag: 'Attendance', auth: true, operationId: 'clockIn', summary: 'Clock in (yourself only)', body: req.clockIn,
+    description: 'Needs confirm:true. No location is read or stored.',
+    responses: { 201: { description: 'Clocked in', schema: res.AttendanceToday }, 400: err('CONFIRM_REQUIRED'), 401: UNAUTH, 404: err('MODULE_DISABLED'), 409: err('ALREADY_CLOCKED_IN') },
+  },
+  {
+    method: 'post', path: '/attendance/clock-out', tag: 'Attendance', auth: true, operationId: 'clockOut', summary: 'Clock out (yourself only)', body: req.clockOut,
+    description: 'The website\'s clock-out gate runs first; a refusal keeps you clocked in (CLOCKOUT_* codes).',
+    responses: { 200: { description: 'Clocked out', schema: res.AttendanceToday }, 401: UNAUTH, 404: err('MODULE_DISABLED'), 409: err('NOT_CLOCKED_IN or ALREADY_CLOCKED_OUT'), 422: err('CLOCKOUT_CONFIRMATION_REQUIRED, CLOCKOUT_CONFIRMATION_FALSE, CLOCKOUT_REASON_REQUIRED or CLOCKOUT_BLOCKED') },
+  },
 ];
 
 module.exports = { ENDPOINTS, helpers: { err, UNAUTH, BAD, FORBIDDEN, NOT_FOUND, CONFLICT, idParam, pageQuery } };

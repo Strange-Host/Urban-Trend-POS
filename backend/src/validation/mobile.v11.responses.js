@@ -77,3 +77,48 @@ const StockTakeSubmitted = z.looseObject({
   notCountedCount: z.number().int(),
 });
 Object.assign(module.exports, { StockTake, StockTakeLine, StockTakeDetail, StockTakeList, StockTakeSubmitted });
+
+// ---- payments
+const UnmatchedPayment = z.looseObject({
+  id: z.number().int(), source: z.string(), method: z.string(), amountCents: cents, payerName: z.string().nullable(),
+  reference: z.string().nullable(), createdAt: iso, ageMinutes: z.number().int(),
+});
+const UnmatchedPayments = list(UnmatchedPayment, { total: z.number().int(), unallocatedCents: cents });
+const PaymentSuggestions = z.looseObject({
+  items: z.array(z.looseObject({
+    orderId: z.number().int(), number: z.string(), customerName: z.string(), customerPhone: z.string().nullable(),
+    totalCents: cents, balanceCents: cents, status: z.string(), score: z.number(), reasons: z.array(z.enum(['code', 'amount', 'phone', 'name'])),
+  })),
+});
+const PaymentMatched = z.looseObject({
+  payment: z.looseObject({ id: z.number().int(), status: z.literal('matched') }),
+  order: z.looseObject({ id: z.number().int(), number: z.string(), paymentState: z.enum(['paid', 'partial']), balanceCents: cents }),
+});
+const PaymentIgnored = z.looseObject({ payment: z.looseObject({ id: z.number().int(), status: z.literal('ignored') }) });
+
+// ---- couriers
+const CourierBalances = z.looseObject({
+  items: z.array(z.looseObject({
+    courierId: z.number().int(), name: z.string(), kind: z.string(), outstandingCents: cents, overdueCents: cents, paused: z.boolean(),
+    openCollections: z.number().int(), oldestCollectionOn: z.string().nullable(),
+    buckets: z.array(z.looseObject({ label: z.string(), cents })),
+  })),
+});
+const CourierCollections = z.looseObject({
+  items: z.array(z.looseObject({ collectionId: z.number().int(), orderId: z.number().int(), orderNumber: z.string(), customerName: z.string(), amountCents: cents, collectedOn: z.string() })),
+});
+const CourierRemittances = list(z.looseObject({
+  id: z.number().int(), createdAt: iso, createdBy: z.looseObject({ id: z.number().int(), name: z.string() }),
+  collectionsCents: cents, feesCents: cents, remittedCents: cents, cashVarianceCents: cents, reference: z.string().nullable(),
+}));
+const RemittanceCreated = z.looseObject({ id: z.number().int(), remittedCents: cents, expectedCents: cents, cashVarianceCents: cents, settledCount: z.number().int() });
+
+// ---- attendance
+const AttendanceToday = z.looseObject({
+  workDate: z.string(), status: z.enum(['not_started', 'clocked_in', 'clocked_out']), clockInAt: iso.nullable(), clockOutAt: iso.nullable(),
+  gate: z.looseObject({
+    mode: z.string(), blocked: z.boolean(), reasonRequired: z.boolean(), canConfirmDispatched: z.boolean(), canConfirmNairobi: z.boolean(),
+    undispatchedOrders: z.number().int(), nairobiUnpaid: z.number().int(), custodyOpen: z.number().int(), unmatchedPayments: z.number().int(),
+  }).nullable(),
+});
+Object.assign(module.exports, { UnmatchedPayments, PaymentSuggestions, PaymentMatched, PaymentIgnored, CourierBalances, CourierCollections, CourierRemittances, RemittanceCreated, AttendanceToday });

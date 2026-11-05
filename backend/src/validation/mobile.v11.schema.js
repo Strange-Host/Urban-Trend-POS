@@ -59,3 +59,25 @@ const stockTakeLines = z.object({
 const approveStockTake = z.object({ note: text(300).optional() });
 const rejectStockTake = z.object({ reason });
 Object.assign(module.exports, { startStockTake, stockTakeLines, approveStockTake, rejectStockTake });
+
+// ---- payments, couriers, attendance
+const matchPayment = z.object({
+  orderId: id,
+  method: z.enum(['cash', 'card', 'mobile_money', 'bank_transfer']).optional(),
+  reference: text(100).optional(),
+});
+const ignorePayment = z.object({ reason });
+const createRemittance = z.object({
+  collectionIds: z.array(id).min(1).max(200),
+  remittedCents: cents,
+  chargeEnteredCents: cents.optional(),
+  reference: text(100).optional(),
+  note: text(300).optional(),
+});
+const clockIn = z.object({ confirm: z.boolean().optional() });
+const clockOut = z.object({
+  confirmAllDispatched: z.boolean().optional(),
+  confirmNairobiReconciled: z.boolean().optional(),
+  handoverNotes: text(1000).optional(),
+});
+Object.assign(module.exports, { matchPayment, ignorePayment, createRemittance, clockIn, clockOut });
