@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ChevronUp, Lock, LogOut, ShieldCheck } from 'lucide-react';
+import { ChevronUp, Lock, LogOut, PanelLeft, ShieldCheck } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import ThemeSwitch from './ThemeSwitch';
+import useUiVersion from '../hooks/useUiVersion';
 
 const initials = (name) => (name || '?').trim().split(/\s+/).slice(0, 2).map((w) => w[0]?.toUpperCase()).join('') || '?';
 
@@ -12,6 +13,7 @@ const initials = (name) => (name || '?').trim().split(/\s+/).slice(0, 2).map((w)
 export default function UserMenu({ rail = false, onNavigate }) {
   const { user, logout, lock } = useAuth();
   const navigate = useNavigate();
+  const { isV2, setVersion } = useUiVersion();
   const [open, setOpen] = useState(false);
   const rootRef = useRef(null);
 
@@ -66,6 +68,12 @@ export default function UserMenu({ rail = false, onNavigate }) {
             <ShieldCheck size={16} aria-hidden="true" /> Security &amp; devices
           </button>
           <ThemeSwitch />
+          {/* Redesign preview: admins only, until the new layout replaces the current one. */}
+          {user?.role === 'admin' && (
+            <button type="button" role="menuitem" className={itemClass} onClick={run(() => setVersion(isV2 ? 'v1' : 'v2'))}>
+              <PanelLeft size={16} aria-hidden="true" /> {isV2 ? 'Use current layout' : 'Try new layout'}
+            </button>
+          )}
           <button type="button" role="menuitem" className={itemClass} onClick={run(lock)}>
             <Lock size={16} aria-hidden="true" /> Lock screen
           </button>
