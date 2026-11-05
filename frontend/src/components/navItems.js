@@ -1,5 +1,7 @@
 // The navigation map: every page a person can go to, who may see it, and how it is grouped.
-// Shared by the sidebar (Layout.jsx) and the Ctrl+K palette (CommandPalette.jsx).
+// Shared by the sidebar (Layout.jsx), the redesigned shell (shell/, behind the ut_ui=v2 flag) and the Ctrl+K palette
+// (CommandPalette.jsx). `workspace` places each page in one of the redesign's five workspaces (or Settings); the old
+// sidebar ignores it and keeps its own groups until cutover.
 import {
   Banknote, ChartColumn, ClipboardCheck, Clock, GitCompareArrows, History, LayoutDashboard, Package, ReceiptText,
   RefreshCw, ScrollText, Settings, ShoppingCart, Tags, TriangleAlert, UserCog, UserPlus, Users, Wallet, Warehouse,
@@ -15,9 +17,9 @@ import {
 // they're where a shift starts, and burying either one behind a disclosure
 // triangle to save two lines would be a bad trade.
 export const PINNED_TOP = [
-  { to: '/terminal', label: 'Terminal', icon: ShoppingCart, keywords: 'till pos checkout register sell sale cashier', roles: ['admin', 'manager', 'cashier'] },
-  { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, keywords: 'home overview kpi', roles: ['admin', 'manager'], perm: 'reports.view' },
-  { to: '/reports', label: 'Reports', icon: ChartColumn, keywords: 'report profit loss p&l vat discount export', roles: ['admin', 'manager'], perm: 'reports.view' },
+  { to: '/terminal', workspace: 'sell', label: 'Terminal', icon: ShoppingCart, keywords: 'till pos checkout register sell sale cashier', roles: ['admin', 'manager', 'cashier'] },
+  { to: '/dashboard', workspace: 'today', label: 'Dashboard', icon: LayoutDashboard, keywords: 'home overview kpi', roles: ['admin', 'manager'], perm: 'reports.view' },
+  { to: '/reports', workspace: 'money', label: 'Reports', icon: ChartColumn, keywords: 'report profit loss p&l vat discount export', roles: ['admin', 'manager'], perm: 'reports.view' },
 ];
 
 export const GROUPS = [
@@ -25,46 +27,46 @@ export const GROUPS = [
     id: 'sell',
     label: 'Sell',
     items: [
-      { to: '/orders', label: 'Orders', icon: Package, keywords: 'online dispatch delivery courier parcel', roles: ['admin', 'manager', 'cashier'] },
-      { to: '/leads', label: 'Leads', icon: Users, keywords: 'enquiry customer crm followup', roles: ['admin', 'manager', 'cashier'] },
-      { to: '/sales', label: 'Sales history', icon: History, keywords: 'receipts history transactions invoice', roles: ['admin', 'manager', 'cashier'] },
-      { to: '/approvals', label: 'Approvals', icon: ClipboardCheck, keywords: 'void refund approve reject', roles: ['admin', 'manager', 'cashier'], perm: ['approvals.review', 'sales.void_request', 'payments.refund_request'] },
+      { to: '/orders', workspace: 'sell', label: 'Orders', icon: Package, keywords: 'online dispatch delivery courier parcel', roles: ['admin', 'manager', 'cashier'] },
+      { to: '/leads', workspace: 'sell', label: 'Leads', icon: Users, keywords: 'enquiry customer crm followup', roles: ['admin', 'manager', 'cashier'] },
+      { to: '/sales', workspace: 'sell', label: 'Sales history', icon: History, keywords: 'receipts history transactions invoice', roles: ['admin', 'manager', 'cashier'] },
+      { to: '/approvals', workspace: 'sell', label: 'Approvals', icon: ClipboardCheck, keywords: 'void refund approve reject', roles: ['admin', 'manager', 'cashier'], perm: ['approvals.review', 'sales.void_request', 'payments.refund_request'] },
     ],
   },
   {
     id: 'stock',
     label: 'Stock',
     items: [
-      { to: '/catalog', label: 'Catalog', icon: Tags, keywords: 'products categories items price', roles: ['admin', 'manager', 'store'], perm: ['products.manage', 'products.propose'] },
-      { to: '/stock', label: 'Stock control', icon: Warehouse, keywords: 'inventory receive transfer count batch expiry', roles: ['admin', 'manager', 'store'], perm: ['stock.receive', 'stock.transfer', 'stock.count'] },
-      { to: '/shopify-sync', label: 'Shopify sync', icon: RefreshCw, keywords: 'woocommerce online store import', roles: ['admin', 'manager'], perm: 'shopify.sync' },
+      { to: '/catalog', workspace: 'stock', label: 'Catalog', icon: Tags, keywords: 'products categories items price', roles: ['admin', 'manager', 'store'], perm: ['products.manage', 'products.propose'] },
+      { to: '/stock', workspace: 'stock', label: 'Stock control', icon: Warehouse, keywords: 'inventory receive transfer count batch expiry', roles: ['admin', 'manager', 'store'], perm: ['stock.receive', 'stock.transfer', 'stock.count'] },
+      { to: '/shopify-sync', workspace: 'stock', label: 'Shopify sync', icon: RefreshCw, keywords: 'woocommerce online store import', roles: ['admin', 'manager'], perm: 'shopify.sync' },
     ],
   },
   {
     id: 'money',
     label: 'Money',
     items: [
-      { to: '/money-at-risk', label: 'Money at risk', icon: TriangleAlert, keywords: 'unpaid overdue variance owed', roles: ['admin', 'manager'], perm: 'atrisk.view' },
-      { to: '/finance', label: 'Finance', icon: Wallet, keywords: 'expenses payments income cash', roles: ['admin', 'manager'] },
-      { to: '/reconciliation', label: 'Reconciliation', icon: GitCompareArrows, keywords: 'mpesa m-pesa match paybill payments', roles: ['admin', 'manager'], perm: 'payments.reconcile' },
-      { to: '/requisitions', label: 'Requisitions', icon: ReceiptText, keywords: 'request purchase spend', roles: ['admin', 'manager', 'cashier'], module: 'hr' },
+      { to: '/money-at-risk', workspace: 'money', label: 'Money at risk', icon: TriangleAlert, keywords: 'unpaid overdue variance owed', roles: ['admin', 'manager'], perm: 'atrisk.view' },
+      { to: '/finance', workspace: 'money', label: 'Finance', icon: Wallet, keywords: 'expenses payments income cash', roles: ['admin', 'manager'] },
+      { to: '/reconciliation', workspace: 'money', label: 'Reconciliation', icon: GitCompareArrows, keywords: 'mpesa m-pesa match paybill payments', roles: ['admin', 'manager'], perm: 'payments.reconcile' },
+      { to: '/requisitions', workspace: 'money', label: 'Requisitions', icon: ReceiptText, keywords: 'request purchase spend', roles: ['admin', 'manager', 'cashier'], module: 'hr' },
     ],
   },
   {
     id: 'team',
     label: 'Team',
     items: [
-      { to: '/attendance', label: 'Attendance', icon: Clock, keywords: 'clock shift roster', roles: ['admin', 'manager', 'cashier'], module: 'hr' },
-      { to: '/payroll', label: 'Payroll', icon: Banknote, keywords: 'salary wages payslip', roles: ['admin', 'manager'], perm: 'payroll.view', module: 'hr' },
-      { to: '/staff', label: 'Staff', icon: UserCog, keywords: 'users accounts employees permissions', roles: ['admin'] },
-      { to: '/employees', label: 'Onboarding', icon: UserPlus, keywords: 'hire new employee onboarding', roles: ['admin'], module: 'hr' },
-      { to: '/staff-logs', label: 'Activity log', icon: ScrollText, keywords: 'audit history who did', roles: ['admin'] },
+      { to: '/attendance', workspace: 'team', label: 'Attendance', icon: Clock, keywords: 'clock shift roster', roles: ['admin', 'manager', 'cashier'], module: 'hr' },
+      { to: '/payroll', workspace: 'team', label: 'Payroll', icon: Banknote, keywords: 'salary wages payslip', roles: ['admin', 'manager'], perm: 'payroll.view', module: 'hr' },
+      { to: '/staff', workspace: 'team', label: 'Staff', icon: UserCog, keywords: 'users accounts employees permissions', roles: ['admin'] },
+      { to: '/employees', workspace: 'team', label: 'Onboarding', icon: UserPlus, keywords: 'hire new employee onboarding', roles: ['admin'], module: 'hr' },
+      { to: '/staff-logs', workspace: 'team', label: 'Activity log', icon: ScrollText, keywords: 'audit history who did', roles: ['admin'] },
     ],
   },
 ];
 
 export const PINNED_BOTTOM = [
-  { to: '/settings', label: 'Settings', icon: Settings, keywords: 'configuration branches printer messaging sms system', roles: ['admin'] },
+  { to: '/settings', workspace: 'settings', label: 'Settings', icon: Settings, keywords: 'configuration branches printer messaging sms system', roles: ['admin'] },
 ];
 
 
@@ -82,4 +84,44 @@ export function filterVisible(items, { hasRole, can, modules }) {
   return items
     .filter((i) => !i.module || modules[i.module])
     .filter((i) => (i.perm ? (Array.isArray(i.perm) ? i.perm.some((p) => can(p)) : can(i.perm)) : hasRole(...i.roles)));
+}
+
+/* ---------------------- Workspaces (redesigned shell) ---------------------- */
+
+// Roles with fewer destinations than this get a flat rail (one item per page) instead of the workspace rail.
+export const FLAT_BELOW = 8;
+
+// The workspaces shown on the rail, in order. Settings is not one of them: it sits in the rail's bottom stack.
+export const WORKSPACES = [
+  { id: 'today', label: 'Today', icon: LayoutDashboard },
+  { id: 'sell', label: 'Sell', icon: ShoppingCart },
+  { id: 'stock', label: 'Stock', icon: Warehouse },
+  { id: 'money', label: 'Money', icon: Wallet },
+  { id: 'team', label: 'Team', icon: Users },
+];
+
+// The order pages appear in within a workspace (and in the flat rail). The first one a person can see is where the
+// workspace's rail item takes them.
+export const ROUTE_ORDER = [
+  '/dashboard',
+  '/terminal', '/orders', '/leads', '/sales', '/approvals',
+  '/catalog', '/stock', '/shopify-sync',
+  '/finance', '/reconciliation', '/money-at-risk', '/requisitions', '/reports',
+  '/attendance', '/payroll', '/staff', '/employees', '/staff-logs',
+  '/settings',
+];
+
+export function byRouteOrder(items) {
+  const rank = (to) => { const i = ROUTE_ORDER.indexOf(to); return i === -1 ? ROUTE_ORDER.length : i; };
+  return [...items].sort((a, b) => rank(a.to) - rank(b.to));
+}
+
+/**
+ * Where each role starts: the storekeeper has no till so opens on the catalog, admins and managers who can see reports open
+ * on the dashboard, everyone else on the till. App.jsx's Home() follows this, so the landing page and the rail's logo agree.
+ */
+export function homeRouteFor(role, can) {
+  if (role === 'store') return '/catalog';
+  if ((role === 'admin' || role === 'manager') && can('reports.view')) return '/dashboard';
+  return '/terminal';
 }
