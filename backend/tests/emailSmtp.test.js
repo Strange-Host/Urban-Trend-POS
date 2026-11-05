@@ -155,6 +155,8 @@ describe('leftovers from Resend are removed by the migration', () => {
       run();                                                         // creates the schema
       const Database = require('better-sqlite3');
       const d = new Database(dbFile);
+      // back to a database from before versioned migrations (no schema_migrations table), so the frozen baseline runs on it again
+      d.exec('DROP TABLE IF EXISTS schema_migrations');
       d.prepare("INSERT INTO settings (key, value) VALUES ('mail_provider', 'resend'), ('resend_from', 'x@y.z'), ('resend_api_key_enc', 'enc:v1:abc'), ('smtp_host', 'smtp.keep.me')").run();
       d.close();
       run();                                                         // what happens on the next deploy

@@ -395,6 +395,8 @@ describe('migration: existing databases are upgraded safely', () => {
       // Put it back into the legacy shape: role CHECK without 'store', and an expenses table with no approval columns.
       const d = new Database(file);
       d.pragma('foreign_keys = OFF');
+      // back to a database from before versioned migrations (no schema_migrations table), so the frozen baseline runs on it again
+      d.exec('DROP TABLE IF EXISTS schema_migrations');
       const usersSql = d.prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='users'`).get().sql;
       d.exec('DROP TABLE users');
       d.exec(usersSql.replace("'admin','manager','cashier','store'", "'admin','manager','cashier'"));

@@ -28,6 +28,7 @@ describe('payroll_items migration', () => {
         .split('\\n').filter((l) => !/commission_type\\s+TEXT|percent_bp\\s+INTEGER/.test(l)).join('\\n')
         .replace("CHECK (commission_type <> 'fixed' OR commission = units_sold * rate)", 'CHECK (commission = units_sold * rate)');
       db.pragma('foreign_keys = OFF');
+      db.exec('DROP TABLE IF EXISTS schema_migrations');   // an old database, from before versioned migrations
       for (const t of db.prepare("SELECT name FROM sqlite_master WHERE type='trigger' AND tbl_name IN ('payroll_items','payroll_item_lines')").all()) db.exec('DROP TRIGGER "' + t.name + '"');
       db.exec('DROP TABLE payroll_items'); db.exec(old);
       db.pragma('foreign_keys = ON');
