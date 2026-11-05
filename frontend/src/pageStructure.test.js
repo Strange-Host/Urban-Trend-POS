@@ -17,6 +17,21 @@ function sourceFiles(dir) {
 const files = sourceFiles(SRC).map((f) => ({ path: relative(SRC, f), text: readFileSync(f, 'utf8') }));
 const offenders = (pred) => files.filter(pred).map((f) => f.path).sort();
 
+// R6: page files stay small enough to review. A page over MAX_PAGE_LINES must be listed with the size it may not grow
+// past and the reason. Splitting a page below the limit means removing it from this list (the last test insists).
+const MAX_PAGE_LINES = 400;
+const OVERSIZE_PAGES = {
+  'pages/Settings.jsx': [1082, 'split into tab components (R6 step 2)'],
+  'pages/Orders.jsx': [633, 'review for the same split (R6 step 3)'],
+  'pages/Products.jsx': [493, 'not scheduled: over the limit before R6'],
+  'pages/SettingsMessaging.jsx': [486, 'becomes a Settings tab component in the Settings split'],
+  'pages/Leads.jsx': [411, 'a few lines over; not scheduled'],
+  'pages/ShopifySync.jsx': [403, 'a few lines over; not scheduled'],
+  'pages/POSTerminal.jsx': [403, 'restyled in redesign Phase 3; leave until then'],
+};
+const lineCount = (f) => f.text.split('\n').length - (f.text.endsWith('\n') ? 1 : 0);
+const pageFiles = files.filter((f) => f.path.startsWith('pages/'));
+
 // Files allowed to write their own <h1>.
 const OWN_H1 = {
   'components/shell/PageHeader.jsx': 'the one page header',
@@ -52,5 +67,22 @@ describe('page structure', () => {
   it('the exceptions are still needed (remove them from the lists when they stop being true)', () => {
     for (const path of Object.keys(OWN_H1)) expect(files.find((f) => f.path === path)?.text.includes('<h1'), path).toBe(true);
     for (const path of Object.keys(OWN_TABLIST)) expect(files.find((f) => f.path === path)?.text.includes('role="tablist"'), path).toBe(true);
+  });
+
+  it('no page file is over the line limit unless it is listed', () => {
+    expect(pageFiles.filter((f) => lineCount(f) > MAX_PAGE_LINES && !(f.path in OVERSIZE_PAGES)).map((f) => f.path).sort()).toEqual([]);
+  });
+
+  it('a listed oversize page may not grow', () => {
+    const grown = Object.entries(OVERSIZE_PAGES)
+      .filter(([path, [ceiling]]) => lineCount(files.find((f) => f.path === path)) > ceiling)
+      .map(([path]) => path);
+    expect(grown).toEqual([]);
+  });
+
+  it('a page that is now within the limit is removed from the oversize list', () => {
+    for (const path of Object.keys(OVERSIZE_PAGES)) {
+      expect(lineCount(files.find((f) => f.path === path)), path).toBeGreaterThan(MAX_PAGE_LINES);
+    }
   });
 });
