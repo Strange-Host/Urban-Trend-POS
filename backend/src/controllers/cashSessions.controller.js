@@ -4,7 +4,7 @@ const { PAGINATION } = require('../config/limits');
 
 // GET /api/cash-sessions/current — the logged-in cashier's currently open session, or null
 const current = asyncHandler(async (req, res) => {
-  res.json({ data: cashSessionsService.getCurrentOpen(req.user.id, req.user.storeId) });
+  res.json({ data: cashSessionsService.getCurrentWithSales(req.user.id, req.user.storeId) });
 });
 
 // POST /api/cash-sessions/open  { openingAmount }
