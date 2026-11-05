@@ -1,31 +1,12 @@
-import { Link } from 'react-router-dom';
+import Tabs from './Tabs';
 import { coversPath } from './railModel';
 
 // The pages inside the current workspace, as links to their own routes. Shown only when the workspace has more than
-// one page the person can open. Phase 1 ships this plain so every page stays reachable; Phase 2 restyles it as the
-// underline tabs and moves it into the page header.
-export default function WorkspaceTabs({ pages, path }) {
+// one page the person can open. A page's PageHeader draws it under the title; pages without a header get it from the shell.
+// `inline` drops the outer padding for the header case.
+export default function WorkspaceTabs({ pages, path, inline = false }) {
   if (!pages || pages.length < 2) return null;
-  return (
-    <nav aria-label="Pages in this workspace" className="overflow-x-auto px-4 lg:px-6">
-      <ul className="flex min-w-max gap-5 border-b border-line">
-        {pages.map((p) => {
-          const active = coversPath(path, p.to);
-          return (
-            <li key={p.to}>
-              <Link
-                to={p.to}
-                aria-current={active ? 'page' : undefined}
-                className={`-mb-px inline-flex min-h-11 items-center border-b-2 text-sm transition-colors ${
-                  active ? 'border-accent font-medium text-text' : 'border-transparent text-text-muted hover:text-text'
-                }`}
-              >
-                {p.label}
-              </Link>
-            </li>
-          );
-        })}
-      </ul>
-    </nav>
-  );
+  const items = pages.map((p) => ({ key: p.to, label: p.label, to: p.to }));
+  const active = pages.find((p) => coversPath(path, p.to))?.to;
+  return <Tabs items={items} active={active} label="Pages in this workspace" className={inline ? '' : 'px-4 lg:px-6'} />;
 }

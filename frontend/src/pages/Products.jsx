@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import PageHeader from '../components/shell/PageHeader';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { productsApi, categoriesApi, inventoryApi } from '../api/endpoints';
 import { getErrorMessage } from '../api/client';
@@ -188,24 +189,20 @@ export default function Products({ catalogue = 'shop' }) {
 
   return (
     <div className="p-4 md:p-8 max-w-6xl">
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="font-display font-700 text-2xl">{online ? 'Online products' : 'Products'}</h1>
-          <p className="text-text-muted text-sm mt-1">
-            {online
-              ? `${data?.total ?? '—'} listings from your online store. The shop does not track their stock.`
-              : `${data?.total ?? '—'} products in catalog`}
-          </p>
-        </div>
-        {!online && (canManage || canPropose) && (
+      <PageHeader
+        title={online ? 'Online products' : 'Products'}
+        description={online
+          ? `${data?.total ?? '—'} listings from your online store. The shop does not track their stock.`
+          : `${data?.total ?? '—'} products in catalog`}
+        actions={!online && (canManage || canPropose) ? (
           <button
             onClick={openNew}
             className="px-4 py-2.5 rounded-lg bg-ink text-white text-sm font-medium hover:bg-ink-soft transition-colors"
           >
             {canManage ? '+ Add product' : '+ Propose product'}
           </button>
-        )}
-      </div>
+        ) : null}
+      />
 
       {!online && pending?.length > 0 && (
         <div className="mb-6 bg-surface border border-line rounded-xl overflow-hidden">

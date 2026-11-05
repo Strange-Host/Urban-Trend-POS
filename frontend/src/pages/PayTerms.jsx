@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import PageHeader from '../components/shell/PageHeader';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { payrollApi } from '../api/endpoints';
 import { getErrorMessage } from '../api/client';
@@ -112,10 +113,10 @@ export default function PayTerms() {
   }
   return (
     <div className="p-4 md:p-6 max-w-3xl">
-      <h1 className="font-display font-700 text-2xl mb-1">Pay terms</h1>
-      <p className="text-text-muted text-sm mb-5">
-        How each person&apos;s commission is worked out. Changes apply to drafts calculated from now on; an approved run never changes.
-      </p>
+      <PageHeader
+        title="Pay terms"
+        description="How each person's commission is worked out. Changes apply to drafts calculated from now on; an approved run never changes."
+      />
       {error && <div className="mb-4 px-3.5 py-2.5 rounded-lg bg-danger-soft text-danger text-sm" role="alert">{getErrorMessage(error, 'Could not load pay terms.')}</div>}
       <div className="bg-surface border border-line rounded-xl overflow-hidden">
         {isLoading && <LoadingBlock />}

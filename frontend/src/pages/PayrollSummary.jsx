@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import PageHeader from '../components/shell/PageHeader';
 import { useQuery } from '@tanstack/react-query';
 import { payrollApi, staffApi } from '../api/endpoints';
 import { getErrorMessage } from '../api/client';
@@ -50,11 +51,10 @@ export default function PayrollSummary() {
 
   return (
     <div className="p-4 md:p-6 max-w-4xl">
-      <h1 className="font-display font-700 text-2xl mb-1">Payroll</h1>
-      <p className="text-text-muted text-sm mb-5">
-        Calculated live from attendance and secured sales (commission is paid only on money that is safe: deposited, matched or remitted).
-        It can change as records change. For a figure that is frozen and paid, use Pay runs.
-      </p>
+      <PageHeader
+        title="Payroll"
+        description="Calculated live from attendance and secured sales (commission is paid only on money that is safe: deposited, matched or remitted). It can change as records change. For a figure that is frozen and paid, use Pay runs."
+      />
 
       {error && <div className="mb-4 px-3.5 py-2.5 rounded-lg bg-danger-soft text-danger text-sm">{error}</div>}
 

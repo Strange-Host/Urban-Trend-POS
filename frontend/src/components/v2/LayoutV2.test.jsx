@@ -6,6 +6,9 @@ import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import LayoutV2 from './LayoutV2';
 import { storesApi, cashSessionsApi } from '../../api/endpoints';
 import { canFor, hasRoleFor } from '../shell/testRoles';
+import PageHeader from '../shell/PageHeader';
+import PageSection from '../shell/PageSection';
+import { setUiVersion } from '../../utils/uiVersion';
 
 const auth = { role: 'admin' };
 vi.mock('../../context/AuthContext', () => ({
@@ -24,14 +27,14 @@ vi.mock('../../api/endpoints', () => ({
   cashSessionsApi: { current: vi.fn() },
 }));
 
-function mount(path = '/orders') {
+function mount(path = '/orders', page = <div>The page</div>) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={[path]}>
         <Routes>
           <Route element={<LayoutV2 />}>
-            <Route path="*" element={<div>The page</div>} />
+            <Route path="*" element={page} />
           </Route>
         </Routes>
       </MemoryRouter>
@@ -197,5 +200,43 @@ describe('phone bottom bar', () => {
   it('lights More when the current page is behind it', () => {
     mount('/staff');
     expect(bar().getByRole('button', { name: 'More' }).className).toContain('text-accent');
+  });
+});
+
+describe('who draws the status line and workspace tabs', () => {
+  beforeEach(() => setUiVersion('v2'));
+  const tabsNav = () => screen.queryAllByRole('navigation', { name: 'Pages in this workspace' });
+
+  it('the shell draws them above a page that has no header of its own (the till)', () => {
+    mount('/terminal', <div>The till</div>);
+    expect(screen.getAllByLabelText('Status')).toHaveLength(1);
+    expect(tabsNav()).toHaveLength(1);
+  });
+
+  it('a page with a PageHeader draws them itself, under its title, and the shell steps back', () => {
+    mount('/orders', <PageHeader title="Orders" description="All orders." />);
+    expect(screen.getAllByLabelText('Status')).toHaveLength(1);
+    expect(tabsNav()).toHaveLength(1);
+    const heading = screen.getByRole('heading', { level: 1, name: 'Orders' });
+    expect(heading.compareDocumentPosition(screen.getByLabelText('Status')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(heading.compareDocumentPosition(tabsNav()[0]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('an embedded page does not draw a second copy', () => {
+    mount('/finance', (
+      <>
+        <PageHeader title="Finance" titleless tabs={{ items: [{ key: 'p', label: 'Payments' }], active: 'p', onChange: () => {} }} />
+        <PageSection><PageHeader title="Payments" description="Money in and out." /></PageSection>
+      </>
+    ));
+    expect(screen.getAllByLabelText('Status')).toHaveLength(1);
+    expect(screen.getAllByRole('heading', { level: 1 }).map((h) => h.textContent)).toEqual(['Finance']);
+  });
+
+  it('hands the chrome back to the shell when the page with a header goes away', () => {
+    const { unmount } = mount('/orders', <PageHeader title="Orders" />);
+    unmount();
+    mount('/terminal', <div>The till</div>);
+    expect(screen.getAllByLabelText('Status')).toHaveLength(1);
   });
 });

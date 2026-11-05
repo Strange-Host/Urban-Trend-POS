@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import PageHeader from '../components/shell/PageHeader';
 import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { authApi, securityApi } from '../api/endpoints';
@@ -58,8 +59,10 @@ export default function Security() {
 
   return (
     <div className="p-4 md:p-8 max-w-3xl">
-      <h1 className="font-display font-700 text-2xl mb-1">Security</h1>
-      <p className="text-text-muted text-sm mb-6">Where you are signed in, and how the POS protects your account.</p>
+      <PageHeader
+        title="Security"
+        description="Where you are signed in, and how the POS protects your account."
+      />
 
       <section className="bg-surface border border-line rounded-xl p-4 md:p-5 mb-5">
         <h2 className="font-medium mb-1">This sign-in</h2>

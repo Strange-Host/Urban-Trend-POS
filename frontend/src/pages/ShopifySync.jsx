@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import PageHeader from '../components/shell/PageHeader';
 import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { shopifyApi, categoriesApi } from '../api/endpoints';
@@ -170,13 +171,10 @@ export default function ShopifySync() {
 
   return (
     <div className="p-4 md:p-8 max-w-6xl">
-      <div className="flex items-center justify-between mb-1">
-        <h1 className="font-display font-700 text-2xl">Shopify sync</h1>
-      </div>
-      <p className="text-text-muted text-sm mb-6">
-        Pull your Shopify or WooCommerce catalog in for review. Nothing is added or changed in your product list until
-        you approve it here. SKUs auto-assign if left blank — for a new product, just pick a category, then approve.
-      </p>
+      <PageHeader
+        title="Shopify sync"
+        description="Pull your Shopify or WooCommerce catalog in for review. Nothing is added or changed in your product list until you approve it here. SKUs auto-assign if left blank — for a new product, just pick a category, then approve."
+      />
 
       {connections.length === 0 && (
         <div className="mb-6 px-4 py-3 rounded-lg border border-line bg-surface text-sm">

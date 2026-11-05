@@ -1,11 +1,11 @@
 import { useState } from 'react';
+import PageHeader from '../components/shell/PageHeader';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { couriersApi } from '../api/endpoints';
 import { getErrorMessage } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { useToast, useDialog } from '../context/UIContext';
 import { StatusPill } from '../components/DataUI';
-import TabBar from '../components/TabBar';
 import CourierSheet, { availableTabs } from '../components/couriers/CourierSheet';
 import PayablesOverview from '../components/couriers/PayablesOverview';
 import DeliveryResultsTab from '../components/couriers/DeliveryResultsTab';
@@ -84,17 +84,18 @@ export default function Couriers() {
 
   return (
     <div className="p-4 md:p-8 max-w-5xl">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
-        <div>
-          <h1 className="font-display font-700 text-2xl">Couriers</h1>
-          <p className="text-text-muted text-sm mt-1">
-            {couriers.filter((c) => c.is_active).length} active · {money(owed)} currently with couriers, not yet paid
-          </p>
-        </div>
-        {manage && <button onClick={openNew} className="px-4 py-2.5 rounded-lg bg-ink text-white text-sm font-medium hover:bg-ink-soft whitespace-nowrap">+ Add courier</button>}
-      </div>
-
-      {(showPayables || showResults) && <TabBar tabs={[{ key: 'couriers', label: 'Couriers' }, ...(showPayables ? [{ key: 'payables', label: 'Payables & costs' }] : []), ...(showResults ? [{ key: 'results', label: 'Delivery results' }] : [])]} active={view} onChange={setView} className="mb-4" />}
+      <PageHeader
+        title="Couriers"
+        description={<>{couriers.filter((c) => c.is_active).length} active · {money(owed)} currently with couriers, not yet paid</>}
+        actions={manage ? (
+          <button onClick={openNew} className="px-4 py-2.5 rounded-lg bg-ink text-white text-sm font-medium hover:bg-ink-soft whitespace-nowrap">+ Add courier</button>
+        ) : null}
+        tabs={(showPayables || showResults) ? {
+          items: [{ key: 'couriers', label: 'Couriers' }, ...(showPayables ? [{ key: 'payables', label: 'Payables & costs' }] : []), ...(showResults ? [{ key: 'results', label: 'Delivery results' }] : [])],
+          active: view,
+          onChange: setView,
+        } : undefined}
+      />
 
       {view === 'results' && showResults && <DeliveryResultsTab />}
 

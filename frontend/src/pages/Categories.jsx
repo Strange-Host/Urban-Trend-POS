@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import PageHeader from '../components/shell/PageHeader';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { categoriesApi } from '../api/endpoints';
 import { getErrorMessage } from '../api/client';
@@ -67,18 +68,18 @@ export default function Categories() {
 
   return (
     <div className="p-4 md:p-8 max-w-3xl">
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="font-display font-700 text-2xl">Categories</h1>
-          <p className="text-text-muted text-sm mt-1">{categories?.length ?? '—'} categories</p>
-        </div>
-        <button
-          onClick={openNew}
-          className="px-4 py-2.5 rounded-lg bg-ink text-white text-sm font-medium hover:bg-ink-soft transition-colors"
-        >
-          + Add category
-        </button>
-      </div>
+      <PageHeader
+        title="Categories"
+        description={`${categories?.length ?? '—'} categories`}
+        actions={(
+          <button
+            onClick={openNew}
+            className="px-4 py-2.5 rounded-lg bg-ink text-white text-sm font-medium hover:bg-ink-soft transition-colors"
+          >
+            + Add category
+          </button>
+        )}
+      />
 
       <div className="bg-surface border border-line rounded-xl overflow-hidden scroll-x">
         <table className="stack-sm w-full text-sm min-w-[480px]">

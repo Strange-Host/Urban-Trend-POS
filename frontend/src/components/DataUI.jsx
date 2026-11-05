@@ -16,28 +16,8 @@
 import { LoadingBlock } from './Skeleton';
 import EmptyState from './EmptyState';
 
-export function PageHeader({ eyebrow, title, description, meta, actions }) {
-  return (
-    <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3 mb-6">
-      <div className="min-w-0">
-        {eyebrow && (
-          <div className="flex items-center gap-2 mb-1.5">
-            <span className="h-px w-6 bg-accent shrink-0" />
-            <span className="font-mono text-[11px] uppercase tracking-wider text-text-muted">{eyebrow}</span>
-          </div>
-        )}
-        <h1 className="font-display font-700 text-2xl tracking-tight">{title}</h1>
-        {description && <p className="text-text-muted text-sm mt-1 max-w-2xl">{description}</p>}
-      </div>
-      {(meta || actions) && (
-        <div className="flex items-center gap-3 shrink-0">
-          {meta && <div className="font-mono text-xs text-text-muted text-right whitespace-pre-line">{meta}</div>}
-          {actions}
-        </div>
-      )}
-    </div>
-  );
-}
+// The page header now lives in shell/PageHeader.jsx (it also draws the redesign's chrome); re-exported so existing imports keep working.
+export { default as PageHeader } from './shell/PageHeader';
 
 /* ------------------------------ Dense table ------------------------------ */
 

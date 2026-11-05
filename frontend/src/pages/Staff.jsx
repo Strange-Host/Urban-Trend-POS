@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import PageHeader from '../components/shell/PageHeader';
 import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { staffApi, storesApi } from '../api/endpoints';
 import { getErrorMessage } from '../api/client';
@@ -122,18 +123,18 @@ export default function Staff() {
 
   return (
     <div className="p-4 md:p-8 max-w-5xl">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
-        <div>
-          <h1 className="font-display font-700 text-2xl">Staff</h1>
-          <p className="text-text-muted text-sm mt-1">{staff.length} staff member{staff.length === 1 ? '' : 's'}</p>
-        </div>
-        <button
-          onClick={openNew}
-          className="px-4 py-2.5 rounded-lg bg-ink text-white text-sm font-medium hover:bg-ink-soft transition-colors whitespace-nowrap"
-        >
-          + Add staff
-        </button>
-      </div>
+      <PageHeader
+        title="Staff"
+        description={`${staff.length} staff member${staff.length === 1 ? '' : 's'}`}
+        actions={(
+          <button
+            onClick={openNew}
+            className="px-4 py-2.5 rounded-lg bg-ink text-white text-sm font-medium hover:bg-ink-soft transition-colors whitespace-nowrap"
+          >
+            + Add staff
+          </button>
+        )}
+      />
 
       {stores.length > 1 && (
         <div className="mb-3 max-w-sm">

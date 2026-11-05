@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import PageHeader from '../components/shell/PageHeader';
 import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { approvalsApi } from '../api/endpoints';
 import { getErrorMessage } from '../api/client';
@@ -118,12 +119,12 @@ export default function Approvals() {
 
   return (
     <div className="p-4 md:p-8 max-w-6xl">
-      <h1 className="font-display font-700 text-2xl mb-1">Approvals</h1>
-      <p className="text-text-muted text-sm mb-4">
-        {reviewer
+      <PageHeader
+        title="Approvals"
+        description={reviewer
           ? 'Void and refund requests from the team. Nothing changes until you approve it.'
           : 'Your void and refund requests. A manager approves or rejects each one; you are told when they do.'}
-      </p>
+      />
 
       <TabBar tabs={tabs} active={tab} onChange={(k) => { setTab(k); pager.reset(); }} variant="filter" className="mb-6" />
 

@@ -1,4 +1,5 @@
 import { useState, Fragment } from 'react';
+import PageHeader from '../components/shell/PageHeader';
 import StatCard from '../components/StatCard';
 import { useQuery, keepPreviousData } from '@tanstack/react-query';
 import { staffLogsApi } from '../api/endpoints';
@@ -29,8 +30,10 @@ export default function StaffLogs() {
 
   return (
     <div className="p-4 md:p-8 max-w-5xl">
-      <h1 className="font-display font-700 text-2xl mb-1">Staff logs</h1>
-      <p className="text-text-muted text-sm mb-6">Every create, update, and delete across CRM, Requisitions, Expenses, Payments, and Staff — write-only audit trail.</p>
+      <PageHeader
+        title="Staff logs"
+        description="Every create, update, and delete across CRM, Requisitions, Expenses, Payments, and Staff — write-only audit trail."
+      />
 
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-6">
         <StatCard label="Total actions" value={stats?.total_actions ?? '—'} />
