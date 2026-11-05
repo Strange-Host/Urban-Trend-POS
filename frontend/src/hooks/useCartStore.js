@@ -1,13 +1,26 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
+/** @typedef {{ product_id: number, name: string, sku: string, unit_price: number, tax_rate: number, quantity: number, available: number }} CartItem */
+/** @typedef {{ id: number, name: string, sku: string, sell_price: number, tax_rate: number, total_stock: number }} CartProduct */
+/**
+ * @typedef {object} CartState
+ * @property {CartItem[]} items
+ * @property {(product: CartProduct) => void} addItem
+ * @property {(productId: number, quantity: number) => void} updateQuantity
+ * @property {(productId: number) => void} removeItem
+ * @property {() => void} clear
+ * @property {() => { subtotal: number, total: number }} totals
+ */
+
 // Persisted to localStorage so an in-progress cart survives a page reload,
 // a browser crash, or the register being closed and reopened mid-sale —
 // the cashier shouldn't have to re-scan a half-built basket because the
 // tab refreshed. Same reasoning as useOfflineQueue: this is business data
 // the customer is standing there watching, not a credential.
-const useCartStore = create(
+const useCartStore = /** @type {import('zustand').UseBoundStore<import('zustand').StoreApi<CartState>>} */ (create(
   persist(
+    /** @returns {CartState} */
     (set, get) => ({
       items: [], // { product_id, name, sku, unit_price, tax_rate, quantity, available }
 
@@ -65,6 +78,6 @@ const useCartStore = create(
     }),
     { name: 'ut_cart' }
   )
-);
+));
 
 export default useCartStore;

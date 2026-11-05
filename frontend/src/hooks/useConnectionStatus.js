@@ -11,12 +11,20 @@ import { create } from 'zustand';
 //
 // This is display-only. The till keeps its own state in useConnectivity for
 // deciding whether to queue a sale.
-const useConnectionStatus = create((set) => ({
+/**
+ * @typedef {object} ConnectionState
+ * @property {boolean} browserOnline
+ * @property {boolean} apiReachable
+ * @property {(browserOnline: boolean) => void} setBrowserOnline
+ * @property {(apiReachable: boolean) => void} setApiReachable
+ */
+
+const useConnectionStatus = /** @type {import('zustand').UseBoundStore<import('zustand').StoreApi<ConnectionState>>} */ (create((set) => ({
   browserOnline: typeof navigator === 'undefined' ? true : navigator.onLine,
   apiReachable: true,
   setBrowserOnline: (browserOnline) => set(browserOnline ? { browserOnline, apiReachable: true } : { browserOnline }),
   setApiReachable: (apiReachable) => set((s) => (s.apiReachable === apiReachable ? s : { apiReachable })),
-}));
+})));
 
 if (typeof window !== 'undefined') {
   window.addEventListener('online', () => useConnectionStatus.getState().setBrowserOnline(true));

@@ -22,7 +22,12 @@ import { useLayoutEffect, useRef, useState } from 'react';
 const ACTIVE = '[aria-current="page"], [aria-selected="true"], [data-active="true"]';
 const HIDDEN = { start: 0, end: 0, cs: 0, ce: 0, visible: false, dir: 'fwd' };
 
+/**
+ * @param {'x' | 'y'} [axis]
+ * @param {unknown} [key]  anything that should trigger a re-measure when it changes
+ */
 export default function useSlidingPill(axis = 'y', key) {
+  /** @type {import('react').MutableRefObject<HTMLElement | null>} */
   const rootRef = useRef(null);
   const [pill, setPill] = useState(HIDDEN);
   const [animate, setAnimate] = useState(false); // off for the first paint so the pill doesn't fly in from 0
@@ -33,7 +38,7 @@ export default function useSlidingPill(axis = 'y', key) {
     const vertical = axis === 'y';
 
     function measure() {
-      const el = root.querySelector(ACTIVE);
+      const el = /** @type {HTMLElement | null} */ (/** @type {HTMLElement} */ (root).querySelector(ACTIVE));
       if (!el) {
         setPill((p) => (p.visible ? { ...p, visible: false } : p));
         return;
@@ -42,11 +47,11 @@ export default function useSlidingPill(axis = 'y', key) {
       // active child exactly even when the root has padding around its children.
       const start = vertical ? el.offsetTop : el.offsetLeft;
       const size = vertical ? el.offsetHeight : el.offsetWidth;
-      const total = vertical ? root.clientHeight : root.clientWidth;
+      const total = vertical ? /** @type {HTMLElement} */ (root).clientHeight : /** @type {HTMLElement} */ (root).clientWidth;
       const end = Math.max(0, total - start - size);
       const cs = vertical ? el.offsetLeft : el.offsetTop;
       const csize = vertical ? el.offsetWidth : el.offsetHeight;
-      const ctotal = vertical ? root.clientWidth : root.clientHeight;
+      const ctotal = vertical ? /** @type {HTMLElement} */ (root).clientWidth : /** @type {HTMLElement} */ (root).clientHeight;
       const ce = Math.max(0, ctotal - cs - csize);
       setPill((p) => {
         if (p.visible && p.start === start && p.end === end && p.cs === cs && p.ce === ce) return p;
@@ -56,6 +61,7 @@ export default function useSlidingPill(axis = 'y', key) {
 
     measure();
     const raf = requestAnimationFrame(() => setAnimate(true));
+    /** @type {ResizeObserver | undefined} */
     let ro;
     if (typeof ResizeObserver !== 'undefined') {
       ro = new ResizeObserver(measure);

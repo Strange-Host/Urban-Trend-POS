@@ -1,0 +1,20 @@
+{
+  "//": "Check-only typing (R5). Nothing here runs in production and nothing is built from it. Scope: api/, hooks/ (which holds the zustand stores). Add folders here as they are typed.",
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    "checkJs": true,
+    "allowJs": true,
+    "noEmit": true,
+    "strict": false,
+    "noImplicitAny": true,
+    "strictNullChecks": true,
+    "skipLibCheck": true,
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": ["vite/client"]
+  },
+  "include": ["src/api/**/*.js", "src/hooks/**/*.js", "src/utils/uiVersion.js", "src/types.d.ts"],
+  "exclude": ["src/**/*.test.js", "src/**/*.test.jsx", "src/test/**"]
+}

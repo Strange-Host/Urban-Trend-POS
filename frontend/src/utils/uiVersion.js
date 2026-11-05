@@ -14,8 +14,15 @@
 export const UI_FLAG_KEY = 'ut_ui';
 export const DEFAULT_UI_VERSION = 'v1';
 
+/** @typedef {'v1' | 'v2'} UiVersion */
+
+/** @type {Set<() => void>} */
 const listeners = new Set();
 
+/**
+ * @param {unknown} value
+ * @returns {UiVersion}
+ */
 function normalise(value) {
   return value === 'v2' ? 'v2' : DEFAULT_UI_VERSION;
 }
@@ -30,6 +37,7 @@ export function getUiVersion() {
 }
 
 // Mirrors the version onto <html data-ui="..."> so later phases can scope CSS to the new UI without touching the old one.
+/** @param {UiVersion} version */
 function reflectOnDocument(version) {
   try {
     document.documentElement.dataset.ui = version;
@@ -42,7 +50,10 @@ function notify() {
   listeners.forEach((fn) => fn());
 }
 
-/** Save the version. 'v1' removes the key rather than storing it, so "off" and "never set" are the same state. */
+/**
+ * Save the version. 'v1' removes the key rather than storing it, so "off" and "never set" are the same state.
+ * @param {string} version
+ */
 export function setUiVersion(version) {
   try {
     if (normalise(version) === 'v2') localStorage.setItem(UI_FLAG_KEY, 'v2');
@@ -51,9 +62,13 @@ export function setUiVersion(version) {
   notify();
 }
 
-/** For useSyncExternalStore: re-render when the flag changes here or in another tab. */
+/**
+ * For useSyncExternalStore: re-render when the flag changes here or in another tab.
+ * @param {() => void} fn
+ */
 export function subscribeUiVersion(fn) {
   listeners.add(fn);
+  /** @param {StorageEvent} e */
   const onStorage = (e) => { if (e.key === null || e.key === UI_FLAG_KEY) notify(); };
   window.addEventListener('storage', onStorage);
   return () => {
