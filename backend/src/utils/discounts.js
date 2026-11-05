@@ -1,4 +1,5 @@
 const ApiError = require('./ApiError');
+const { formatMoney, percentToBp } = require('./money');
 
 // Server-side discount caps (Phase 0). The browser already stops an obviously
 // silly discount, but the browser is not a control: anyone calling the API
@@ -8,9 +9,7 @@ const ApiError = require('./ApiError');
 //
 // All amounts are integer cents, the same unit the rest of the money code uses.
 
-function money(cents) {
-  return (cents / 100).toFixed(2);
-}
+const money = formatMoney;
 
 // A line's discount must be a whole, non-negative amount and may not exceed what
 // that line is worth before the discount (unit price x quantity).
@@ -54,7 +53,7 @@ function maxPercentFor(role, settings) {
 function assertDiscountPercent({ lineDiscountTotal, saleDiscount, grossTotal, maxPercent }) {
   if (!maxPercent) return;
   const discount = lineDiscountTotal + saleDiscount;
-  if (grossTotal > 0 && discount * 100 > grossTotal * maxPercent) {
+  if (grossTotal > 0 && discount * 10000 > grossTotal * percentToBp(maxPercent)) {
     const given = ((discount / grossTotal) * 100).toFixed(1);
     throw new ApiError(400, `Discount of ${given}% is above the ${maxPercent}% limit. Ask a manager to approve it.`);
   }

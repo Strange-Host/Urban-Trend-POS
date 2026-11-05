@@ -2,6 +2,7 @@ const ApiError = require('../utils/ApiError');
 const settingsService = require('./settings.service');
 const pnl = require('./reportsPnl.service');
 const extra = require('./reportsExtra.service');
+const money = require('../utils/money');
 
 // Builds the printable/exportable form of each report (see utils/reportExport.js for the shape).
 // The JSON endpoints and the Excel/PDF exports both come from the same service calls, so a
@@ -69,8 +70,8 @@ function discountsDocument({ user, from, to }) {
       { heading: 'Summary', columns: [T('line', 'Measure'), T('value', 'Value')], rows: [
         { line: 'Transactions', value: String(r.summary.transactions) },
         { line: 'With a discount', value: String(r.summary.discounted_transactions) },
-        { line: 'List value of goods (KES)', value: (r.summary.list_value / 100).toFixed(2) },
-        { line: 'Total discount (KES)', value: (r.summary.discount_total / 100).toFixed(2) },
+        { line: 'List value of goods (KES)', value: money.formatMoney(r.summary.list_value) },
+        { line: 'Total discount (KES)', value: money.formatMoney(r.summary.discount_total) },
         { line: 'Discount as % of list value', value: r.summary.discount_percent === null ? '-' : `${r.summary.discount_percent}%` },
       ] },
       { heading: 'By staff member', columns: cols(T('staff', 'Staff')), rows: r.by_staff },

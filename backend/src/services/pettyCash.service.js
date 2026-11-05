@@ -2,6 +2,7 @@ const db = require('../config/db');
 const ApiError = require('../utils/ApiError');
 const { logStaffAction } = require('../utils/auditLog');
 const notifications = require('./notifications.service');
+const money = require('../utils/money');
 
 // The petty-cash float for one store.
 //   balance   = approved top-ups  -  approved petty-cash expenses
@@ -70,7 +71,7 @@ function createTopup({ body, user }) {
     notifications.notify({
       storeId: user.storeId, roles: ['admin', 'manager'], type: 'petty_cash_topup_pending',
       title: 'Petty cash top-up waiting for approval',
-      body: `${user.name} recorded a top-up of ${(amount / 100).toFixed(2)}.`,
+      body: `${user.name} recorded a top-up of ${money.formatMoney(amount)}.`,
       entityType: 'petty_cash_topup', entityId: topup.id, dedupeKey: `petty_cash_topup_pending:${topup.id}`,
     });
   }

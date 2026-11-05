@@ -1,6 +1,7 @@
 const db = require('../config/db');
 const ApiError = require('../utils/ApiError');
 const woocommerce = require('../config/woocommerce');
+const money = require('../utils/money');
 
 // Flattens WooCommerce's product/variation structure the same way
 // shopify.service.js does for Shopify — one staging row per sellable
@@ -21,7 +22,7 @@ async function flattenVariants(client, products) {
             sku: variation.sku || product.sku || null,
             barcode: null,
             name: attrs ? `${product.name} — ${attrs}` : product.name,
-            sell_price: Math.round(parseFloat(variation.price || product.price || 0) * 100), // WooCommerce price is decimal string; staging.sell_price is cents
+            sell_price: money.requireCents(variation.price || product.price, 'WooCommerce price'), // WooCommerce price is decimal string; staging.sell_price is cents
             inventory_qty: variation.stock_quantity ?? product.stock_quantity ?? 0,
             image_url: variation.image?.src || product.images?.[0]?.src || null,
             raw_json: JSON.stringify({ product_id: product.id, variation }),
@@ -38,7 +39,7 @@ async function flattenVariants(client, products) {
         sku: product.sku || null,
         barcode: null,
         name: product.name,
-        sell_price: Math.round(parseFloat(product.price || 0) * 100), // WooCommerce price is decimal string; staging.sell_price is cents
+        sell_price: money.requireCents(product.price, 'WooCommerce price'), // WooCommerce price is decimal string; staging.sell_price is cents
         inventory_qty: product.stock_quantity ?? 0,
         image_url: product.images?.[0]?.src || null,
         raw_json: JSON.stringify({ product }),

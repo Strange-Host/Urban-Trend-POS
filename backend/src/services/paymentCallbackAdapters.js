@@ -1,4 +1,5 @@
 const logger = require('../utils/logger');
+const money = require('../utils/money');
 
 // These take the RAW body Safaricom/KCB actually POST — not the already-
 // normalized shape paymentReconciliation.schema.js's webhookNotificationSchema
@@ -11,9 +12,7 @@ const logger = require('../utils/logger');
 // separators first, and treat anything unparseable as 0 (ingestNotification
 // then rejects it loudly rather than recording a nonsense amount).
 function toCents(decimalAmount) {
-  const cleaned = String(decimalAmount ?? '').replace(/[,\s]/g, '');
-  const n = parseFloat(cleaned);
-  return Number.isFinite(n) ? Math.round(n * 100) : 0;
+  return money.toCents(decimalAmount) ?? 0;
 }
 
 /**

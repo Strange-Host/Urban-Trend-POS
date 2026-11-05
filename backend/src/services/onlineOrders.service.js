@@ -13,6 +13,7 @@ const woocommerce = require('../config/woocommerce');
 const { determineDeliveryZone, suggestCourier } = require('../utils/delivery');
 const deliveryAreas = require('./deliveryAreas.service');
 const { fromUpstreamError } = require('../utils/upstreamError');
+const money = require('../utils/money');
 
 // "Pull online orders" on the Orders page.
 //
@@ -30,7 +31,7 @@ const DEFAULT_DAYS = 60;
 const SHOPIFY_WINDOW_DAYS = 60;
 const MAX_REPORTED_ERRORS = 5;
 
-const cents = (v) => Math.round((parseFloat(String(v ?? '0').replace(/,/g, '')) || 0) * 100);
+const cents = (v) => money.toCents(v ?? '0') ?? 0;
 const clean = (v) => (v === undefined || v === null ? '' : String(v).trim());
 const isCodGateway = (text) => /cash on delivery|\bcod\b|pay on delivery|pay at delivery/i.test(text);
 const guessMethod = (text) => (/m-?pesa|mobile/i.test(text) ? 'mobile_money' : /bank|transfer|eft/i.test(text) ? 'bank_transfer' : 'card');
@@ -94,8 +95,8 @@ function platformInfo(source) {
 
 // Creates the fulfilment order (and, if Sales history doesn't have it yet, the sale), all or nothing.
 function createFulfilmentOrder({ source, info, raw, norm, storeId, userId }) {
-  if (!norm.customer.phone) throw new Error('the order has no phone number - Shopify/WooCommerce checkout must collect one for the shop to deliver');
-  if (norm.lines.length === 0) throw new Error('the order has no items');
+  if (!norm.customer.phone) throw new ApiError(422, 'the order has no phone number - Shopify/WooCommerce checkout must collect one for the shop to deliver');
+  if (norm.lines.length === 0) throw new ApiError(422, 'the order has no items');
 
   const customer = customersService.findOrCreate({ name: norm.customer.name, phone: norm.customer.phone, email: norm.customer.email, city: norm.customer.city });
 

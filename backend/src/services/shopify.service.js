@@ -3,6 +3,7 @@ const ApiError = require('../utils/ApiError');
 const { fetchAllProducts } = require('../config/shopify');
 const { nextAutoSku } = require('../utils/autoSku');
 const { decrypt } = require('../utils/crypto');
+const money = require('../utils/money');
 
 /**
  * Resolves the legacy env-var route (routes/shopify.routes.js) to the SAME
@@ -43,7 +44,7 @@ function flattenVariants(shopifyProducts) {
         name: variantLabel,
         // Shopify's price is a decimal string ("19.99") — staging.sell_price
         // is integer cents like every other money column now, so convert here.
-        sell_price: Math.round(parseFloat(variant.price) * 100),
+        sell_price: money.requireCents(variant.price, 'Shopify price', { allowBlank: false }),
         inventory_qty: variant.inventory_quantity ?? 0,
         image_url: product.image?.src || null,
         raw_json: JSON.stringify({ product_id: product.id, variant }),

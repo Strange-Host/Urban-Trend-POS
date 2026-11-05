@@ -3,6 +3,7 @@ const logger = require('../utils/logger');
 const notifications = require('./notifications.service');
 const alerting = require('./alerting.service');
 const settingsService = require('./settings.service');
+const money = require('../utils/money');
 
 // One place that records anything security-relevant and tells the admins about it.
 //  - every event is kept in security_events (the Security page lists the latest ones)
@@ -15,7 +16,7 @@ const num = (v, d) => { const n = Number(v); return Number.isFinite(n) && n >= 0
 const limits = () => {
   const s = settingsService.getAll();
   return {
-    refundCents: Math.round(num(s.security_alert_refund_kes, 3000) * 100),
+    refundCents: money.toCents(num(s.security_alert_refund_kes, 3000)),
     stockUnits: num(s.security_alert_stock_units, 25),
     pricePercent: num(s.security_alert_price_percent, 15),
   };

@@ -2,6 +2,7 @@ const db = require('../config/db');
 const ApiError = require('../utils/ApiError');
 const { logStaffAction } = require('../utils/auditLog');
 const { computeDeliveryFee } = require('../utils/delivery');
+const money = require('../utils/money');
 
 // The Joyfull Cargo rate card: one row per delivery area with its own fee. When an order's
 // town matches an area, that fee replaces the flat/percent rule. Money is integer cents.
@@ -15,9 +16,8 @@ function normalizeKey(text) {
 }
 
 function toCents(value) {
-  const n = typeof value === 'number' ? value : parseFloat(String(value).replace(/[, ]/g, '').replace(/^ksh?\.?/i, ''));
-  if (!Number.isFinite(n) || n < 0) return null;
-  return Math.round(n * 100);
+  const cents = money.toCents(typeof value === 'number' ? value : String(value).replace(/[, ]/g, '').replace(/^ksh?\.?/i, ''));
+  return cents === null || cents < 0 ? null : cents;
 }
 
 function list({ includeInactive = false, search } = {}) {

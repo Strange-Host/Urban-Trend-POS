@@ -6,6 +6,7 @@ const { fromUpstreamError } = require('../utils/upstreamError');
 
 const crypto = require('crypto');
 const logger = require('../utils/logger');
+const money = require('../utils/money');
 
 // First sync with no explicit depth. 60 is deliberate: it is exactly the window
 // Shopify shows an app by default, so asking for more would silently return no
@@ -18,7 +19,7 @@ const MAX_REPORTED_ERRORS = 5;
 // Shopify/WooCommerce send money as decimal strings ("19.99") — every
 // money column here is integer cents now, same as everywhere else.
 function toCents(value) {
-  return Math.round(parseFloat(value || 0) * 100);
+  return money.requireCents(value, 'Order amount');
 }
 
 function isoDaysAgo(days) {
