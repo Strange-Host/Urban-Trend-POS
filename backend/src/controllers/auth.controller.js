@@ -1,8 +1,8 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const db = require('../config/db');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
+const accounts = require('../services/authAccounts.service');
 const authTokens = require('../services/authTokens.service');
 const twoFactor = require('../services/twoFactor.service');
 const permissionsService = require('../services/permissions.service');
@@ -90,7 +90,7 @@ const login = asyncHandler(async (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) throw new ApiError(400, 'Email and password are required.');
 
-  const user = db.prepare('SELECT * FROM users WHERE lower(email) = lower(?) AND is_active = 1').get(email.trim());
+  const user = accounts.findActiveByEmail(email.trim());
   loginGuard.assertNotLocked(user, 'password');     // a locked account answers the same whether or not the password is right
   const passwordMatches = await bcrypt.compare(password, user ? user.password_hash : DUMMY_HASH);
   if (!user || !passwordMatches) {
@@ -128,7 +128,7 @@ const pinLogin = asyncHandler(async (req, res) => {
   const { userId, pin } = req.body;
   if (!userId || !pin) throw new ApiError(400, 'userId and pin are required.');
 
-  const user = db.prepare('SELECT * FROM users WHERE id = ? AND is_active = 1').get(userId);
+  const user = accounts.findActiveById(userId);
   loginGuard.assertNotLocked(user, 'pin');
   const pinMatches = await bcrypt.compare(String(pin), user?.pin_code_hash || DUMMY_HASH);
   if (!user || !user.pin_code_hash || !pinMatches) {
@@ -171,7 +171,7 @@ const logout = asyncHandler(async (req, res) => {
 
 // GET /api/auth/me
 const me = asyncHandler(async (req, res) => {
-  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
+  const user = accounts.findById(req.user.id);
   if (!user) throw new ApiError(404, 'User not found.');
   res.json({ user: toPublicUser(user), session: req.session ? sessionsService.clientPolicy(user, req.session) : null });
 });
@@ -188,7 +188,7 @@ const changePassword = asyncHandler(async (req, res) => {
   if (!currentPassword || !newPassword) throw new ApiError(400, 'currentPassword and newPassword are required.');
   if (newPassword === currentPassword) throw new ApiError(400, 'New password must be different from the current one.');
 
-  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
+  const user = accounts.findById(req.user.id);
   loginGuard.assertNotLocked(user, 'password');
   if (!user || !(await bcrypt.compare(currentPassword, user.password_hash))) {
     loginGuard.recordFailure(user, 'password', { ip: req.ip });
@@ -197,11 +197,7 @@ const changePassword = asyncHandler(async (req, res) => {
   assertStrongPassword(newPassword, { role: user.role, email: user.email, name: user.name, phone: user.phone });
 
   const newHash = await bcrypt.hash(newPassword, 10);
-  db.prepare(`
-    UPDATE users SET password_hash = ?, must_change_password = 0, token_version = token_version + 1,
-      password_changed_at = datetime('now'), updated_at = datetime('now')
-    WHERE id = ?
-  `).run(newHash, user.id);
+  accounts.setPasswordHash(user.id, newHash);
 
   authTokens.revokeAllForUser(user.id);               // every device signs in again with the new password
   res.clearCookie(REFRESH_COOKIE_NAME, { path: '/api/auth' });
@@ -214,7 +210,7 @@ const changePassword = asyncHandler(async (req, res) => {
 const confirmIdentity = asyncHandler(async (req, res) => {
   const { password, pin } = req.body || {};
   if (!password && !pin) throw new ApiError(400, 'Enter your password or PIN.');
-  const user = db.prepare('SELECT * FROM users WHERE id = ? AND is_active = 1').get(req.user.id);
+  const user = accounts.findActiveById(req.user.id);
   if (!user) throw new ApiError(401, 'Invalid or expired token.');
 
   if (pin && !password) {
@@ -249,7 +245,7 @@ const activity = asyncHandler(async (req, res) => {
 // ---- Signed-in devices ---------------------------------------------------------------------------------------------
 // GET /api/auth/sessions
 const listSessions = asyncHandler(async (req, res) => {
-  const user = db.prepare('SELECT id, role FROM users WHERE id = ?').get(req.user.id);
+  const user = accounts.findIdAndRole(req.user.id);
   res.json({ sessions: sessionsService.listForUser(user, req.session.id) });
 });
 

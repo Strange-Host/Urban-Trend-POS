@@ -1,14 +1,12 @@
 const asyncHandler = require('../utils/asyncHandler');
 const leadIntake = require('../services/leadIntake.service');
-const db = require('../config/db');
 
 // POST /api/integrations/leads/intake — called by the website form plugin.
 // Always answers 200 for anything that was understood (including a repeat
 // customer or a replayed delivery), so the plugin never keeps retrying and
 // never shows the customer an error for something that isn't their fault.
 const intake = asyncHandler(async (req, res) => {
-  const store = db.prepare('SELECT id FROM stores WHERE is_active = 1 ORDER BY id LIMIT 1').get();
-  const result = leadIntake.intake({ storeId: store.id, body: req.body });
+  const result = leadIntake.intake({ storeId: leadIntake.intakeStoreId(), body: req.body });
   res.status(result.outcome === 'created' ? 201 : 200).json({ status: result.outcome, leadId: result.leadId });
 });
 

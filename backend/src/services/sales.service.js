@@ -3,6 +3,10 @@ const ApiError = require('../utils/ApiError');
 const { assertLineDiscount, assertSaleDiscount, assertDiscountPercent } = require('../utils/discounts');
 const costing = require('./costing.service');
 const stock = require('./stock.service');
+const cashSessionsService = require('./cashSessions.service');
+const { PAGINATION } = require('../config/limits');
+const settingsService = require('./settings.service');
+const { maxPercentFor } = require('../utils/discounts');
 
 /**
  * items: [{ product_id, quantity, discount? }]
@@ -202,4 +206,87 @@ function voidSaleWithAlert(saleId, storeId, actor) {
   return sale;
 }
 
-module.exports = { checkout, getSaleWithItems, voidSale, voidSaleWithAlert };
+// POST /api/sales  — checkout
+
+function checkoutSale({ body, user }) {
+  const { items, payments, customerId, discountTotal, clientSaleId } = body;
+  // Resolved from the logged-in cashier's own open session, never trusted
+  // from the client — otherwise a sale could be attributed to someone
+  // else's shift. A cashier with no open session just checks out with
+  // cash_session_id NULL, same as before this feature existed.
+  const openSession = cashSessionsService.getCurrentOpen(user.id, user.storeId);
+  const sale = checkout({
+    storeId: user.storeId,
+    cashierId: user.id,
+    customerId,
+    cashSessionId: openSession?.id || null,
+    items,
+    payments,
+    discountTotal: discountTotal || 0,
+    clientSaleId: clientSaleId || null,
+    discountMaxPercent: maxPercentFor(user.role, settingsService.getAll()),
+  });
+  return { data: getSaleWithItems(sale.id, user.storeId) };
+}
+
+// GET /api/sales?from=&to=&cashier_id=&page=&pageSize=
+function listSales({ query: reqQuery, user: reqUser }) {
+  const page = Math.max(parseInt(reqQuery.page) || 1, 1);
+  const pageSize = Math.min(parseInt(reqQuery.pageSize) || PAGINATION.DEFAULT_PAGE_SIZE, PAGINATION.MAX_PAGE_SIZE);
+  const offset = (page - 1) * pageSize;
+
+  // 1.2 — always scoped to the caller's own store. There used to be an
+  // `includeAllChannels=1` flag here that swapped the store filter for
+  // `1=1`, letting ANY authenticated user (not just admins — any role, any
+  // store) see every other store's sales just by passing that query
+  // param. "Channels" here means local register vs. Shopify vs. WooCommerce
+  // (source_type, filterable below) — it never meant "other stores'
+  // physical branches," so removing the store-boundary bypass doesn't
+  // remove any real capability, just the accidental leak. If a genuine
+  // cross-store rollup view is wanted later, that needs its own
+  // deliberately-scoped role/permission — not a client-supplied boolean.
+  const where = ['s.store_id = ?'];
+  const params = [reqUser.storeId];
+  if (reqQuery.from) { where.push('s.created_at >= ?'); params.push(reqQuery.from); }
+  if (reqQuery.to) { where.push('s.created_at <= ?'); params.push(reqQuery.to); }
+  if (reqQuery.cashier_id) { where.push('s.cashier_id = ?'); params.push(reqQuery.cashier_id); }
+  if (reqQuery.source_type) { where.push('s.source_type = ?'); params.push(reqQuery.source_type); }
+  if (reqQuery.income_source_id) { where.push('s.income_source_id = ?'); params.push(reqQuery.income_source_id); }
+  const whereSql = `WHERE ${where.join(' AND ')}`;
+
+  const rows = db.prepare(`
+    SELECT s.*, u.name AS cashier_name, st.name AS store_name, iso.name AS income_source_name, iso.platform AS income_source_platform,
+           (SELECT ar.id FROM approval_requests ar WHERE ar.sale_id = s.id AND ar.kind = 'void_sale' AND ar.status = 'pending') AS pending_void_request_id
+    FROM sales s
+    JOIN users u ON u.id = s.cashier_id
+    LEFT JOIN stores st ON st.id = s.store_id
+    LEFT JOIN income_sources iso ON iso.id = s.income_source_id
+    ${whereSql}
+    ORDER BY s.created_at DESC
+    LIMIT ? OFFSET ?
+  `).all(...params, pageSize, offset);
+
+  const total = db.prepare(`SELECT COUNT(*) c FROM sales s ${whereSql}`).get(...params).c;
+
+  return { data: rows, page, pageSize, total, totalPages: Math.ceil(total / pageSize) };
+}
+
+// GET /api/sales/:id
+function getSale({ params, user }) {
+  const sale = getSaleWithItems(params.id, user.storeId);
+  if (!sale) throw new ApiError(404, 'Sale not found.');
+  return { data: sale };
+}
+
+// POST /api/sales/:id/void  — for someone holding sales.void, restocks items. Anyone else files a request
+// (POST /api/approvals) and a manager approves it; both end up in salesService.voidSaleWithAlert.
+function voidSaleAndResolve({ user, params }) {
+  const actor = { id: user.id, name: user.name };
+  const sale = voidSaleWithAlert(params.id, user.storeId, actor);
+  // A request someone had open for this sale has just been answered.
+  // Required here, not at the top: approvals.service requires this file, and a top-level require would be circular.
+  require('./approvals.service').resolveDirect({ kind: 'void_sale', entityId: sale.id, storeId: user.storeId, actor });
+  return { data: sale };
+}
+
+module.exports = { checkout, getSaleWithItems, voidSale, voidSaleWithAlert, checkoutSale, listSales, getSale, voidSaleAndResolve };

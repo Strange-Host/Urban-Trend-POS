@@ -209,4 +209,9 @@ function removeRoute({ storeId, staffId, id }) {
   return { id };
 }
 
-module.exports = { intake, parsePayload, listRoutes, createRoute, updateRoute, removeRoute };
+// The branch website leads land in: the first active one.
+function intakeStoreId() {
+  return db.prepare('SELECT id FROM stores WHERE is_active = 1 ORDER BY id LIMIT 1').get().id;
+}
+
+module.exports = { intakeStoreId, intake, parsePayload, listRoutes, createRoute, updateRoute, removeRoute };
