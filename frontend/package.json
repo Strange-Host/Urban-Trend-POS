@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "oxlint",
+    "typecheck": "node scripts/typecheck.mjs",
     "preview": "vite preview",
     "test": "vitest run"
   },
@@ -33,6 +34,7 @@
     "oxlint": "^1.71.0",
     "postcss": "^8.5.19",
     "tailwindcss": "^4.3.3",
+    "typescript": "5.9",
     "vite": "^8.1.1",
     "vitest": "^5.0.5"
   }

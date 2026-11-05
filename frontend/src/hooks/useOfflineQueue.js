@@ -20,6 +20,20 @@ import { getErrorMessage } from '../api/client';
 // re-sending the same sale — after a timeout, a crash mid-request, or two
 // tabs syncing at once — can never create a duplicate or double-deduct stock.
 
+/** @typedef {import('../types').Payload} Payload */
+/** @typedef {{ clientSaleId: string, payload: Payload, ringedUpAt: string, attempts: number, lastError: string, failed?: boolean }} QueuedSale */
+/**
+ * @typedef {object} OfflineQueueState
+ * @property {QueuedSale[]} queue
+ * @property {boolean} syncing
+ * @property {string} lastSyncError
+ * @property {(payload: Payload) => QueuedSale} enqueue
+ * @property {() => Promise<void>} sync
+ * @property {(clientSaleId: string) => void} discard
+ * @property {() => number} pendingCount
+ * @property {() => number} failedCount
+ */
+
 function newClientSaleId() {
   // crypto.randomUUID needs a secure context (https or localhost). A
   // register on a plain-http LAN address wouldn't have it, and silently
@@ -32,8 +46,9 @@ function newClientSaleId() {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-const useOfflineQueue = create(
+const useOfflineQueue = /** @type {import('zustand').UseBoundStore<import('zustand').StoreApi<OfflineQueueState>>} */ (create(
   persist(
+    /** @returns {OfflineQueueState} */
     (set, get) => ({
       queue: [],      // { clientSaleId, payload, ringedUpAt, attempts, lastError }
       syncing: false,
@@ -133,7 +148,7 @@ const useOfflineQueue = create(
       partialize: (state) => ({ queue: state.queue }),
     }
   )
-);
+));
 
 export { newClientSaleId };
 export default useOfflineQueue;

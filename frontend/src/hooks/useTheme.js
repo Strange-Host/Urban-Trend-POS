@@ -40,6 +40,7 @@ function emit() {
   listeners.forEach((l) => l());
 }
 
+/** @param {string} next  'light', 'dark', or anything else for 'system' */
 export function setThemePreference(next) {
   preference = next === 'light' || next === 'dark' ? next : 'system';
   try {
@@ -52,6 +53,7 @@ export function setThemePreference(next) {
 media?.addEventListener?.('change', () => { if (preference === 'system') emit(); });
 apply();
 
+/** @param {() => void} cb */
 const subscribe = (cb) => { listeners.add(cb); return () => listeners.delete(cb); };
 
 export default function useTheme() {

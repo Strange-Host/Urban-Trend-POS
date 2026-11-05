@@ -16,22 +16,28 @@ export const API_BASE_URL = import.meta.env.VITE_API_URL
 // on a hard reload — which is fine, since AuthContext re-establishes it
 // on boot via the httpOnly refresh cookie (performRefresh below), the
 // same mechanism already used for the normal 401-triggered refresh.
+/** @type {string | null} */
 let accessToken = null;
+/** @param {string | null} token */
 export function setAccessToken(token) { accessToken = token; }
 export function clearAccessToken() { accessToken = null; }
 
 // AuthContext registers these so this plain module can (a) learn the session's timing rules whenever the server
 // sends them, (b) pause a request while the screen is locked and carry on after the password/PIN unlocks it, and
 // (c) ask "confirm it's you" before a risky action and then repeat the action, without the caller having to care.
+/** @type {{ onLocked?: () => Promise<unknown>, onReauth?: () => Promise<unknown>, [k: string]: any }} */
 let handlers = {};
+/** @param {typeof handlers | null | undefined} h */
 export function registerSessionHandlers(h) { handlers = h || {}; }
 
 const FLASH_KEY = 'ut_flash';
 /** A one-line notice shown on the sign-in screen (e.g. why the person was signed out). */
+/** @param {string} message */
 export function setFlash(message) { try { sessionStorage.setItem(FLASH_KEY, message); } catch { /* ignore */ } }
 export function takeFlash() {
   try { const m = sessionStorage.getItem(FLASH_KEY); if (m) sessionStorage.removeItem(FLASH_KEY); return m; } catch { return null; }
 }
+/** @param {any} err */
 const errorCode = (err) => err?.response?.data?.error?.code;
 
 // withCredentials: true — the refresh token lives in an httpOnly,
@@ -47,6 +53,7 @@ client.interceptors.request.use((config) => {
   return config;
 });
 
+/** @param {string} [message] */
 function clearSessionAndRedirect(message) {
   clearAccessToken();
   if (message) setFlash(message);
@@ -68,6 +75,7 @@ function clearSessionAndRedirect(message) {
 // at once would make all but the first fail). Also used directly by
 // AuthContext on app boot, to restore a session from the httpOnly cookie
 // after a hard reload (which clears the in-memory accessToken above).
+/** @type {Promise<any> | null} */
 let refreshPromise = null;
 
 export function performRefresh() {
@@ -88,6 +96,7 @@ export function performRefresh() {
 client.interceptors.response.use(
   (res) => res,
   async (err) => {
+    /** @type {any} axios request config, carrying our own _retried flags */
     const originalRequest = err.config;
     const status = err.response?.status;
     const url = originalRequest?.url || '';
@@ -148,6 +157,11 @@ export default client;
 // The backend error contract is { error: { code, message } }. Use this
 // everywhere instead of reading err.response.data.error directly (that's
 // now an object, not a string — reading it raw renders "[object Object]").
+/**
+ * @param {any} err
+ * @param {string} [fallback]
+ * @returns {string}
+ */
 export function getErrorMessage(err, fallback = 'Something went wrong.') {
   return err?.response?.data?.error?.message || fallback;
 }
@@ -155,6 +169,11 @@ export function getErrorMessage(err, fallback = 'Something went wrong.') {
 // Downloads a file the API generates (Excel, PDF) through the normal authenticated client, so the sign-in token is
 // sent. An error reply arrives as a Blob when responseType is 'blob'; it is turned back into the usual JSON error
 // first, so getErrorMessage() keeps working for the caller.
+/**
+ * @param {string} url
+ * @param {import('../types').Params} [params]
+ * @param {string} [fallbackName]
+ */
 export async function downloadFile(url, params, fallbackName = 'download') {
   let res;
   try {
@@ -179,6 +198,7 @@ export async function downloadFile(url, params, fallbackName = 'download') {
 // 2.1 — lets a caller check specifically for "you must change your
 // password first" (see middleware/auth.js) without string-matching a
 // human-readable message.
+/** @param {any} err */
 export function isPasswordChangeRequired(err) {
   return err?.response?.data?.error?.code === 'PASSWORD_CHANGE_REQUIRED';
 }

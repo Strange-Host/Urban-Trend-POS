@@ -2,7 +2,14 @@
 // not one screenful. The API caps a page at 100, so asking for { pageSize: 200 } silently
 // returned only 100 - a product beyond the 100th simply never appeared in the picker. This
 // walks all the pages instead. `maxPages` is a safety stop (default 50 pages = 5,000 rows).
+/**
+ * @param {(params: import('../types').Params) => Promise<{ data: any }>} listFn  an endpoint's list call
+ * @param {import('../types').Params} [params]
+ * @param {{ pageSize?: number, maxPages?: number }} [opts]
+ * @returns {Promise<any[]>}
+ */
 export async function fetchAll(listFn, params = {}, { pageSize = 100, maxPages = 50 } = {}) {
+  /** @type {any[]} */
   const rows = [];
   let page = 1;
   let totalPages = 1;
