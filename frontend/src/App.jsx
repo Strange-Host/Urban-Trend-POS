@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ToastProvider, DialogProvider } from './context/UIContext';
 import ProtectedRoute from './components/ProtectedRoute';
-import Layout from './components/Layout';
+import ShellSwitch from './components/ShellSwitch';
 import { PageSkeleton } from './components/Skeleton';
 import Login from './pages/Login';
 import POSTerminal from './pages/POSTerminal';
@@ -75,7 +75,7 @@ export default function App() {
               <Route
                 element={
                   <ProtectedRoute>
-                    <Layout />
+                    <ShellSwitch />
                   </ProtectedRoute>
                 }
               >
