@@ -1,3 +1,41 @@
+# Mobile API v1.1: catalog, bulk prices, stock-take, payment matching, courier remittance, attendance
+
+New endpoints under `/api/v1` for the phone app (all documented in `/api/v1/openapi.json`; money is integer cents; lists page with `?cursor=&limit=`).
+Every write needs a connection, is checked again on the server, and leaves an activity-log row with who, which phone (the phone's sign-in session id),
+when and the reason. Nothing is deleted from the phone: products are switched off, never removed.
+
+**Who sets the price.** The POS is the master for the in-shop price. New setting `price_master` (`pos` by default, or `online`): with `pos`, approving an
+online listing (Shopify or WooCommerce) no longer overwrites the selling price of a product that is in the SHOP catalogue; the other details still update.
+Online-catalogue products still take the online price, and `online` restores the old behaviour. `price_push_online` is reserved: the POS has never pushed
+prices to the online stores and still does not. `GET /api/v1/catalog/settings` reports both.
+
+**Catalog** (`products.manage`). `GET/POST /products`, `GET/PATCH /products/:id`, `GET /products/:id/price-history`. Changing the selling price needs a reason
+(`REASON_REQUIRED`) and a price above zero (`INVALID_PRICE`). A duplicate SKU or barcode is `DUPLICATE_SKU` / `DUPLICATE_BARCODE`. Buying price and margin are sent
+only to people with `products.view_cost`; for everyone else the keys are absent, and sending a cost without the permission is `FORBIDDEN`. The website's
+`PUT /api/products/:id` now also writes the price history (source `web`, with an optional `reason`) and an activity-log row, so the history is complete.
+**Categories:** `GET/POST /categories`, `PATCH /categories/:id` (rename, deactivate, restore), `POST /categories/reorder`. New `categories.sort_order`.
+
+**Bulk price change** (new permission `prices.bulk`, administrators only unless granted). `POST /prices/bulk/preview` shows the exact old and new price of every
+product in a category (percent or fixed amount, rounded to the nearest whole shilling) and a fingerprint; `POST /prices/bulk/apply` applies it as ONE batch only if
+the fingerprint still matches (`PREVIEW_STALE` otherwise, nothing changes); `GET /prices/bulk/batches`; `POST /prices/bulk/:id/revert` undoes a batch with a NEW batch
+and leaves alone any product repriced since. New tables `price_history`, `price_batches`.
+
+**Stock-take** (`stock.count` to count, `stock.review` to decide). The counted sheet is a draft on the server (`POST /stock-takes`, `POST .../lines` up to 500 at a
+time, idempotent), so a closed app loses nothing. `POST .../submit` posts differences up to the new setting `stocktake_approval_units` (10) through the stock ledger
+(reason `stocktake`); bigger ones wait for a different owner or manager (`.../approve`, `.../reject` with a reason; an administrator may decide their own). Products
+not counted are left alone. New tables `stock_takes`, `stock_take_lines`. This is separate from the website's opening/closing outlet counts.
+
+**Unmatched payments** (`payments.reconcile`). `GET /payments/unmatched`, `GET /payments/:id/suggestions` (by product code, equal balance, phone, payer name),
+`POST /payments/:id/match`, `POST /payments/:id/ignore`. Goes through the website's matching code, so a payment becomes revenue once; a second match is
+`ALREADY_MATCHED`, and a payment larger than the order's balance is `AMOUNT_EXCEEDS_BALANCE`.
+
+**Courier remittance** (`couriers.settle`). `GET /couriers/balances`, `GET /couriers/:id/collections`, `GET|POST /couriers/:id/remittances`: records money received from
+a courier organization with the website's statement code (fees we owe are netted, variance kept, immutable). A parcel already settled is `ALREADY_SETTLED`.
+There is no receipt photo yet: the server has no file upload.
+
+**Attendance.** `GET /attendance/me`, `POST /attendance/clock-in` (needs `confirm: true`; no location is read) and `/clock-out`, with the website's clock-out gate
+and codes. Only while the HR module is on. The attendance service now gives its conflicts stable codes (`ALREADY_CLOCKED_IN`, `NOT_CLOCKED_IN`, `ALREADY_CLOCKED_OUT`).
+
 # Delivery settlement: every delivery's fee against its costs; item edits and merges
 
 **Dispatch now asks about the delivery fee.** Customers pay the fee on top of the goods total, and some refuse. `POST /api/orders/:id/dispatch`

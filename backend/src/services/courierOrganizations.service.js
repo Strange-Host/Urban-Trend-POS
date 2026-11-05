@@ -254,4 +254,17 @@ function listStatements({ storeId, courierId }) {
   return db.prepare('SELECT * FROM org_statements WHERE store_id = ? AND courier_id = ? ORDER BY id DESC').all(storeId, courierId);
 }
 
-module.exports = { recordPackageFeeAtDispatch, recordCollection, createStatement, organizationStanding, listOpenCollections, listStatements };
+// The package fees we owe the organization for exactly these collections and have not yet netted off (the same rule
+// createStatement applies), so a screen can show what the cash should be before anything is saved.
+function feesOwedOn({ courierId, collectionIds }) {
+  if (!collectionIds.length) return 0;
+  const orderIds = [...new Set(db.prepare(`SELECT order_id FROM org_collections WHERE courier_id = ? AND id IN (${collectionIds.map(() => '?').join(',')})`).all(courierId, ...collectionIds).map((r) => r.order_id))];
+  if (!orderIds.length) return 0;
+  return db.prepare(`
+    SELECT COALESCE(SUM(f.amount), 0) AS n FROM package_fees f
+     WHERE f.courier_id = ? AND f.amount > 0 AND f.order_id IN (${orderIds.map(() => '?').join(',')})
+       AND NOT EXISTS (SELECT 1 FROM payout_items i WHERE i.package_fee_id = f.id)
+  `).get(courierId, ...orderIds).n;
+}
+
+module.exports = { feesOwedOn, recordPackageFeeAtDispatch, recordCollection, createStatement, organizationStanding, listOpenCollections, listStatements };
