@@ -1,89 +1,24 @@
-const db = require('../config/db');
-const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
-const { parsePagination, paginatedResponse } = require('../utils/paginate');
-const { logStaffAction } = require('../utils/auditLog');
-const paymentRefunds = require('../services/paymentRefunds.service');
-const approvalsService = require('../services/approvals.service');
-
-// Payments here is interpretation B (decided): a distinct recording action —
-// customer layaway/partial payments against a sale, or outgoing supplier
-// payments — not an auto-populated view over Terminal's own charge flow.
+const svc = require('../services/payments.service');
 
 // GET /api/payments?direction=&method=&status=&from=&to=&page=&limit=
 const list = asyncHandler(async (req, res) => {
-  const { page, limit, offset } = parsePagination(req.query);
-  const where = ['p.deleted_at IS NULL', 'p.store_id = ?'];
-  const params = [req.user.storeId];
-  if (req.query.direction) { where.push('p.direction = ?'); params.push(req.query.direction); }
-  if (req.query.method) { where.push('p.method = ?'); params.push(req.query.method); }
-  if (req.query.status) { where.push('p.status = ?'); params.push(req.query.status); }
-  if (req.query.from) { where.push('p.created_at >= ?'); params.push(req.query.from); }
-  if (req.query.to) { where.push('p.created_at <= ?'); params.push(req.query.to); }
-  const whereSql = `WHERE ${where.join(' AND ')}`;
-
-  const rows = db.prepare(`
-    SELECT p.*, u.name AS recorded_by_name,
-      (SELECT ar.id FROM approval_requests ar WHERE ar.payment_record_id = p.id AND ar.kind = 'refund_payment' AND ar.status = 'pending') AS pending_refund_request_id
-    FROM payment_records p JOIN users u ON u.id = p.recorded_by_staff_id
-    ${whereSql}
-    ORDER BY p.created_at DESC
-    LIMIT ? OFFSET ?
-  `).all(...params, limit, offset);
-  const total = db.prepare(`SELECT COUNT(*) c FROM payment_records p ${whereSql}`).get(...params).c;
-
-  res.json(paginatedResponse({ rows, total, page, limit }));
+  res.json(svc.listPayments({ query: req.query, user: req.user }));
 });
 
 // GET /api/payments/summary?from=&to= — totals by method
 const summary = asyncHandler(async (req, res) => {
-  const where = ['deleted_at IS NULL', 'store_id = ?', "status = 'completed'"];
-  const params = [req.user.storeId];
-  if (req.query.from) { where.push('created_at >= ?'); params.push(req.query.from); }
-  if (req.query.to) { where.push('created_at <= ?'); params.push(req.query.to); }
-  const whereSql = `WHERE ${where.join(' AND ')}`;
-
-  const byMethod = db.prepare(`
-    SELECT method, direction, SUM(amount) AS total, COUNT(*) AS count
-    FROM payment_records ${whereSql} GROUP BY method, direction
-  `).all(...params);
-
-  res.json({ data: { by_method: byMethod } });
+  res.json(svc.paymentsSummary({ user: req.user, query: req.query }));
 });
 
 // POST /api/payments  { direction, sale_id?, supplier_name?, method, amount, reference?, notes? }
 const create = asyncHandler(async (req, res) => {
-  const { direction, sale_id, supplier_name, method, amount, reference, notes } = req.body;
-
-  if (sale_id) {
-    // 1.5 — scoped by store, same reasoning as everything above: without
-    // this, a user could attach a payment record to a DIFFERENT store's
-    // sale — the payment_records row would carry the current user's own
-    // store_id while pointing at a sale that belongs to someone else's
-    // store, a straight-up data integrity break as well as a boundary leak.
-    const sale = db.prepare('SELECT id FROM sales WHERE id = ? AND store_id = ?').get(sale_id, req.user.storeId);
-    if (!sale) throw new ApiError(404, 'Referenced sale not found.');
-  }
-
-  const result = db.prepare(`
-    INSERT INTO payment_records (store_id, direction, sale_id, supplier_name, method, amount, reference, notes, recorded_by_staff_id)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(req.user.storeId, direction, sale_id || null, supplier_name || null, method, amount, reference || null, notes || null, req.user.id);
-
-  const payment = db.prepare('SELECT * FROM payment_records WHERE id = ?').get(result.lastInsertRowid);
-  logStaffAction({ staffId: req.user.id, action: 'create', entityType: 'payment', entityId: payment.id, after: payment });
-  res.status(201).json({ data: payment });
+  res.status(201).json(svc.createPayment({ body: req.body, user: req.user }));
 });
 
 // POST /api/payments/:id/refund — for someone holding payments.refund. Anyone else files a request
-// (POST /api/approvals) and a manager approves it; both end up in paymentRefunds.service.
 const refund = asyncHandler(async (req, res) => {
-  const payment = paymentRefunds.refundPaymentRecord({
-    paymentId: req.params.id, storeId: req.user.storeId, actor: { id: req.user.id, name: req.user.name },
-  });
-  // A request someone had open for this payment has just been answered.
-  approvalsService.resolveDirect({ kind: 'refund_payment', entityId: payment.id, storeId: req.user.storeId, actor: { id: req.user.id, name: req.user.name } });
-  res.json({ data: payment });
+  res.json(svc.refundPayment({ params: req.params, user: req.user }));
 });
 
 module.exports = { list, summary, create, refund };

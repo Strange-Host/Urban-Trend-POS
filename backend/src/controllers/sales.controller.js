@@ -1,93 +1,24 @@
-const db = require('../config/db');
-const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
-const salesService = require('../services/sales.service');
-const approvalsService = require('../services/approvals.service');
-const cashSessionsService = require('../services/cashSessions.service');
-const { PAGINATION } = require('../config/limits');
-const settingsService = require('../services/settings.service');
-const { maxPercentFor } = require('../utils/discounts');
+const svc = require('../services/sales.service');
 
 // POST /api/sales  — checkout
-
 const checkout = asyncHandler(async (req, res) => {
-  const { items, payments, customerId, discountTotal, clientSaleId } = req.body;
-  // Resolved from the logged-in cashier's own open session, never trusted
-  // from the client — otherwise a sale could be attributed to someone
-  // else's shift. A cashier with no open session just checks out with
-  // cash_session_id NULL, same as before this feature existed.
-  const openSession = cashSessionsService.getCurrentOpen(req.user.id, req.user.storeId);
-  const sale = salesService.checkout({
-    storeId: req.user.storeId,
-    cashierId: req.user.id,
-    customerId,
-    cashSessionId: openSession?.id || null,
-    items,
-    payments,
-    discountTotal: discountTotal || 0,
-    clientSaleId: clientSaleId || null,
-    discountMaxPercent: maxPercentFor(req.user.role, settingsService.getAll()),
-  });
-  res.status(201).json({ data: salesService.getSaleWithItems(sale.id, req.user.storeId) });
+  res.status(201).json(svc.checkoutSale({ body: req.body, user: req.user }));
 });
 
 // GET /api/sales?from=&to=&cashier_id=&page=&pageSize=
 const list = asyncHandler(async (req, res) => {
-  const page = Math.max(parseInt(req.query.page) || 1, 1);
-  const pageSize = Math.min(parseInt(req.query.pageSize) || PAGINATION.DEFAULT_PAGE_SIZE, PAGINATION.MAX_PAGE_SIZE);
-  const offset = (page - 1) * pageSize;
-
-  // 1.2 — always scoped to the caller's own store. There used to be an
-  // `includeAllChannels=1` flag here that swapped the store filter for
-  // `1=1`, letting ANY authenticated user (not just admins — any role, any
-  // store) see every other store's sales just by passing that query
-  // param. "Channels" here means local register vs. Shopify vs. WooCommerce
-  // (source_type, filterable below) — it never meant "other stores'
-  // physical branches," so removing the store-boundary bypass doesn't
-  // remove any real capability, just the accidental leak. If a genuine
-  // cross-store rollup view is wanted later, that needs its own
-  // deliberately-scoped role/permission — not a client-supplied boolean.
-  const where = ['s.store_id = ?'];
-  const params = [req.user.storeId];
-  if (req.query.from) { where.push('s.created_at >= ?'); params.push(req.query.from); }
-  if (req.query.to) { where.push('s.created_at <= ?'); params.push(req.query.to); }
-  if (req.query.cashier_id) { where.push('s.cashier_id = ?'); params.push(req.query.cashier_id); }
-  if (req.query.source_type) { where.push('s.source_type = ?'); params.push(req.query.source_type); }
-  if (req.query.income_source_id) { where.push('s.income_source_id = ?'); params.push(req.query.income_source_id); }
-  const whereSql = `WHERE ${where.join(' AND ')}`;
-
-  const rows = db.prepare(`
-    SELECT s.*, u.name AS cashier_name, st.name AS store_name, iso.name AS income_source_name, iso.platform AS income_source_platform,
-           (SELECT ar.id FROM approval_requests ar WHERE ar.sale_id = s.id AND ar.kind = 'void_sale' AND ar.status = 'pending') AS pending_void_request_id
-    FROM sales s
-    JOIN users u ON u.id = s.cashier_id
-    LEFT JOIN stores st ON st.id = s.store_id
-    LEFT JOIN income_sources iso ON iso.id = s.income_source_id
-    ${whereSql}
-    ORDER BY s.created_at DESC
-    LIMIT ? OFFSET ?
-  `).all(...params, pageSize, offset);
-
-  const total = db.prepare(`SELECT COUNT(*) c FROM sales s ${whereSql}`).get(...params).c;
-
-  res.json({ data: rows, page, pageSize, total, totalPages: Math.ceil(total / pageSize) });
+  res.json(svc.listSales({ query: req.query, user: req.user }));
 });
 
 // GET /api/sales/:id
 const getById = asyncHandler(async (req, res) => {
-  const sale = salesService.getSaleWithItems(req.params.id, req.user.storeId);
-  if (!sale) throw new ApiError(404, 'Sale not found.');
-  res.json({ data: sale });
+  res.json(svc.getSale({ params: req.params, user: req.user }));
 });
 
 // POST /api/sales/:id/void  — for someone holding sales.void, restocks items. Anyone else files a request
-// (POST /api/approvals) and a manager approves it; both end up in salesService.voidSaleWithAlert.
 const voidSale = asyncHandler(async (req, res) => {
-  const actor = { id: req.user.id, name: req.user.name };
-  const sale = salesService.voidSaleWithAlert(req.params.id, req.user.storeId, actor);
-  // A request someone had open for this sale has just been answered.
-  approvalsService.resolveDirect({ kind: 'void_sale', entityId: sale.id, storeId: req.user.storeId, actor });
-  res.json({ data: sale });
+  res.json(svc.voidSaleAndResolve({ user: req.user, params: req.params }));
 });
 
 module.exports = { checkout, list, getById, voidSale };
