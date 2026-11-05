@@ -1,0 +1,207 @@
+import { useState } from 'react';
+import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
+import { getErrorMessage } from '../../api/client';
+import { stockApi, suppliersApi, categoriesApi } from '../../api/endpoints';
+import Pager, { usePager } from '../../components/Pager';
+import Picker, { Segmented } from '../../components/Picker';
+import Sheet from '../../components/Sheet';
+import { useAuth } from '../../context/AuthContext';
+import { useToast } from '../../context/UIContext';
+import { Badge, ProductSearch, Table } from './shared';
+import { btnPrimary, inputCls, kes, labelCls, toCents } from './helpers';
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Receive
+// ---------------------------------------------------------------------------------------------------------------------
+let lineSeq = 0;
+const newLine = () => ({ key: ++lineSeq, mode: 'existing', product: null, qty: '', batchNo: '', expiry: '', cost: '', name: '', price: '', image: '', categoryId: '', subOn: false, parentId: '', subName: '' });
+
+export default function ReceiveTab({ storeParams, isMainStore }) {
+  const toast = useToast();
+  const queryClient = useQueryClient();
+  const { can } = useAuth();
+  const canManage = can('products.manage');
+  const canCost = canManage && can('products.view_cost'); // only people who may see buying prices are offered the field
+  const [open, setOpen] = useState(false);
+  const [supplierId, setSupplierId] = useState('');
+  const [reference, setReference] = useState('');
+  const [note, setNote] = useState('');
+  const [lines, setLines] = useState([newLine()]);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const pager = usePager(25);
+
+  const { data: suppliers = [] } = useQuery({ queryKey: ['suppliers'], queryFn: () => suppliersApi.list().then((r) => r.data.data) });
+  const { data: categories = [] } = useQuery({ queryKey: ['categories'], queryFn: () => categoriesApi.list().then((r) => r.data.data), enabled: open });
+  const { data, isLoading } = useQuery({
+    queryKey: ['stock', 'receipts', storeParams, pager.page, pager.pageSize],
+    queryFn: () => stockApi.receipts({ ...pager.params, ...storeParams }).then((r) => r.data),
+    placeholderData: keepPreviousData,
+  });
+
+  const catLabel = (c) => { const p = c.parent_id && categories.find((x) => x.id === c.parent_id); return p ? `${p.name} › ${c.name}` : c.name; };
+  const topLevel = categories.filter((c) => !c.parent_id);
+  const setLine = (key, patch) => setLines((ls) => ls.map((l) => (l.key === key ? { ...l, ...patch } : l)));
+
+  function reset() { setSupplierId(''); setReference(''); setNote(''); setLines([newLine()]); setError(''); }
+
+  async function save(e) {
+    e.preventDefault();
+    setError('');
+    const items = [];
+    for (const [i, l] of lines.entries()) {
+      const where = `Line ${i + 1}`;
+      const quantity = parseInt(l.qty, 10);
+      if (!Number.isInteger(quantity) || quantity <= 0) return setError(`${where}: enter how many arrived.`);
+      const batch = { batch_no: l.batchNo.trim() || undefined, expiry_date: l.expiry || undefined };
+      if (canCost && l.cost !== '') {
+        const c = toCents(l.cost);
+        if (!Number.isFinite(c) || c < 0) return setError(`${where}: the buying price must be zero or more.`);
+        batch.unit_cost = c;
+      }
+      if (l.mode === 'existing') {
+        if (!l.product) return setError(`${where}: choose the product.`);
+        items.push({ product_id: l.product.id, quantity, ...batch });
+      } else {
+        if (!l.name.trim()) return setError(`${where}: the new product needs a name.`);
+        const price = toCents(l.price);
+        if (!Number.isFinite(price) || price < 0) return setError(`${where}: enter the selling price.`);
+        const np = { name: l.name.trim(), sell_price: price, image_url: l.image.trim() || undefined };
+        if (l.subOn) {
+          if (!l.subName.trim()) return setError(`${where}: name the new sub-category.`);
+          if (!canManage && !l.parentId) return setError(`${where}: choose which category the sub-category goes in.`);
+          np.new_category = { name: l.subName.trim(), parent_id: l.parentId ? Number(l.parentId) : undefined };
+        } else if (l.categoryId) np.category_id = Number(l.categoryId);
+        items.push({ quantity, new_product: np, ...batch });
+      }
+    }
+    setBusy(true);
+    try {
+      const res = await stockApi.receive({ supplier_id: supplierId ? Number(supplierId) : undefined, reference: reference.trim() || undefined, note: note.trim() || undefined, items });
+      const pending = res.data.data.items.filter((i) => i.product_status === 'pending').length;
+      toast.success(`Received ${res.data.data.total_units} unit(s).`);
+      if (pending) toast.info(`${pending} new product(s) are waiting for a manager to add the buying price and approve them.`);
+      queryClient.invalidateQueries({ queryKey: ['stock'] });
+      queryClient.invalidateQueries({ queryKey: ['products'] });
+      queryClient.invalidateQueries({ queryKey: ['inventory'] });
+      reset(); setOpen(false);
+    } catch (err) {
+      setError(getErrorMessage(err, 'Could not save the shipment.'));
+    } finally { setBusy(false); }
+  }
+
+  const receipts = data?.data || [];
+  return (
+    <>
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+        <p className="text-sm text-text-muted max-w-xl">Record what arrived. Stock goes on the shelf at once. New products wait for a manager to add the buying price and approve them.</p>
+        {isMainStore && <button onClick={() => { reset(); setOpen(true); }} className={btnPrimary}>+ Receive shipment</button>}
+      </div>
+      {!isMainStore && <p className="mb-4 px-3 py-2 rounded-lg bg-paper border border-line text-sm text-text-muted">Shipments are received at the main store. Outlets are supplied by a transfer.</p>}
+
+      <Table head={['Date', 'Supplier', 'Received by', 'Units', 'Items']} loading={isLoading} empty={receipts.length === 0 && 'No shipments recorded yet.'}>
+        {receipts.map((r) => (
+          <tr key={r.id} className="border-b border-line last:border-0 align-top">
+            <td className="px-4 py-3 whitespace-nowrap font-mono text-xs">{r.received_on}</td>
+            <td className="px-4 py-3">{r.supplier_name || <span className="text-text-muted">—</span>}{r.reference && <div className="text-xs text-text-muted">Ref {r.reference}</div>}</td>
+            <td className="px-4 py-3 whitespace-nowrap">{r.received_by_name}</td>
+            <td className="px-4 py-3 font-mono">{r.total_units}</td>
+            <td className="px-4 py-3 text-text-muted">
+              {r.items.map((i) => (
+                <div key={i.id} className="flex items-center gap-2">
+                  <span>{i.quantity} × {i.product_name}</span>
+                  {i.batch_no && <span className="text-xs">batch {i.batch_no}</span>}
+                  {i.expiry_date && <span className="px-1.5 py-0.5 rounded bg-paper border border-line text-xs">expires {i.expiry_date}</span>}
+                  {i.recalled_at && <span className="px-1.5 py-0.5 rounded bg-danger-soft text-danger text-xs">recalled</span>}
+                  {i.is_new_product === 1 && <span className="px-1.5 py-0.5 rounded bg-paper border border-line text-xs">new · {kes(i.sell_price)}</span>}
+                  {i.product_status === 'pending' && <Badge status="pending" />}
+                  {i.product_status === 'rejected' && <Badge status="rejected" />}
+                </div>
+              ))}
+            </td>
+          </tr>
+        ))}
+      </Table>
+      <Pager pager={pager} data={data} noun="shipments" />
+
+      {open && (
+        <Sheet onClose={() => setOpen(false)} size="lg" as="form" onSubmit={save}>
+          <h2 className="font-display font-700 text-lg mb-4">Receive a shipment</h2>
+          {error && <div className="mb-3 px-3 py-2 rounded-lg bg-danger-soft text-danger text-sm">{error}</div>}
+
+          <label className={labelCls}>Supplier</label>
+          <Picker value={supplierId} onChange={setSupplierId} title="Supplier" aria-label="Supplier" className="mb-3" allowClear clearLabel="No supplier"
+            options={suppliers.map((s) => ({ value: s.id, label: s.name }))} createLabel="+ New supplier…"
+            onCreate={async (name) => {
+              const res = await suppliersApi.create({ name });
+              queryClient.invalidateQueries({ queryKey: ['suppliers'] });
+              return { value: res.data.data.id, label: res.data.data.name };
+            }} />
+          <div className="grid grid-cols-2 gap-3 mb-4">
+            <div><label className={labelCls}>Delivery note / invoice no.</label><input value={reference} onChange={(e) => setReference(e.target.value)} className={inputCls} /></div>
+            <div><label className={labelCls}>Note (optional)</label><input value={note} onChange={(e) => setNote(e.target.value)} className={inputCls} /></div>
+          </div>
+
+          <div className="space-y-3 mb-3">
+            {lines.map((l, i) => (
+              <div key={l.key} className="border border-line rounded-xl p-3">
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <Segmented value={l.mode} onChange={(mode) => setLine(l.key, { mode })} aria-label={`Line ${i + 1} type`} className="flex-1 max-w-xs"
+                    options={[{ value: 'existing', label: 'Existing product' }, { value: 'new', label: 'New product' }]} />
+                  {lines.length > 1 && <button type="button" onClick={() => setLines((ls) => ls.filter((x) => x.key !== l.key))} className="text-xs text-danger hover:opacity-70">Remove</button>}
+                </div>
+                {l.mode === 'existing' ? (
+                  <div className="grid grid-cols-[1fr_6rem] gap-3">
+                    <div><label className={labelCls}>Product</label><ProductSearch value={l.product} onChange={(product) => setLine(l.key, { product })} /></div>
+                    <div><label className={labelCls}>Quantity</label><input type="number" min="1" inputMode="numeric" value={l.qty} onChange={(e) => setLine(l.key, { qty: e.target.value })} className={inputCls} /></div>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-[1fr_8rem_6rem] gap-3">
+                      <div><label className={labelCls}>Name</label><input value={l.name} onChange={(e) => setLine(l.key, { name: e.target.value })} className={inputCls} /></div>
+                      <div><label className={labelCls}>Selling price (KES)</label><input type="number" min="0" step="0.01" inputMode="decimal" value={l.price} onChange={(e) => setLine(l.key, { price: e.target.value })} className={inputCls} /></div>
+                      <div><label className={labelCls}>Quantity</label><input type="number" min="1" inputMode="numeric" value={l.qty} onChange={(e) => setLine(l.key, { qty: e.target.value })} className={inputCls} /></div>
+                    </div>
+                    <div><label className={labelCls}>Image link (optional)</label><input value={l.image} onChange={(e) => setLine(l.key, { image: e.target.value })} placeholder="https://…" className={inputCls} /></div>
+                    {!l.subOn ? (
+                      <div>
+                        <label className={labelCls}>Category</label>
+                        <Picker value={l.categoryId} onChange={(v) => setLine(l.key, { categoryId: v })} title="Category" aria-label="Category" allowClear clearLabel="No category"
+                          options={categories.map((c) => ({ value: c.id, label: catLabel(c) }))} />
+                        <button type="button" onClick={() => setLine(l.key, { subOn: true })} className="mt-1 text-xs text-text-muted hover:text-text">+ Add a new sub-category instead</button>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label className={labelCls}>Put it inside{canManage ? ' (blank = new top-level category)' : ''}</label>
+                          <Picker value={l.parentId} onChange={(v) => setLine(l.key, { parentId: v })} title="Parent category" aria-label="Parent category" allowClear={canManage} clearLabel="Top level"
+                            options={topLevel.map((c) => ({ value: c.id, label: c.name }))} />
+                        </div>
+                        <div>
+                          <label className={labelCls}>New sub-category name</label>
+                          <input value={l.subName} onChange={(e) => setLine(l.key, { subName: e.target.value })} className={inputCls} />
+                          <button type="button" onClick={() => setLine(l.key, { subOn: false, subName: '', parentId: '' })} className="mt-1 text-xs text-text-muted hover:text-text">Use an existing category instead</button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+                <div className={`grid grid-cols-1 ${canCost ? 'sm:grid-cols-3' : 'sm:grid-cols-2'} gap-3 mt-3 pt-3 border-t border-line`}>
+                  <div><label className={labelCls}>Batch / lot no. (optional)</label><input value={l.batchNo} onChange={(e) => setLine(l.key, { batchNo: e.target.value })} className={inputCls} /></div>
+                  <div><label className={labelCls}>Expiry date (if it expires)</label><input type="date" value={l.expiry} onChange={(e) => setLine(l.key, { expiry: e.target.value })} className={inputCls} /></div>
+                  {canCost && <div><label className={labelCls}>Buying price per unit (KES)</label><input type="number" min="0" step="0.01" inputMode="decimal" value={l.cost} onChange={(e) => setLine(l.key, { cost: e.target.value })} className={inputCls} /></div>}
+                </div>
+              </div>
+            ))}
+          </div>
+          <button type="button" onClick={() => setLines((ls) => [...ls, newLine()])} className="text-sm text-text-muted hover:text-text mb-5">+ Add another line</button>
+
+          <div className="flex gap-2">
+            <button type="button" onClick={() => setOpen(false)} className="flex-1 py-2.5 rounded-lg border border-line text-sm font-medium">Cancel</button>
+            <button type="submit" disabled={busy} className="flex-1 py-2.5 rounded-lg bg-ink text-white text-sm font-medium hover:bg-ink-soft disabled:opacity-50">{busy ? 'Saving…' : 'Save shipment'}</button>
+          </div>
+        </Sheet>
+      )}
+    </>
+  );
+}
