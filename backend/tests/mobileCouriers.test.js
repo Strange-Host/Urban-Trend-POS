@@ -75,7 +75,7 @@ describe('open collections and remittance', () => {
     const a = await collected(org, { price: 200000, fee: 20000 }); const b = await collected(org, { price: 100000, fee: 10000 });
     const open = await request(app).get(`/api/v1/couriers/${org.id}/collections`).set(auth(manager));
     expect(open.body.items.map((i) => i.collectionId)).toEqual([a.collectionId, b.collectionId]);
-    expect(open.body.items[0]).toMatchObject({ orderId: a.orderId, amountCents: a.total, customerName: expect.stringContaining('Cour Cust') });
+    expect(open.body.items[0]).toMatchObject({ orderId: a.orderId, amountCents: a.total, feeCents: a.fee, customerName: expect.stringContaining('Cour Cust') });
 
     const expected = a.total + b.total - a.fee - b.fee;
     const r = await remit(manager, org.id, { collectionIds: [a.collectionId, b.collectionId], remittedCents: expected, reference: 'MPESA-ABC', note: 'Handed over at the shop' });

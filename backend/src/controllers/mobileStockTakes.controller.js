@@ -64,4 +64,8 @@ const decide = (approve) => asyncHandler(async (req, res) => {
   res.json(out.take);
 });
 
-module.exports = { start, list, get, saveLines, submit, approve: decide(true), reject: decide(false) };
+const products = asyncHandler(async (req, res) => {
+  res.json({ items: takes.searchScope(Number(req.params.id), req.user, { q: req.query.q, barcode: req.query.barcode }) });
+});
+
+module.exports = { products, start, list, get, saveLines, submit, approve: decide(true), reject: decide(false) };

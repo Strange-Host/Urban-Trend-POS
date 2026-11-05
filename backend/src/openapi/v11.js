@@ -121,6 +121,13 @@ const ENDPOINTS = [
     responses: { 200: { description: 'systemQty is live while a draft and frozen at submit', schema: res.StockTakeDetail }, 401: UNAUTH, 403: FORBIDDEN, 404: NOT_FOUND },
   },
   {
+    method: 'get', path: '/stock-takes/{id}/products', tag: 'Stock-take', auth: true, operationId: 'searchStockTakeProducts',
+    summary: 'Find a product on this sheet by barcode or name', pathParams: [idParam],
+    query: [{ name: 'barcode', description: 'Exact barcode (a scan)', schema: { type: 'string' } }, { name: 'q', description: 'Name, SKU or barcode contains', schema: { type: 'string' } }],
+    description: 'Only products in the sheet\'s area, at most 20, with live shop stock. Needs only stock.count, not catalog access. Cost is never included.',
+    responses: { 200: { description: 'Matching products', schema: res.StockTakeProducts }, 401: UNAUTH, 403: FORBIDDEN, 404: NOT_FOUND },
+  },
+  {
     method: 'post', path: '/stock-takes/{id}/lines', tag: 'Stock-take', auth: true, operationId: 'saveStockTakeLines',
     summary: 'Save counted quantities (up to 500 per call)', pathParams: [idParam], body: req.stockTakeLines,
     description: 'Idempotent: sending a product again replaces its count. All-or-nothing. Only the creator, only while a draft.',

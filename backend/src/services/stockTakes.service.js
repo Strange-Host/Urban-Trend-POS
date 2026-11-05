@@ -194,4 +194,24 @@ function list({ storeId, userId, onlyMine, status, beforeId, limit }) {
   return { items: page.map((r) => present(getTake(r.id))), more, lastId: page.length ? page[page.length - 1].id : null };
 }
 
-module.exports = { start, saveLines, submit, decide, list, getTake, present, thresholdUnits };
+// Products on this sheet's area, for scanning a barcode or typing a name while counting. Works for anyone who can count, who
+// need not be allowed to browse the whole catalog. systemQty is the live shop stock; cost is never included.
+function searchScope(takeId, user, { q = '', barcode = '' }) {
+  const take = getTake(takeId);
+  if (!take || take.store_id !== user.storeId) throw new ApiError(404, 'Stock-take not found.', null, 'NOT_FOUND');
+  if (take.created_by !== user.id && !require('./permissions.service').can(user, 'stock.review')) throw new ApiError(404, 'Stock-take not found.', null, 'NOT_FOUND');
+  const where = [];
+  const params = { categoryId: take.category_id, storeId: take.store_id };
+  if (barcode) { where.push('p.barcode = @barcode'); params.barcode = String(barcode).slice(0, 64); }
+  else if (q) { where.push('(p.name LIKE @q OR p.sku LIKE @q OR p.barcode LIKE @q)'); params.q = `%${String(q).slice(0, 100)}%`; }
+  else return [];
+  return db.prepare(`
+    SELECT p.id, p.name, p.sku, p.barcode, COALESCE(i.quantity, 0) AS system_qty
+    FROM products p LEFT JOIN inventory i ON i.product_id = p.id AND i.store_id = @storeId
+    WHERE p.is_active = 1 AND p.approval_status = 'approved' AND p.catalogue = 'shop'
+      ${take.scope_type === 'category' ? 'AND p.category_id = @categoryId' : ''} AND ${where.join(' AND ')}
+    ORDER BY p.name COLLATE NOCASE LIMIT 20
+  `).all(params).map((r) => ({ productId: r.id, name: r.name, sku: r.sku, barcode: r.barcode, systemQty: r.system_qty }));
+}
+
+module.exports = { searchScope, start, saveLines, submit, decide, list, getTake, present, thresholdUnits };

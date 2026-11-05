@@ -30,8 +30,15 @@ const collections = asyncHandler(async (req, res) => {
   const rows = orgs.listOpenCollections({ storeId: req.user.storeId, courierId: Number(req.params.id) });
   const names = db.prepare('SELECT o.id, c.name FROM orders o JOIN customers c ON c.id = o.customer_id WHERE o.id IN (' + (rows.map(() => '?').join(',') || 'NULL') + ')').all(...rows.map((r) => r.order_id));
   const nameOf = Object.fromEntries(names.map((n) => [n.id, n.name]));
+  // The package fee we owe for each parcel and have not netted off yet: what the statement will deduct from the cash.
+  const feeRows = rows.length ? db.prepare(`
+    SELECT f.order_id, SUM(f.amount) AS fee FROM package_fees f
+     WHERE f.courier_id = ? AND f.amount > 0 AND f.order_id IN (${rows.map(() => '?').join(',')})
+       AND NOT EXISTS (SELECT 1 FROM payout_items i WHERE i.package_fee_id = f.id) GROUP BY f.order_id
+  `).all(Number(req.params.id), ...rows.map((r) => r.order_id)) : [];
+  const feeOf = Object.fromEntries(feeRows.map((f) => [f.order_id, f.fee]));
   res.json({ items: rows.map((k) => ({
-    collectionId: k.id, orderId: k.order_id, orderNumber: k.product_code || `#${k.order_id}`, customerName: nameOf[k.order_id] || '', amountCents: k.amount, collectedOn: k.collected_on,
+    collectionId: k.id, orderId: k.order_id, orderNumber: k.product_code || `#${k.order_id}`, customerName: nameOf[k.order_id] || '', amountCents: k.amount, feeCents: feeOf[k.order_id] || 0, collectedOn: k.collected_on,
   })) });
 });
 
