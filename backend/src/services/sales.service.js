@@ -2,6 +2,7 @@ const db = require('../config/db');
 const ApiError = require('../utils/ApiError');
 const { assertLineDiscount, assertSaleDiscount, assertDiscountPercent } = require('../utils/discounts');
 const costing = require('./costing.service');
+const stock = require('./stock.service');
 
 /**
  * items: [{ product_id, quantity, discount? }]
@@ -111,27 +112,18 @@ function checkout({ storeId, cashierId, customerId, cashSessionId, items, paymen
       INSERT INTO sale_items (sale_id, product_id, quantity, unit_price, tax_rate, discount, line_total)
       VALUES (@sale_id, @product_id, @quantity, @unit_price, @tax_rate, @discount, @line_total)
     `);
-    // "AND quantity >= ?" makes the decrement itself refuse to go below zero, so even if the
-    // check above were ever bypassed the sale rolls back instead of selling stock that is not there.
-    const decrementInventory = db.prepare(`
-      UPDATE inventory SET quantity = quantity - ?, updated_at = datetime('now')
-      WHERE product_id = ? AND store_id = ? AND quantity >= ?
-    `);
-    const insertMovement = db.prepare(`
-      INSERT INTO inventory_movements (product_id, store_id, change_qty, reason, reference_id, created_by)
-      VALUES (?, ?, ?, 'sale', ?, ?)
-    `);
-
+    // stock.applyMovement refuses to go below zero, so even if the check above were ever bypassed the sale rolls
+    // back instead of selling stock that is not there.
     const setLineCost = db.prepare('UPDATE sale_items SET cost_total = ? WHERE id = ?');
     for (const li of lineItems) {
       const itemId = insertItem.run({ ...li, sale_id: saleId }).lastInsertRowid;
       // What these units cost us, fixed now (oldest batch first, or the moving average - see costing.service.js).
       // Worked out BEFORE the movement below, so it prices the stock that is about to leave.
       setLineCost.run(costing.costOfNextUnits(li.product_id, storeId, li.quantity).cost, itemId);
-      if (decrementInventory.run(li.quantity, li.product_id, storeId, li.quantity).changes !== 1) {
-        throw new ApiError(409, 'Stock changed while this sale was being processed. Please check the cart and try again.');
-      }
-      insertMovement.run(li.product_id, storeId, -li.quantity, saleId, cashierId);
+      stock.applyMovement({
+        productId: li.product_id, storeId, change: -li.quantity, reason: 'sale', referenceType: null, referenceId: saleId, userId: cashierId,
+        shortfall: () => new ApiError(409, 'Stock changed while this sale was being processed. Please check the cart and try again.'),
+      });
     }
 
     const insertPayment = db.prepare(`
@@ -190,17 +182,8 @@ function voidSale(saleId, storeId, userId) {
     }
 
     const items = db.prepare('SELECT * FROM sale_items WHERE sale_id = ?').all(saleId);
-    const restock = db.prepare(`
-      UPDATE inventory SET quantity = quantity + ?, updated_at = datetime('now')
-      WHERE product_id = ? AND store_id = ?
-    `);
-    const insertMovement = db.prepare(`
-      INSERT INTO inventory_movements (product_id, store_id, change_qty, reason, reference_id, created_by)
-      VALUES (?, ?, ?, 'void', ?, ?)
-    `);
     for (const item of items) {
-      restock.run(item.quantity, item.product_id, sale.store_id);
-      insertMovement.run(item.product_id, sale.store_id, item.quantity, saleId, userId);
+      stock.applyMovement({ productId: item.product_id, storeId: sale.store_id, change: item.quantity, reason: 'void', referenceType: null, referenceId: saleId, userId });
     }
     db.prepare(`UPDATE sales SET status = 'voided' WHERE id = ?`).run(saleId);
     return db.prepare('SELECT * FROM sales WHERE id = ?').get(saleId);

@@ -1,4 +1,5 @@
 const { request, app, db, auth, admin, newProduct, cached, mark, movementsSince, expectLedgerBalanced } = require('./helpers');
+const reconciliation = require('../../src/services/reconciliation.service');
 const { cleanupTestDb } = require('../setup');
 
 afterAll(() => cleanupTestDb());
@@ -176,5 +177,34 @@ describe('R0 characterization: transfers, counts, requisitions', () => {
     expect(movementsSince(m, pid)).toEqual([{ store_id: A.mainId, change: 6, reason: 'requisition', ref: null }]);
     expect(cached(pid)).toBe(6);
     expectLedgerBalanced(pid);
+  });
+});
+
+describe('R1 guarantees: error wording and status codes survive the move onto stock.service', () => {
+  it('adjust below zero: 400 with the original message, nothing written', async () => {
+    const pid = newProduct({ stock: 2 });
+    const m = mark();
+    const res = await request(app).post('/api/inventory/adjust').set(auth(A.token)).send({ product_id: pid, change_qty: -5, reason: 'adjustment' });
+    expect(res.status).toBe(400);
+    expect(res.body.error.message).toBe('Adjustment would result in negative stock.');
+    expect(movementsSince(m, pid)).toEqual([]);
+    expect(cached(pid)).toBe(2);
+  });
+
+  it('adjust a product with no stock row: reducing is 400, adding creates the row and a ledger entry', async () => {
+    const pid = newProduct({ stock: 0 });
+    const down = await request(app).post('/api/inventory/adjust').set(auth(A.token)).send({ product_id: pid, change_qty: -1, reason: 'adjustment' });
+    expect(down.status).toBe(400);
+    expect(down.body.error.message).toBe('Cannot reduce stock that does not exist yet.');
+    const m = mark();
+    const up = await request(app).post('/api/inventory/adjust').set(auth(A.token)).send({ product_id: pid, change_qty: 4, reason: 'restock' });
+    expect(up.status).toBe(200);
+    expect(up.body.data).toMatchObject({ product_id: pid, quantity: 4 });
+    expect(movementsSince(m, pid)).toEqual([{ store_id: A.mainId, change: 4, reason: 'restock', ref: null }]);
+    expectLedgerBalanced(pid);
+  });
+
+  it('after every path above, the cache and the ledger agree across the whole database', () => {
+    expect(reconciliation.findDrift()).toEqual([]);
   });
 });

@@ -1,5 +1,6 @@
 const { request, app, db, auth, admin, newProduct, cached, mark, movementsSince, expectLedgerBalanced } = require('./helpers');
 const { cleanupTestDb } = require('../setup');
+const reconciliation = require('../../src/services/reconciliation.service');
 
 afterAll(() => cleanupTestDb());
 
@@ -175,5 +176,11 @@ describe('R0 characterization: courier delivery settlement', () => {
     expect(late.status).toBe(409);
     const receipt = await request(app).post(`/api/orders/${o.id}/delivery/fee-receipts`).set(auth(A.token)).send({ amount: 100, method: 'cash' });
     expect(receipt.status).toBe(409);
+  });
+});
+
+describe('R1 guarantee: orders leave no drift', () => {
+  it('after dispatches, returns and settlements, cache and ledger agree across the whole database', () => {
+    expect(reconciliation.findDrift()).toEqual([]);
   });
 });
