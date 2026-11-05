@@ -230,6 +230,13 @@ function checkoutSale({ body, user }) {
   return { data: getSaleWithItems(sale.id, user.storeId) };
 }
 
+// GET /api/sales/discount-limit: the largest discount this person may give at the till, as a percent of the goods'
+// list value (0 = no limit). Settings are admin-only, so the till reads the cashier's own limit from here instead.
+// checkoutSale enforces the same number, so this is only for showing the limit before the sale is sent.
+function discountLimitFor(user) {
+  return { data: { maxPercent: maxPercentFor(user.role, settingsService.getAll()) } };
+}
+
 // GET /api/sales?from=&to=&cashier_id=&page=&pageSize=
 function listSales({ query: reqQuery, user: reqUser }) {
   const page = Math.max(parseInt(reqQuery.page) || 1, 1);
@@ -290,4 +297,4 @@ function voidSaleAndResolve({ user, params }) {
   return { data: sale };
 }
 
-module.exports = { checkout, getSaleWithItems, voidSale, voidSaleWithAlert, checkoutSale, listSales, getSale, voidSaleAndResolve };
+module.exports = { checkout, getSaleWithItems, voidSale, voidSaleWithAlert, checkoutSale, discountLimitFor, listSales, getSale, voidSaleAndResolve };

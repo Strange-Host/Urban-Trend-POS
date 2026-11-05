@@ -8,6 +8,21 @@ function getCurrentOpen(userId, storeId) {
   `).get(userId, storeId) || null;
 }
 
+/**
+ * The open session plus what it has taken so far (non-voided sales: how many and their total, in cents), for the
+ * cashier's Start screen. Null when no session is open. The session row itself is unchanged; the two sales_* fields
+ * are additions.
+ */
+function getCurrentWithSales(userId, storeId) {
+  const session = getCurrentOpen(userId, storeId);
+  if (!session) return null;
+  const t = db.prepare(`
+    SELECT COUNT(*) AS sales_count, COALESCE(SUM(total), 0) AS sales_total
+    FROM sales WHERE cash_session_id = ? AND status != 'voided'
+  `).get(session.id);
+  return { ...session, sales_count: t.sales_count, sales_total: t.sales_total };
+}
+
 function open(userId, storeId, openingAmount) {
   if (getCurrentOpen(userId, storeId)) {
     throw new ApiError(409, 'You already have an open cash session. Close it before opening a new one.');
@@ -96,4 +111,4 @@ function list({ storeId, userId, page = 1, pageSize = 20 }) {
   return { data: rows, total, page, pageSize, totalPages: Math.ceil(total / pageSize) };
 }
 
-module.exports = { open, close, getCurrentOpen, getById, list };
+module.exports = { open, close, getCurrentOpen, getCurrentWithSales, getById, list };
