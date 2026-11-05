@@ -1,5 +1,6 @@
 import { addDays, isoDay } from "../../lib/analytics";
 import { ApiError } from "../errors";
+import { createMockV11 } from "./mockApiV11";
 import type {
   AdjustResult,
   Analytics,
@@ -49,8 +50,15 @@ const USERS: Record<string, { password: string; user: SessionUser }> = {
       name: "Wanjiru",
       username: "manager",
       role: "manager",
-      permissions: ["approvals.decide", "orders.view", "stock.view", "reports.view"],
+      // Catalog, stock-take, payments and couriers, but NOT products.view_cost or prices.bulk: the manager sees no cost and
+      // cannot change prices in bulk (the owner can grant both on the server).
+      permissions: ["approvals.decide", "orders.view", "stock.view", "reports.view", "products.manage", "stock.count", "stock.review", "payments.reconcile", "couriers.settle"],
     },
+  },
+  // Counts stock and nothing else: useful for trying the stock-take without catalog access.
+  keeper: {
+    password: "keeper123",
+    user: { id: 3, name: "Brian", username: "keeper", role: "dispatch", permissions: ["stock.count", "stock.view"] },
   },
 };
 
@@ -324,7 +332,12 @@ function buildAnalytics(range: AnalyticsRange): Analytics {
 }
 
 export function createMockApi(): Api {
+  const v11 = createMockV11({
+    gate,
+    userFor: (token) => (USERS[authed(token)] as { user: SessionUser }).user,
+  });
   return {
+    ...v11,
     async login(req) {
       await gate();
       const rec = USERS[req.username.trim().toLowerCase()];

@@ -1,4 +1,4 @@
-import type { TabName } from "../lib/deeplink";
+import type { RouteName, TabName } from "../lib/deeplink";
 
 // The website's menu, in the same order and groups. Items without a `screen` are pages the web app has that the
 // phone app does not have yet: they show greyed out with "Soon" and start working the moment a screen is named here.
@@ -6,6 +6,8 @@ export interface MenuItem {
   label: string;
   icon: string;
   screen?: TabName;
+  /** A pushed (stack) screen instead of a tab. */
+  route?: RouteName;
   perm?: string | string[];
 }
 
@@ -30,7 +32,8 @@ export const GROUPS: { id: string; label: string; items: MenuItem[] }[] = [
     label: "Stock",
     items: [
       { label: "Stock control", icon: "⇅", screen: "Stock" },
-      { label: "Catalog", icon: "▤" },
+      { label: "Catalog", icon: "▤", route: "Catalog", perm: "products.manage" },
+      { label: "Stock-take", icon: "☑", route: "StockTakes", perm: "stock.count" },
     ],
   },
   {
@@ -39,7 +42,13 @@ export const GROUPS: { id: string; label: string; items: MenuItem[] }[] = [
     items: [
       { label: "Money at risk", icon: "⚑" },
       { label: "Finance", icon: "◈" },
-      { label: "Reconciliation", icon: "⇌" },
+      { label: "Reconciliation", icon: "⇌", route: "Payments", perm: "payments.reconcile" },
+      { label: "Courier remittance", icon: "⇄", route: "Couriers", perm: "couriers.settle" },
     ],
+  },
+  {
+    id: "staff",
+    label: "Staff",
+    items: [{ label: "Attendance", icon: "◷", route: "Attendance" }],
   },
 ];

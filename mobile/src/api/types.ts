@@ -2,6 +2,9 @@
 // ASSUMPTION: field names below are inferred from the spec, not read from the
 // backend. Before pointing the app at the real server, reconcile this file first.
 // Money is integer cents (same convention as the rest of the POS API).
+// The v1.1 endpoints (catalog, stock-take, payments, couriers, attendance) are in typesV11.ts and were read from the real
+// server schemas, so unlike the v1 parts below they need no reconciling.
+import type { ApiErrorCodeV11, ApiV11 } from "./typesV11";
 
 export type Role = "owner" | "manager" | "dispatch" | "telesales";
 
@@ -85,7 +88,8 @@ export type ApiErrorCode =
   | "DEVICE_REVOKED"
   | "FORBIDDEN"
   | "NETWORK" // client-side: no connection
-  | "UNKNOWN";
+  | "UNKNOWN"
+  | ApiErrorCodeV11;
 
 export interface Paginated<T> {
   items: T[];
@@ -288,7 +292,7 @@ export interface Analytics {
 }
 
 // The surface the app depends on. Mock and HTTP both implement this.
-export interface Api {
+export interface Api extends ApiV11 {
   login(req: MobileLoginRequest): Promise<MobileLoginResponse>;
   refresh(refreshToken: string): Promise<TokenPair>;
   logout(refreshToken: string): Promise<void>;
