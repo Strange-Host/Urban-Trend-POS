@@ -147,9 +147,11 @@ function Drawer({ open, active, onClose }: { open: boolean; active: string; onCl
   }
 
   function go(item: MenuItem) {
-    if (!item.screen) return; // not built in the app yet
+    if (!item.screen && !item.route) return; // not built in the app yet
     onClose();
-    if (navigationRef.isReady()) navigationRef.navigate("Tabs", { screen: item.screen });
+    if (!navigationRef.isReady()) return;
+    if (item.route) (navigationRef as any).navigate(item.route);
+    else navigationRef.navigate("Tabs", { screen: item.screen });
   }
 
   if (!mounted) return null;
@@ -157,7 +159,7 @@ function Drawer({ open, active, onClose }: { open: boolean; active: string; onCl
 
   const Item = ({ item, nested }: { item: MenuItem; nested?: boolean }) => {
     const isActive = !!item.screen && item.screen === active;
-    const soon = !item.screen;
+    const soon = !item.screen && !item.route;
     return (
       <Pressable
         onPress={() => go(item)}

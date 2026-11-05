@@ -4,7 +4,11 @@ export type DeepTarget =
   | { kind: "tab"; tab: TabName; params?: Record<string, unknown> }
   | { kind: "approval"; id: number }
   | { kind: "order"; id: number }
-  | { kind: "alerts" };
+  | { kind: "alerts" }
+  | { kind: "route"; name: RouteName; params?: Record<string, unknown> };
+
+/** Stack screens outside the tabs (the v1.1 screens). */
+export type RouteName = "Catalog" | "Payments" | "StockTakes" | "StockTakeDetail" | "Couriers" | "Attendance";
 
 /** Maps server deep links ("approvals/3", "orders?unpaid=1", "stock?alerts=1") to screens. */
 export function parseDeepLink(link: string): DeepTarget | null {
@@ -24,6 +28,16 @@ export function parseDeepLink(link: string): DeepTarget | null {
       };
     case "stock":
       return { kind: "tab", tab: "Stock" };
+    case "payments":
+      return { kind: "route", name: "Payments" };
+    case "catalog":
+      return { kind: "route", name: "Catalog" };
+    case "stock-takes":
+      return Number.isFinite(id) ? { kind: "route", name: "StockTakeDetail", params: { id } } : { kind: "route", name: "StockTakes" };
+    case "couriers":
+      return { kind: "route", name: "Couriers" };
+    case "attendance":
+      return { kind: "route", name: "Attendance" };
     case "dashboard":
     case "analytics":
       return { kind: "tab", tab: "Dashboard" };
@@ -32,6 +46,6 @@ export function parseDeepLink(link: string): DeepTarget | null {
     case "more":
       return { kind: "tab", tab: "More" };
     default:
-      return null; // e.g. payments/unmatched arrives with v1.1
+      return null;
   }
 }

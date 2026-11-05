@@ -17,6 +17,9 @@ export function goTo(nav: { navigate: (...a: any[]) => void }, t: DeepTarget) {
     case "alerts":
       nav.navigate("Alerts");
       break;
+    case "route":
+      nav.navigate(t.name, t.params);
+      break;
   }
 }
 

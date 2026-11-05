@@ -5,6 +5,19 @@ import AlertsScreen from "../screens/AlertsScreen";
 import ApprovalDetailScreen from "../screens/ApprovalDetailScreen";
 import OrderDetailScreen from "../screens/OrderDetailScreen";
 import ScanScreen from "../screens/ScanScreen";
+import CatalogScreen from "../screens/v11/CatalogScreen";
+import ProductEditScreen from "../screens/v11/ProductEditScreen";
+import CategoriesScreen from "../screens/v11/CategoriesScreen";
+import BulkPriceScreen from "../screens/v11/BulkPriceScreen";
+import PriceHistoryScreen from "../screens/v11/PriceHistoryScreen";
+import StockTakesScreen from "../screens/v11/StockTakesScreen";
+import StockTakeCountScreen from "../screens/v11/StockTakeCountScreen";
+import StockTakeDetailScreen from "../screens/v11/StockTakeDetailScreen";
+import PaymentsScreen from "../screens/v11/PaymentsScreen";
+import PaymentMatchScreen from "../screens/v11/PaymentMatchScreen";
+import CouriersScreen from "../screens/v11/CouriersScreen";
+import RemittanceScreen from "../screens/v11/RemittanceScreen";
+import AttendanceScreen from "../screens/v11/AttendanceScreen";
 import RootTabs from "./RootTabs";
 
 const Stack = createNativeStackNavigator();
@@ -17,6 +30,19 @@ export default function AppNavigator() {
       <Stack.Screen name="OrderDetail" component={OrderDetailScreen} />
       <Stack.Screen name="Alerts" component={AlertsScreen} />
       <Stack.Screen name="Adjust" component={AdjustScreen} />
+      <Stack.Screen name="Catalog" component={CatalogScreen} />
+      <Stack.Screen name="ProductEdit" component={ProductEditScreen} />
+      <Stack.Screen name="Categories" component={CategoriesScreen} />
+      <Stack.Screen name="BulkPrice" component={BulkPriceScreen} />
+      <Stack.Screen name="PriceHistory" component={PriceHistoryScreen} />
+      <Stack.Screen name="StockTakes" component={StockTakesScreen} />
+      <Stack.Screen name="StockTakeCount" component={StockTakeCountScreen} />
+      <Stack.Screen name="StockTakeDetail" component={StockTakeDetailScreen} />
+      <Stack.Screen name="Payments" component={PaymentsScreen} />
+      <Stack.Screen name="PaymentMatch" component={PaymentMatchScreen} />
+      <Stack.Screen name="Couriers" component={CouriersScreen} />
+      <Stack.Screen name="Remittance" component={RemittanceScreen} />
+      <Stack.Screen name="Attendance" component={AttendanceScreen} />
       <Stack.Screen name="Scan" component={ScanScreen} options={{ presentation: "fullScreenModal" }} />
     </Stack.Navigator>
   );

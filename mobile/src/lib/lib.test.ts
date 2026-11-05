@@ -39,7 +39,7 @@ test("parseDeepLink", () => {
   const o = parseDeepLink("orders?unpaid=1");
   assert.equal(o?.kind === "tab" && o.tab, "Orders");
   assert.deepEqual(parseDeepLink("stock?alerts=1"), { kind: "tab", tab: "Stock" });
-  assert.equal(parseDeepLink("payments/unmatched"), null);
+  assert.deepEqual(parseDeepLink("payments/unmatched"), { kind: "route", name: "Payments" }); // built in v1.1
 });
 
 test("phone helpers", () => {

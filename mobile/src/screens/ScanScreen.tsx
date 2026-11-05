@@ -1,4 +1,4 @@
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, useRoute } from "@react-navigation/native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import React, { useRef } from "react";
 import { StyleSheet, Text, View } from "react-native";
@@ -8,6 +8,8 @@ import { colors } from "../theme";
 
 export default function ScanScreen() {
   const nav = useNavigation<any>();
+  // A caller (the stock-take count screen) can ask for the barcode to come back to it instead of the Stock tab.
+  const returnTo = (useRoute<any>().params as { returnTo?: { name: string; params?: object } } | undefined)?.returnTo;
   const insets = useSafeAreaInsets();
   const [perm, requestPerm] = useCameraPermissions();
   const done = useRef(false);
@@ -35,7 +37,8 @@ export default function ScanScreen() {
         onBarcodeScanned={({ data }) => {
           if (done.current || !data) return;
           done.current = true; // one result per scan
-          nav.navigate("Tabs", { screen: "Stock", params: { barcode: data, nonce: Date.now() } });
+          if (returnTo) nav.navigate(returnTo.name, { ...returnTo.params, barcode: data, nonce: Date.now() });
+          else nav.navigate("Tabs", { screen: "Stock", params: { barcode: data, nonce: Date.now() } });
         }}
       />
       <View style={[s.frame, { top: insets.top + 120 }]} pointerEvents="none" />

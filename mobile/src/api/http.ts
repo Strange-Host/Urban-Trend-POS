@@ -1,4 +1,6 @@
 import { ApiError } from "./errors";
+import { createHttpV11 } from "./httpV11";
+import { V11_ERROR_CODES } from "./typesV11";
 import { rangeWindow } from "../lib/analytics";
 import type {
   Analytics,
@@ -31,6 +33,7 @@ const KNOWN: ApiErrorCode[] = [
   "REFRESH_INVALID",
   "DEVICE_REVOKED",
   "FORBIDDEN",
+  ...V11_ERROR_CODES, // the v1.1 screens branch on these (REASON_REQUIRED, PREVIEW_STALE, ALREADY_MATCHED, ...)
 ];
 
 async function call<T>(
@@ -217,6 +220,7 @@ async function loadAnalytics(base: string, token: string, range: AnalyticsRange)
 
 export function createHttpApi(base: string): Api {
   return {
+    ...createHttpV11(base, call),
     login: (req) =>
       call<MobileLoginResponse>(base, "POST", "/auth/mobile/login", { body: req }),
     refresh: (refreshToken) =>
