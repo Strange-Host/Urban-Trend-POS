@@ -21,6 +21,12 @@ const PILL_OFF = 'bg-surface border border-line text-text-muted hover:text-text'
 
 const HIDE_SCROLLBAR = '[scrollbar-width:none] [&::-webkit-scrollbar]:hidden';
 
+// Optional count after a tab's label (Today's Attention tab). Nothing shows for 0 or when the item has no `badge`.
+function Badge({ n }) {
+  if (!n || n < 1) return null;
+  return <span className="ml-2 font-mono text-[11px] bg-accent/20 text-accent-text rounded-full px-1.5 py-0.5">{n}</span>;
+}
+
 export default function Tabs({ items, active, onChange, appearance = 'auto', label = 'Tabs', className = '' }) {
   const { isV2 } = useUiVersion();
   const stripRef = useRef(null);
@@ -37,7 +43,7 @@ export default function Tabs({ items, active, onChange, appearance = 'auto', lab
         <div ref={stripRef} className={strip}>
           {items.map((t) => (
             <Link key={t.key} to={t.to} aria-current={active === t.key ? 'page' : undefined} className={itemClass(active === t.key)}>
-              {t.label}
+              {t.label}<Badge n={t.badge} />
             </Link>
           ))}
         </div>
@@ -57,7 +63,7 @@ export default function Tabs({ items, active, onChange, appearance = 'auto', lab
           onClick={() => onChange(t.key)}
           className={itemClass(active === t.key)}
         >
-          {t.label}
+          {t.label}<Badge n={t.badge} />
         </button>
       ))}
     </div>

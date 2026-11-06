@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { MemoryRouter } from 'react-router-dom';
 import Finance from './Finance';
 import Catalog from './Catalog';
 import Payroll from './Payroll';
@@ -46,7 +47,7 @@ beforeEach(() => {
 
 describe('Finance', () => {
   it('old layout: the tab strip, then the embedded page with its own title (as before)', async () => {
-    render(<Finance />);
+    render(<MemoryRouter><Finance /></MemoryRouter>); // Finance reads ?tab=, so it lives inside a router, as in the app
     expect(tabNames()).toEqual(['Payments', 'Expenses', 'Cash sessions', 'Couriers', 'Custody', 'Delivery rates']);
     expect(h1s()).toEqual(['Payments']);
     await userEvent.click(screen.getByRole('tab', { name: 'Expenses' }));
@@ -55,13 +56,13 @@ describe('Finance', () => {
 
   it('hides Custody from people without that permission', () => {
     auth.perms = new Set();
-    render(<Finance />);
+    render(<MemoryRouter><Finance /></MemoryRouter>); // Finance reads ?tab=, so it lives inside a router, as in the app
     expect(tabNames()).not.toContain('Custody');
   });
 
   it('new layout: one page title (Finance), the embedded page only as a section', async () => {
     setUiVersion('v2');
-    render(<Finance />);
+    render(<MemoryRouter><Finance /></MemoryRouter>); // Finance reads ?tab=, so it lives inside a router, as in the app
     expect(h1s()).toEqual(['Finance']);
     expect(screen.getByText('Payments page')).toBeTruthy();
     await userEvent.click(screen.getByRole('tab', { name: 'Couriers' }));

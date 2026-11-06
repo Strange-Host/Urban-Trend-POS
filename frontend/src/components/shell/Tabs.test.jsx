@@ -73,3 +73,17 @@ describe('TabBar', () => {
     }
   });
 });
+
+describe('Tabs count badge', () => {
+  it('shows a count after the label when an item has one, and nothing for zero or none', () => {
+    render(<Tabs items={[{ key: 'a', label: 'Alpha', badge: 4 }, { key: 'b', label: 'Beta', badge: 0 }, { key: 'c', label: 'Gamma' }]} active="a" onChange={() => {}} />);
+    expect(screen.getByRole('tab', { name: /Alpha/ })).toHaveTextContent('Alpha4');
+    expect(screen.getByRole('tab', { name: 'Beta' })).toHaveTextContent(/^Beta$/);
+    expect(screen.getByRole('tab', { name: 'Gamma' })).toHaveTextContent(/^Gamma$/);
+  });
+
+  it('works on link tabs too', () => {
+    render(<MemoryRouter><Tabs items={[{ key: 'a', label: 'Alpha', to: '/a', badge: 2 }]} active="a" /></MemoryRouter>);
+    expect(screen.getByRole('link', { name: /Alpha/ })).toHaveTextContent('Alpha2');
+  });
+});
