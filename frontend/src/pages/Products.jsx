@@ -5,10 +5,12 @@ import { productsApi, categoriesApi, inventoryApi } from '../api/endpoints';
 import { getErrorMessage } from '../api/client';
 import { useDialog, useToast } from '../context/UIContext';
 import { useAuth } from '../context/AuthContext';
-
-import Sheet from '../components/Sheet';
-import Picker, { Segmented } from '../components/Picker';
 import { SkeletonRows } from '../components/Skeleton';
+import ProductFormSheet from './products/ProductFormSheet';
+import ApproveProductSheet from './products/ApproveProductSheet';
+import MoveProductSheet from './products/MoveProductSheet';
+import AdjustStockSheet from './products/AdjustStockSheet';
+
 const emptyForm = { sku: '', barcode: '', name: '', category_id: '', cost_price: '', sell_price: '' };
 const emptyAdjustForm = { mode: 'add', qty: '', reason: 'restock' };
 
@@ -308,185 +310,19 @@ export default function Products({ catalogue = 'shop' }) {
       )}
 
       {editing !== null && (
-        <Sheet onClose={() => setEditing(null)} size="md" as="form" onSubmit={handleSave}>
-            <h2 className="font-display font-700 text-lg mb-4">{editing.id ? 'Edit product' : canManage ? 'New product' : 'Propose a product'}</h2>
-            {!canManage && !editing.id && (
-              <p className="mb-3 px-3 py-2 rounded-lg bg-paper border border-line text-xs text-text-muted">
-                A manager reviews new products and sets the buying price before they appear in the catalog or at the till.
-              </p>
-            )}
-
-            {error && <div className="mb-3 px-3 py-2 rounded-lg bg-danger-soft text-danger text-sm">{error}</div>}
-
-            <div className="grid grid-cols-2 gap-3 mb-3">
-              <div className="col-span-2">
-                <label className="block text-xs font-medium text-text-muted mb-1">Name</label>
-                <input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })}
-                  className="w-full px-3 py-2 rounded-lg border border-line outline-none focus:border-accent" />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-text-muted mb-1">SKU</label>
-                <input required value={form.sku} onChange={(e) => setForm({ ...form, sku: e.target.value })}
-                  className="w-full px-3 py-2 rounded-lg border border-line outline-none focus:border-accent font-mono text-sm" />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-text-muted mb-1">Barcode</label>
-                <input value={form.barcode} onChange={(e) => setForm({ ...form, barcode: e.target.value })}
-                  className="w-full px-3 py-2 rounded-lg border border-line outline-none focus:border-accent font-mono text-sm" />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-text-muted mb-1">Category</label>
-                <Picker
-                  value={form.category_id} title="Category" aria-label="Category"
-                  onChange={(v) => setForm({ ...form, category_id: v })}
-                  options={(categories || []).map((c) => ({ value: c.id, label: c.name }))}
-                  allowClear clearLabel="None" createLabel="New category"
-                  onCreate={canManage ? async (name) => {
-                    const { data } = await categoriesApi.create({ name });
-                    queryClient.invalidateQueries({ queryKey: ['categories'] });
-                    return data.data.id;
-                  } : undefined}
-                />
-              </div>
-              {canSeeCost && (
-                <div>
-                  <label className="block text-xs font-medium text-text-muted mb-1">Cost price</label>
-                  <input type="number" step="0.01" value={form.cost_price} onChange={(e) => setForm({ ...form, cost_price: e.target.value })}
-                    className="w-full px-3 py-2 rounded-lg border border-line outline-none focus:border-accent" />
-                </div>
-              )}
-              <div>
-                <label className="block text-xs font-medium text-text-muted mb-1">Sell price</label>
-                <input required type="number" step="0.01" value={form.sell_price} onChange={(e) => setForm({ ...form, sell_price: e.target.value })}
-                  className="w-full px-3 py-2 rounded-lg border border-line outline-none focus:border-accent" />
-              </div>
-            </div>
-
-            <div className="flex gap-2 mt-5">
-              <button type="button" onClick={() => setEditing(null)} className="flex-1 py-2.5 rounded-lg border border-line text-sm font-medium">
-                Cancel
-              </button>
-              <button type="submit" className="flex-1 py-2.5 rounded-lg bg-ink text-white text-sm font-medium hover:bg-ink-soft">
-                Save
-              </button>
-            </div>
-          </Sheet>
+        <ProductFormSheet editing={editing} form={form} setForm={setForm} error={error} canManage={canManage} canSeeCost={canSeeCost} categories={categories} onClose={() => setEditing(null)} onSubmit={handleSave} />
       )}
 
       {approving && (
-        <Sheet onClose={() => setApproving(null)} size="sm" as="form" onSubmit={handleApprove}>
-            <h2 className="font-display font-700 text-lg mb-1">Approve product</h2>
-            <p className="text-text-muted text-sm mb-4">{approving.name} <span className="font-mono">({approving.sku})</span></p>
-            {approveError && <div className="mb-3 px-3 py-2 rounded-lg bg-danger-soft text-danger text-sm">{approveError}</div>}
-
-            {canSeeCost && (
-              <>
-                <label className="block text-xs font-medium text-text-muted mb-1">Buying (cost) price</label>
-                <input type="number" step="0.01" min="0" value={approveForm.cost_price}
-                  onChange={(e) => setApproveForm({ ...approveForm, cost_price: e.target.value })}
-                  className="w-full px-3 py-2 rounded-lg border border-line outline-none focus:border-accent mb-3" />
-              </>
-            )}
-            <label className="block text-xs font-medium text-text-muted mb-1">Selling price</label>
-            <input required type="number" step="0.01" min="0" value={approveForm.sell_price}
-              onChange={(e) => setApproveForm({ ...approveForm, sell_price: e.target.value })}
-              className="w-full px-3 py-2 rounded-lg border border-line outline-none focus:border-accent mb-5" />
-
-            <div className="flex gap-2">
-              <button type="button" onClick={() => setApproving(null)} className="flex-1 py-2.5 rounded-lg border border-line text-sm font-medium">Cancel</button>
-              <button type="submit" className="flex-1 py-2.5 rounded-lg bg-ink text-white text-sm font-medium hover:bg-ink-soft">Approve</button>
-            </div>
-          </Sheet>
+        <ApproveProductSheet product={approving} form={approveForm} setForm={setApproveForm} error={approveError} canSeeCost={canSeeCost} onClose={() => setApproving(null)} onSubmit={handleApprove} />
       )}
 
       {moving && (
-        <Sheet onClose={() => setMoving(null)} size="sm" as="form" onSubmit={handleMove}>
-          <h2 className="font-display font-700 text-lg mb-1">{moving.to === 'shop' ? 'Add to shop' : 'Move to online products'}</h2>
-          <p className="text-text-muted text-sm mb-4">{moving.product.name}</p>
-
-          {moveError && <div className="mb-3 px-3 py-2 rounded-lg bg-danger-soft text-danger text-sm">{moveError}</div>}
-
-          {moving.to === 'shop' ? (
-            <>
-              <p className="text-sm mb-4">It will appear at the till. Enter only what you hold on the shelf today; online stock is not counted.</p>
-              <label htmlFor="opening-stock" className="block text-xs font-medium text-text-muted mb-1">How many are on the shelf now?</label>
-              <input
-                id="opening-stock" type="text" inputMode="numeric" pattern="[0-9]*" enterKeyHint="done" autoComplete="off" maxLength={6}
-                value={openingStock} onChange={(e) => setOpeningStock(e.target.value.replace(/\D/g, ''))}
-                className="w-full px-3 py-3 rounded-lg border border-line outline-none focus:border-accent text-xl font-mono mb-5"
-                placeholder="0"
-              />
-            </>
-          ) : moving.product.total_stock > 0 ? (
-            <p className="text-sm mb-5">
-              The shop's records show <b>{moving.product.total_stock}</b> {moving.product.total_stock === 1 ? 'unit' : 'units'} of this product.
-              Moving it writes them off in the stock history and takes it off the till. Count the shelf first if you are not sure they are gone.
-            </p>
-          ) : (
-            <p className="text-sm mb-5">It will leave the till and the shop's stock lists. Its sales history stays.</p>
-          )}
-
-          <div className="flex gap-2">
-            <button type="button" onClick={() => setMoving(null)} className="flex-1 py-2.5 rounded-lg border border-line text-sm font-medium">Cancel</button>
-            <button type="submit" className="flex-1 py-2.5 rounded-lg bg-ink text-white text-sm font-medium hover:bg-ink-soft">
-              {moving.to === 'shop' ? 'Add to shop' : moving.product.total_stock > 0 ? `Write off ${moving.product.total_stock} and move` : 'Move to online'}
-            </button>
-          </div>
-        </Sheet>
+        <MoveProductSheet moving={moving} openingStock={openingStock} setOpeningStock={setOpeningStock} moveError={moveError} onClose={() => setMoving(null)} onSubmit={handleMove} />
       )}
 
       {adjusting && (
-        <Sheet onClose={() => setAdjusting(null)} size="sm" as="form" onSubmit={handleAdjust}>
-            <h2 className="font-display font-700 text-lg mb-1">Adjust stock</h2>
-            <p className="text-text-muted text-sm mb-4">{adjusting.name} — currently {adjusting.total_stock}</p>
-
-            {adjustError && <div className="mb-3 px-3 py-2 rounded-lg bg-danger-soft text-danger text-sm">{adjustError}</div>}
-
-            <Segmented
-              value={adjustForm.mode} aria-label="Add or remove stock" className="mb-4"
-              onChange={(mode) => setAdjustForm((f) => ({ ...f, mode, reason: mode === 'remove' && f.reason === 'restock' ? 'adjustment' : mode === 'add' && f.reason === 'adjustment' ? 'restock' : f.reason }))}
-              options={[{ value: 'add', label: '＋ Add stock' }, { value: 'remove', label: '－ Remove stock' }]}
-            />
-
-            <label htmlFor="adjust-qty" className="block text-xs font-medium text-text-muted mb-1">How many units?</label>
-            <input
-              id="adjust-qty" type="text" inputMode="numeric" pattern="[0-9]*" enterKeyHint="done" autoComplete="off" maxLength={6}
-              value={adjustForm.qty} onChange={(e) => setAdjustForm({ ...adjustForm, qty: e.target.value.replace(/\D/g, '') })}
-              className="w-full px-3 py-3 rounded-lg border border-line outline-none focus:border-accent text-xl font-mono mb-2"
-              placeholder="0"
-            />
-            <div className="flex gap-2 mb-3">
-              {[1, 5, 10].map((n) => (
-                <button key={n} type="button" onClick={() => setAdjustForm((f) => ({ ...f, qty: String((parseInt(f.qty, 10) || 0) + n) }))}
-                  className="flex-1 min-h-[44px] rounded-lg border border-line text-sm font-medium hover:bg-paper">+{n}</button>
-              ))}
-            </div>
-            {(() => {
-              const amount = parseInt(adjustForm.qty, 10) || 0;
-              const after = (adjusting.total_stock || 0) + (adjustForm.mode === 'remove' ? -amount : amount);
-              return amount > 0 && (
-                <p className={`text-sm mb-3 ${after < 0 ? 'text-danger' : 'text-text-muted'}`}>
-                  Stock: {adjusting.total_stock || 0} → <b>{after}</b>{after < 0 ? ' (below zero)' : ''}
-                </p>
-              );
-            })()}
-
-            <div className="block text-xs font-medium text-text-muted mb-1">Reason</div>
-            <Segmented
-              value={adjustForm.reason} aria-label="Reason" className="mb-5"
-              onChange={(reason) => setAdjustForm({ ...adjustForm, reason })}
-              options={[{ value: 'restock', label: 'Restock' }, { value: 'adjustment', label: 'Count fix' }, { value: 'return', label: 'Return' }]}
-            />
-
-            <div className="flex gap-2">
-              <button type="button" onClick={() => setAdjusting(null)} className="flex-1 py-2.5 rounded-lg border border-line text-sm font-medium">
-                Cancel
-              </button>
-              <button type="submit" className="flex-1 py-2.5 rounded-lg bg-ink text-white text-sm font-medium hover:bg-ink-soft">
-                Apply
-              </button>
-            </div>
-          </Sheet>
+        <AdjustStockSheet adjusting={adjusting} adjustForm={adjustForm} setAdjustForm={setAdjustForm} adjustError={adjustError} onClose={() => setAdjusting(null)} onSubmit={handleAdjust} />
       )}
     </div>
   );

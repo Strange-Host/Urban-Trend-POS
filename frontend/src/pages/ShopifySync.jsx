@@ -5,25 +5,11 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { shopifyApi, categoriesApi } from '../api/endpoints';
 import { getErrorMessage } from '../api/client';
 import { useToast, useDialog } from '../context/UIContext';
-
 import Picker from '../components/Picker';
 import { SkeletonRows } from '../components/Skeleton';
 import { EmptyRow } from '../components/EmptyState';
-const badgeStyles = {
-  new: 'bg-success-soft text-success',
-  update: 'bg-accent/20 text-accent-text',
-  unchanged: 'bg-line text-text-muted',
-};
-
-// Debounces a per-row save so we're not firing a PATCH on every keystroke —
-// waits for a short pause in typing, then saves.
-function useDebouncedSave(delay = 500) {
-  const timers = useState(() => new Map())[0];
-  return (key, fn) => {
-    clearTimeout(timers.get(key));
-    timers.set(key, setTimeout(fn, delay));
-  };
-}
+import BulkBar from './shopifySync/BulkBar';
+import { badgeStyles, useDebouncedSave } from './shopifySync/helpers';
 
 export default function ShopifySync() {
   const toast = useToast();
@@ -374,29 +360,15 @@ export default function ShopifySync() {
       )}
 
       {selected.size > 0 && (
-        <div className="sticky bottom-0 z-10 -mx-4 md:-mx-8 mt-4 px-4 md:px-8 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] bg-surface border-t border-line shadow-[0_-6px_20px_rgb(0_0_0/0.08)]">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-sm font-medium mr-auto">{selected.size} ticked</span>
-            <div className="w-full sm:w-56">
-              <Picker
-                value="" onChange={bulkSetCategory} title="Set category for ticked products" aria-label="Set category for ticked products"
-                placeholder="Set category…" options={categoryOptions} disabled={bulkBusy}
-                onCreate={async (name) => {
-                  const { data } = await categoriesApi.create({ name });
-                  queryClient.invalidateQueries({ queryKey: ['categories'] });
-                  return data.data.id;
-                }}
-                createLabel="New category"
-              />
-            </div>
-            <button
-              type="button" onClick={approveSelected} disabled={bulkBusy}
-              className="flex-1 sm:flex-none min-h-[44px] px-5 rounded-lg bg-success text-white text-sm font-medium hover:opacity-90 disabled:opacity-50"
-            >
-              {bulkBusy ? 'Working…' : `Approve ${selected.size}`}
-            </button>
-          </div>
-        </div>
+        <BulkBar
+          selectedCount={selected.size} categoryOptions={categoryOptions} busy={bulkBusy}
+          onSetCategory={bulkSetCategory} onApprove={approveSelected}
+          onCreateCategory={async (name) => {
+            const { data } = await categoriesApi.create({ name });
+            queryClient.invalidateQueries({ queryKey: ['categories'] });
+            return data.data.id;
+          }}
+        />
       )}
     </div>
   );

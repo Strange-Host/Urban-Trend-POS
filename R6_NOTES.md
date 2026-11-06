@@ -31,20 +31,44 @@ file to export only components.
   warnings as before, and the build succeeds.
 - `StockControl.jsx` already used `PageHeader` and underline tabs from redesign phase 2, so the page pattern is untouched.
 
+## Step 2 done: the other oversize pages
+
+Every page that was over 400 lines is now under it, each as a pure move (no existing test was changed; the frontend suite passes
+- 73 files, 552 tests - lint stays at 22 warnings and the build succeeds). Largest page file now: POSTerminal (about 300).
+
+| Page | Before | After | Pieces |
+| --- | --- | --- | --- |
+| `Settings.jsx` | 1,082 | 82 | tab shell; `settings/` holds General, Backups, Payment gateways (card, fields), Income sources (the Stores tab, with its own state), Optional modules |
+| `SettingsMessaging.jsx` | 486 | 4 | now only re-exports the three sections that moved to `settings/` (Customer payment details, SMS, Web-form leads) plus their shared hook, toggle and button looks |
+| `Orders.jsx` | 633 | 240 | `orders/`: order list, order detail panel, channel badge, courier picker, helpers |
+| `Products.jsx` | 493 | 329 | `products/`: the product form, approve, move and stock-adjust sheets |
+| `Leads.jsx` | 411 | 264 | `leads/`: new-lead sheet, lead detail sheet, constants |
+| `ShopifySync.jsx` | 403 | 375 | `shopifySync/`: the bulk-action bar, helpers |
+
+The page keeps the data and the handlers; each piece gets props and holds no data of its own, apart from Income sources,
+which took its own form state with it. `Settings.jsx` still re-exports `PaymentGatewaysSection`, and `SettingsMessaging.jsx`
+still exports its three sections, so the existing tests and their mocks work unchanged.
+
+### How it was checked
+
+A script cut each page by line ranges, built each new file's imports from the names it uses, and compared every original code
+line against the new files. The only lines that differ are the intended ones: `export` added to moved declarations, the
+handler names a component receives as props, and the call sites. Lint and the page's own tests were run after each page.
+ShopifySync had no tests, so the bulk bar got three.
+
 ## Enforcement
 
 `src/pageStructure.test.js` now fails when a page file is over 400 lines unless it is listed with a ceiling and a reason,
 fails when a listed page grows, and insists a page that drops under the limit is removed from the list. Mutation-checked
-both ways. The list today: Settings (1,082), Orders (633), Products (493), SettingsMessaging (486), Leads (411),
-ShopifySync (403). POSTerminal left the list in redesign Phase 3, when the ticket moved to `components/till/Ticket.jsx`.
+both ways. The list is empty: no page is over the limit. (POSTerminal left it in redesign Phase 3, when the ticket moved to
+`components/till/Ticket.jsx`.)
 
 ## Next in this stage
 
-1. Settings into tab components (Business, Payments, Messaging, Branches, Server, Stores). `SettingsMessaging.jsx` already
-   exists as a separate file.
-2. Orders (633 lines): review for the same split.
-3. Only then restyle: redesign phases 3 (cashier), 4 (manager Today), 5 (Receive form, which needs the backend check for
-   draft receipts and admin approval of buying prices), 6.
+1. Restyle, in this order: redesign Phase 3 (cashier) and Phase 4 (manager Today) are in; next Phase 5 (Receive form, which
+   needs draft receipts and approval of buying prices on the backend first), then Phase 6 (workspace tab strips).
+2. Add the files in `pages/` subfolders and the remaining components to the type check as each is touched (73 errors are
+   still outside the checked scope).
 
 ## Still open
 
