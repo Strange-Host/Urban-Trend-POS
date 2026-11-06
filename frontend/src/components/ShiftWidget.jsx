@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { cashSessionsApi, shiftApi } from '../api/endpoints';
 import HandoverModal from './HandoverModal';
@@ -8,13 +8,18 @@ import { getErrorMessage } from '../api/client';
 // sale just isn't attributed to one if there isn't). This only exists so
 // cash reconciliation (float in, cash sales, count at close) is possible
 // for whoever wants to use it; nobody's forced into it.
-export default function ShiftWidget() {
+// closeRequest: bump the number to open the close-shift form from outside (the Start screen's "End shift" tile). 0 does nothing.
+export default function ShiftWidget({ closeRequest = 0 }) {
   const [amount, setAmount] = useState('');
   const [mode, setMode] = useState(null); // null | 'opening' | 'closing'
   const [error, setError] = useState('');
   const [handover, setHandover] = useState(null); // open-items summary awaiting the person's decision
   const [closing, setClosing] = useState(false);
   const queryClient = useQueryClient();
+
+  useEffect(() => {
+    if (closeRequest > 0) setMode('closing');
+  }, [closeRequest]);
 
   const { data: session } = useQuery({
     queryKey: ['cash-session-current'],

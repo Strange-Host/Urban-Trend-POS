@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MemoryRouter } from 'react-router-dom';
 import StockControl, { ReconcileTab } from './StockControl';
 import { inventoryApi, productsApi, stockApi, storesApi } from '../api/endpoints';
 
@@ -165,7 +166,8 @@ describe('Stock control: who sees the Reconcile tab', () => {
     storesApi.list.mockReturnValue(ok(stores));
     inventoryApi.reconcileCheck.mockReturnValue(ok([]));
     stockApi.activity.mockReturnValue(ok({ entries: [], summary: [] }));
-    return render(wrap(<StockControl />));
+    // The page lives inside the router in the app (it reads ?tab=), so it does here too.
+    return render(<MemoryRouter>{wrap(<StockControl />)}</MemoryRouter>);
   };
 
   it('shows it to someone who may adjust stock', async () => {

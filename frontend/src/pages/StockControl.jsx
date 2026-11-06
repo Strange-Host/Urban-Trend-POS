@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useSearchParams } from 'react-router-dom';
 import { storesApi } from '../api/endpoints';
 import Picker from '../components/Picker';
 import PageHeader from '../components/shell/PageHeader';
@@ -36,7 +37,9 @@ export default function StockControl() {
     can('inventory.adjust') && { id: 'reconcile', label: 'Reconcile' },
     can('stock.review') && { id: 'activity', label: 'Who did what' },
   ].filter(Boolean);
-  const [tab, setTab] = useState(tabs[0]?.id);
+  // /stock?tab=counts opens on that tab (the Start screen links here); anything else, or no parameter, opens on the first one.
+  const [searchParams] = useSearchParams();
+  const [tab, setTab] = useState(() => tabs.find((t) => t.id === searchParams.get('tab'))?.id ?? tabs[0]?.id);
 
   const current = stores.find((s) => s.is_current);
   const viewing = viewStore ? stores.find((s) => String(s.id) === String(viewStore)) : current;

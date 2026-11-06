@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ChevronUp, Lock, LogOut, PanelLeft, ShieldCheck } from 'lucide-react';
+import { ChevronUp, Lock, LogOut, PanelLeft, ShieldCheck, ShoppingCart } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import ThemeSwitch from './ThemeSwitch';
+import useCashierHome from '../hooks/useCashierHome';
 import useUiVersion from '../hooks/useUiVersion';
 
 const initials = (name) => (name || '?').trim().split(/\s+/).slice(0, 2).map((w) => w[0]?.toUpperCase()).join('') || '?';
@@ -14,6 +15,7 @@ export default function UserMenu({ rail = false, onNavigate }) {
   const { user, logout, lock } = useAuth();
   const navigate = useNavigate();
   const { isV2, setVersion } = useUiVersion();
+  const { home: cashierHome, setHome: setCashierHome } = useCashierHome();
   const [open, setOpen] = useState(false);
   const rootRef = useRef(null);
 
@@ -72,6 +74,12 @@ export default function UserMenu({ rail = false, onNavigate }) {
           {user?.role === 'admin' && (
             <button type="button" role="menuitem" className={itemClass} onClick={run(() => setVersion(isV2 ? 'v1' : 'v2'))}>
               <PanelLeft size={16} aria-hidden="true" /> {isV2 ? 'Use current layout' : 'Try new layout'}
+            </button>
+          )}
+          {/* New layout, cashiers only: open on the Start screen (default) or straight on the till. */}
+          {isV2 && user?.role === 'cashier' && (
+            <button type="button" role="menuitem" className={itemClass} onClick={run(() => setCashierHome(cashierHome === 'till' ? 'start' : 'till'))}>
+              <ShoppingCart size={16} aria-hidden="true" /> {cashierHome === 'till' ? 'Open on the Start screen' : 'Open on the till'}
             </button>
           )}
           <button type="button" role="menuitem" className={itemClass} onClick={run(lock)}>

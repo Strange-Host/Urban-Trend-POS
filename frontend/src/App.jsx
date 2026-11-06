@@ -1,11 +1,11 @@
 import { Suspense, lazy } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { AuthProvider, useAuth } from './context/AuthContext';
+import { AuthProvider } from './context/AuthContext';
 import { ToastProvider, DialogProvider } from './context/UIContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import ShellSwitch from './components/ShellSwitch';
-import { homeRouteFor } from './components/navItems';
+import Home from './components/Home';
 import { PageSkeleton } from './components/Skeleton';
 import Login from './pages/Login';
 import POSTerminal from './pages/POSTerminal';
@@ -48,16 +48,6 @@ const queryClient = new QueryClient({
 // Shown while a page's code downloads: a grey outline of a typical page instead of a line of text.
 function RouteFallback() {
   return <PageSkeleton />;
-}
-
-// Each role has its own home: the storekeeper has no till, so they land on the catalog instead.
-function Home() {
-  const { user, can } = useAuth();
-  // The rule lives in navItems.js so the rail's logo link and this landing page can't disagree. Admins and managers
-  // open on the dashboard (graphs, alerts, KPIs), the storekeeper on the catalog, cashiers on the till.
-  const home = homeRouteFor(user?.role, can);
-  if (home !== '/terminal') return <Navigate to={home} replace />;
-  return <POSTerminal />;
 }
 
 export default function App() {
