@@ -36,7 +36,7 @@ file to export only components.
 `src/pageStructure.test.js` now fails when a page file is over 400 lines unless it is listed with a ceiling and a reason,
 fails when a listed page grows, and insists a page that drops under the limit is removed from the list. Mutation-checked
 both ways. The list today: Settings (1,082), Orders (633), Products (493), SettingsMessaging (486), Leads (411),
-ShopifySync (403), POSTerminal (403).
+ShopifySync (403). POSTerminal left the list in redesign Phase 3, when the ticket moved to `components/till/Ticket.jsx`.
 
 ## Next in this stage
 

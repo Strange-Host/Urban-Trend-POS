@@ -1,17 +1,19 @@
 import { useState, useEffect, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { productsApi, salesApi } from '../api/endpoints';
+import { categoriesApi, productsApi, salesApi } from '../api/endpoints';
 import { getErrorMessage } from '../api/client';
 import useCartStore from '../hooks/useCartStore';
 import useOfflineQueue, { newClientSaleId } from '../hooks/useOfflineQueue';
 import useConnectivity from '../hooks/useConnectivity';
 import ShiftWidget from '../components/ShiftWidget';
-import PrintReceiptButton from '../components/PrintReceipt';
-import PaymentPanel from '../components/PaymentPanel';
-import PrinterSettings from '../components/PrinterSettings';
+import TillBanners from '../components/till/TillBanners';
+import Ticket from '../components/till/Ticket';
+import CategoryColumn from '../components/till/CategoryColumn';
+import { discountExceedsLimit } from '../utils/discount';
 import { loadPrinter, printReceiptDirectIfEnabled } from '../utils/printer';
 import { useToast } from '../context/UIContext';
-import { emptyPayment, clearedPayment, buildPayments, describePayments } from '../utils/splitPayment';
+import { emptyPayment, clearedPayment, buildPayments } from '../utils/splitPayment';
 
 // A failed request is only safe to queue offline if it failed because the
 // server never processed it. A 4xx means the server DID process it and
@@ -32,13 +34,25 @@ export default function POSTerminal() {
   const [checkingOut, setCheckingOut] = useState(false);
   const [checkoutError, setCheckoutError] = useState('');
   const [lastReceipt, setLastReceipt] = useState(null);
-  const [printerOpen, setPrinterOpen] = useState(false);
   const toast = useToast();
   const [cartOpen, setCartOpen] = useState(false); // mobile-only: cart as a slide-up sheet
   const barcodeRef = useRef(null);
   const queryClient = useQueryClient();
 
-  const { items, addItem, updateQuantity, removeItem, clear, totals } = useCartStore();
+  const { items, addItem, updateQuantity, removeItem, clear, totals, setDiscount } = useCartStore();
+  const [categoryId, setCategoryId] = useState(null);
+
+  // The Start screen's End shift tile and the rail's Shift item arrive here as ?shift=close. Each arrival bumps a counter the
+  // shift widget watches (it opens its close form once the open shift is known), and the request is dropped from the address
+  // so a refresh does not reopen it.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const wantsClose = searchParams.get('shift') === 'close';
+  const [closeRequest, setCloseRequest] = useState(0);
+  useEffect(() => {
+    if (!wantsClose) return;
+    setCloseRequest((n) => n + 1);
+    setSearchParams((p) => { p.delete('shift'); return p; }, { replace: true });
+  }, [wantsClose, setSearchParams]);
   const { online, reportApiReachable, reportApiUnreachable } = useConnectivity();
   const enqueue = useOfflineQueue((s) => s.enqueue);
   const syncQueue = useOfflineQueue((s) => s.sync);
@@ -49,9 +63,28 @@ export default function POSTerminal() {
   const pendingCount = queue.filter((e) => !e.failed).length;
   const failedEntries = queue.filter((e) => e.failed);
 
+  // Same offline treatment as the product list: keep the last answer for a day, retry only real connection failures.
+  const keepForOffline = {
+    staleTime: 5 * 60_000,
+    gcTime: 24 * 60 * 60 * 1000,
+    retry: (failureCount, err) => isConnectivityFailure(err) && failureCount < 2,
+  };
+  const { data: categoryData } = useQuery({
+    queryKey: ['till-categories'],
+    queryFn: () => categoriesApi.list().then((r) => r.data.data),
+    ...keepForOffline,
+  });
+  const categories = categoryData || [];
+  // This person's own cap on discounts (percent, 0 = none). Only used to warn before charging; the server enforces it.
+  const { data: maxPercent = 0 } = useQuery({
+    queryKey: ['discount-limit'],
+    queryFn: () => salesApi.discountLimit().then((r) => r.data.data.maxPercent),
+    ...keepForOffline,
+  });
+
   const { data, isLoading } = useQuery({
-    queryKey: ['products', search],
-    queryFn: () => productsApi.list({ q: search, pageSize: 20 }).then((r) => r.data),
+    queryKey: ['products', search, categoryId],
+    queryFn: () => productsApi.list({ q: search, category_id: categoryId || undefined, pageSize: 60 }).then((r) => r.data),
     staleTime: 15_000,
     // Offline support: keep serving the last successfully-fetched product
     // list instead of showing an error page, so the register can still
@@ -84,11 +117,12 @@ export default function POSTerminal() {
     }
   }
 
-  const { subtotal, total } = totals();
+  const { subtotal, discount, total } = totals();
   const built = buildPayments(payment, total);
+  const discountTooBig = discountExceedsLimit({ discount, subtotal, maxPercent });
 
   async function handleCheckout() {
-    if (items.length === 0) return;
+    if (items.length === 0 || discountTooBig) return;
     if (built.error) { setCheckoutError(built.error); return; }
     setCheckingOut(true);
     setCheckoutError('');
@@ -100,6 +134,7 @@ export default function POSTerminal() {
     const clientSaleId = newClientSaleId();
     const payload = {
       items: items.map((i) => ({ product_id: i.product_id, quantity: i.quantity })),
+      ...(discount > 0 ? { discountTotal: discount } : {}),
       payments: built.payments,
       clientSaleId,
     };
@@ -156,247 +191,116 @@ export default function POSTerminal() {
   const cartLabel = items.reduce((n, i) => n + i.quantity, 0);
 
   return (
-    <div className="flex flex-col xl:flex-row h-full relative">
-      {/* Product browsing */}
-      <div className="flex-1 flex flex-col p-4 xl:p-6 overflow-hidden pb-24 xl:pb-6">
-        <ShiftWidget />
+    <div className="relative flex h-full flex-col">
+      <TillBanners
+        online={online}
+        pendingCount={pendingCount}
+        syncing={syncing}
+        onRetry={() => syncQueue()}
+        failedEntries={failedEntries}
+        onDiscard={discardQueued}
+      />
 
-        {/* Offline / sync status. Deliberately prominent — a cashier needs
-            to know they're selling against a stock count that may be stale,
-            since nothing can validate availability while the API is
-            unreachable. */}
-        {!online && (
-          <div className="mb-4 px-3.5 py-2.5 rounded-lg bg-danger-soft text-danger text-sm">
-            <strong>Offline.</strong> Sales are being saved on this device and will send
-            automatically when the connection returns. Stock counts shown may be out of date,
-            and stock can't be checked until then.
-          </div>
-        )}
-        {online && pendingCount > 0 && (
-          <div className="mb-4 px-3.5 py-2.5 rounded-lg bg-accent/15 text-sm flex items-center justify-between gap-3">
-            <span>
-              {syncing ? 'Sending' : 'Waiting to send'} {pendingCount} offline sale{pendingCount === 1 ? '' : 's'}…
-            </span>
-            {!syncing && (
-              <button onClick={() => syncQueue()} className="underline shrink-0">Retry now</button>
-            )}
-          </div>
-        )}
-        {failedEntries.length > 0 && (
-          <div className="mb-4 px-3.5 py-2.5 rounded-lg bg-danger-soft text-danger text-sm">
-            <strong>{failedEntries.length} offline sale{failedEntries.length === 1 ? '' : 's'} the server rejected.</strong>
-            <ul className="mt-1.5 space-y-1">
-              {failedEntries.map((e) => (
-                <li key={e.clientSaleId} className="flex items-start justify-between gap-3 font-mono text-xs">
-                  <span>
-                    {new Date(e.ringedUpAt).toLocaleString()} — {(e.payload.payments.reduce((n, p) => n + p.amount, 0) / 100).toFixed(2)}: {e.lastError}
-                  </span>
-                  <button onClick={() => discardQueued(e.clientSaleId)} className="underline shrink-0">Dismiss</button>
-                </li>
-              ))}
-            </ul>
-            <p className="mt-1.5 text-xs">
-              These were rung up but couldn't be recorded — re-ring them if the goods left the shop,
-              then dismiss. Nothing is discarded automatically.
-            </p>
-          </div>
-        )}
-
-        <div className="flex flex-col sm:flex-row gap-3 mb-5">
-          <input
-            type="text"
-            placeholder="Search by name or SKU…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="flex-1 px-4 py-2.5 rounded-lg border border-line bg-surface focus:border-accent outline-none"
-          />
-          <form onSubmit={handleBarcodeSubmit}>
-            <input
-              ref={barcodeRef}
-              type="text"
-              placeholder="Scan barcode + Enter"
-              className="w-full sm:w-56 px-4 py-2.5 rounded-lg border border-line bg-surface font-mono text-sm focus:border-accent outline-none"
-            />
-          </form>
-        </div>
-
-        {checkoutError && (
-          <div className="mb-4 px-3.5 py-2.5 rounded-lg bg-danger-soft text-danger text-sm">
-            {checkoutError}
-          </div>
-        )}
-
-        <div className="flex-1 overflow-y-auto grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3 content-start">
-          {isLoading && <div className="text-text-muted text-sm">Loading products…</div>}
-          {data?.data.map((p) => (
-            <button
-              key={p.id}
-              onClick={() => addItem(p)}
-              disabled={p.total_stock <= 0}
-              className="text-left bg-surface border border-line rounded-xl p-4 hover:border-accent hover:shadow-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              <div className="text-sm font-medium leading-snug mb-1">{p.name}</div>
-              <div className="text-xs text-text-muted font-mono mb-3">{p.sku}</div>
-              <div className="flex items-end justify-between">
-                <div className="font-display font-700 text-lg">
-                  {(p.sell_price / 100).toLocaleString(undefined, { style: 'currency', currency: 'KES' })}
-                </div>
-                <div className={`text-xs font-mono ${p.total_stock <= 5 ? 'text-danger' : 'text-text-muted'}`}>
-                  {p.total_stock} left
-                </div>
-              </div>
-            </button>
-          ))}
-          {data && data.data.length === 0 && (
-            <div className="col-span-full text-text-muted text-sm py-12 text-center">
-              No products match "{search}".
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Mobile-only: floating bar that opens the cart as a sheet. Hidden on
-          desktop, where the cart panel to the right is always visible instead. */}
-      {items.length > 0 && !cartOpen && (
-        <button
-          onClick={() => setCartOpen(true)}
-          className="xl:hidden fixed bottom-4 inset-x-4 z-30 bg-ink text-white rounded-xl py-3.5 px-5 flex items-center justify-between shadow-lg"
-        >
-          <span className="font-mono text-sm">{cartLabel} item{cartLabel === 1 ? '' : 's'} in cart</span>
-          <span className="font-display font-700">{(total / 100).toFixed(2)} · View cart</span>
-        </button>
-      )}
-
-      {/* Backdrop for the mobile cart sheet */}
-      {cartOpen && (
-        <button
-          aria-label="Close cart"
-          onClick={() => setCartOpen(false)}
-          className="xl:hidden fixed inset-0 z-40 bg-black/40"
+      <div className="flex min-h-0 flex-1 flex-col xl:flex-row">
+        <CategoryColumn
+          categories={categories}
+          activeId={categoryId}
+          onSelect={setCategoryId}
+          top={<ShiftWidget closeRequest={closeRequest} />}
         />
-      )}
 
-      {/* Cart — receipt strip signature element. Always-visible sidebar on
-          desktop; slide-up sheet toggled by the floating bar on mobile. */}
-      <div
-        className={`
-          fixed inset-x-0 bottom-0 z-50 max-h-[88vh] rounded-t-2xl
-          xl:static xl:z-auto xl:max-h-none xl:rounded-none xl:w-96
-          w-full shrink-0 bg-ink flex flex-col
-          transform transition-transform duration-200 ease-out
-          ${cartOpen ? 'translate-y-0' : 'translate-y-full'} xl:translate-y-0
-        `}
-      >
-        <div className="bg-surface receipt-perforation" />
-        <div className="flex-1 flex flex-col bg-surface px-5 pb-5 overflow-hidden">
-          <div className="font-mono text-xs text-text-muted py-3 border-b border-dashed border-line flex justify-between items-center">
-            <span>URBAN TRENDS</span>
-            <span>{new Date().toLocaleDateString()}</span>
-            <button
-              onClick={() => setCartOpen(false)}
-              aria-label="Close cart"
-              className="xl:hidden -mr-2 p-1 text-text-muted hover:text-text"
-            >
-              ✕
-            </button>
+        {/* Product browsing */}
+        <div className="flex min-w-0 flex-1 flex-col overflow-hidden p-4 pb-24 xl:p-6 xl:pb-6">
+          <div className="mb-5 flex flex-col gap-3 sm:flex-row">
+            <input
+              type="text"
+              placeholder="Search by name or SKU…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="flex-1 rounded-lg border border-line bg-surface px-4 py-2.5 outline-none focus:border-accent"
+            />
+            <form onSubmit={handleBarcodeSubmit}>
+              <input
+                ref={barcodeRef}
+                type="text"
+                placeholder="Scan barcode + Enter"
+                className="w-full rounded-lg border border-line bg-surface px-4 py-2.5 font-mono text-sm outline-none focus:border-accent sm:w-56"
+              />
+            </form>
           </div>
 
-          <div className="flex-1 overflow-y-auto py-3 space-y-3">
-            {items.length === 0 && (
-              <div className="text-text-muted text-sm text-center py-16">
-                Cart is empty.<br />Tap a product or scan a barcode.
+          {checkoutError && (
+            <div className="mb-4 rounded-lg bg-danger-soft px-3.5 py-2.5 text-sm text-danger">
+              {checkoutError}
+            </div>
+          )}
+
+          <div className="grid flex-1 grid-cols-2 content-start gap-3 overflow-y-auto sm:grid-cols-3">
+            {isLoading && <div className="text-sm text-text-muted">Loading products…</div>}
+            {data?.data.map((p) => (
+              <button
+                key={p.id}
+                onClick={() => addItem(p)}
+                disabled={p.total_stock <= 0}
+                className="rounded-xl border border-line bg-surface p-4 text-left transition-all hover:border-accent hover:shadow-sm disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <div className="mb-1 text-sm font-medium leading-snug">{p.name}</div>
+                <div className="mb-3 font-mono text-xs text-text-muted">{p.sku}</div>
+                <div className="flex items-end justify-between">
+                  <div className="font-display font-700 text-lg">
+                    {(p.sell_price / 100).toLocaleString(undefined, { style: 'currency', currency: 'KES' })}
+                  </div>
+                  <div className={`font-mono text-xs ${p.total_stock <= 5 ? 'text-danger' : 'text-text-muted'}`}>
+                    {p.total_stock} left
+                  </div>
+                </div>
+              </button>
+            ))}
+            {data && data.data.length === 0 && (
+              <div className="col-span-full py-12 text-center text-sm text-text-muted">
+                No products match{search ? ` "${search}"` : ' this category'}.
               </div>
             )}
-            {items.map((item) => (
-              <div key={item.product_id} className="font-mono text-sm">
-                <div className="flex justify-between">
-                  <span className="truncate pr-2">{item.name}</span>
-                  <button
-                    onClick={() => removeItem(item.product_id)}
-                    className="text-danger text-xs shrink-0"
-                    aria-label={`Remove ${item.name}`}
-                  >
-                    ✕
-                  </button>
-                </div>
-                <div className="flex justify-between items-center text-text-muted">
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => updateQuantity(item.product_id, item.quantity - 1)}
-                      className="w-7 h-7 xl:w-5 xl:h-5 rounded bg-paper hover:bg-line flex items-center justify-center"
-                    >
-                      −
-                    </button>
-                    <span className="w-4 text-center text-text">{item.quantity}</span>
-                    <button
-                      onClick={() => updateQuantity(item.product_id, item.quantity + 1)}
-                      className="w-7 h-7 xl:w-5 xl:h-5 rounded bg-paper hover:bg-line flex items-center justify-center"
-                    >
-                      +
-                    </button>
-                    <span className="text-xs">× {(item.unit_price / 100).toFixed(0)}</span>
-                  </div>
-                  <span className="text-text">{((item.unit_price * item.quantity) / 100).toFixed(0)}</span>
-                </div>
-              </div>
-            ))}
           </div>
-
-          <div className="border-t border-dashed border-line pt-3 font-mono text-sm space-y-1">
-            <div className="flex justify-between text-text-muted">
-              <span>Subtotal</span><span>{(subtotal / 100).toFixed(2)}</span>
-            </div>
-            <div className="flex justify-between font-display font-700 text-xl pt-1">
-              <span>Total</span><span>{(total / 100).toFixed(2)}</span>
-            </div>
-          </div>
-
-          <PaymentPanel total={total} value={payment} onChange={(next) => { setPayment(next); setCheckoutError(''); }} />
-
-          {/* The accent action bar: item count + total on the left, the
-              charge action on the right. Promoted from mobile-only to the
-              signature element on every size — a cashier's eye should land
-              on one high-contrast block, not hunt for a button. This is the
-              ONE piece of the restyle that touches the terminal; everything
-              else here (light surface, big tap targets, product grid) stays
-              exactly as it was, deliberately. */}
-          <div className="mt-3 rounded-xl bg-accent text-accent-ink px-4 py-3 flex items-center gap-3">
-            <div className="min-w-0 flex-1">
-              <div className="font-mono text-[10px] uppercase tracking-wider opacity-70 leading-tight">
-                {cartLabel} item{cartLabel === 1 ? '' : 's'}
-                {subtotal !== total && ` · subtotal ${(subtotal / 100).toFixed(2)}`}
-              </div>
-              <div className="font-display font-700 text-2xl leading-tight">{(total / 100).toFixed(2)}</div>
-            </div>
-            <button
-              onClick={handleCheckout}
-              disabled={items.length === 0 || checkingOut || Boolean(built.error)}
-              className="shrink-0 px-5 py-3 rounded-lg bg-ink text-white font-display font-600 text-sm hover:bg-ink-soft transition-colors disabled:opacity-40"
-            >
-              {checkingOut ? 'Processing…' : 'Charge'}
-            </button>
-          </div>
-
-          <button type="button" onClick={() => setPrinterOpen(true)} className="mt-2 self-start text-[11px] text-text-muted underline decoration-dotted hover:text-text">Printer settings</button>
-          {printerOpen && <PrinterSettings onClose={() => setPrinterOpen(false)} />}
-
-          {lastReceipt && (
-            lastReceipt.queued ? (
-              <div className="mt-3 px-3 py-2 rounded-lg bg-accent/15 text-xs font-mono">
-                Sale saved offline — {(lastReceipt.total / 100).toFixed(2)} taken.
-                It will be recorded automatically once the connection is back.
-              </div>
-            ) : (
-              <div className="mt-3 px-3 py-2 rounded-lg bg-success-soft text-success text-xs font-mono flex items-center justify-between gap-2">
-                <span>
-                  Sale #{lastReceipt.id} completed — {(lastReceipt.total / 100).toFixed(2)} paid.
-                  {lastReceipt.payments?.length > 1 && <span className="block opacity-80">{describePayments(lastReceipt.payments)}</span>}
-                </span>
-                <PrintReceiptButton kind="sale" id={lastReceipt.id} label="Print receipt" className="shrink-0 px-2.5 py-1 rounded-md bg-ink text-white text-[11px] font-medium disabled:opacity-50" />
-              </div>
-            )
-          )}
         </div>
+
+        {/* Mobile-only: floating bar that opens the cart as a sheet. Hidden on
+            desktop, where the ticket to the right is always visible instead. */}
+        {items.length > 0 && !cartOpen && (
+          <button
+            onClick={() => setCartOpen(true)}
+            className="fixed inset-x-4 bottom-4 z-30 flex items-center justify-between rounded-xl bg-ink px-5 py-3.5 text-white shadow-lg xl:hidden"
+          >
+            <span className="font-mono text-sm">{cartLabel} item{cartLabel === 1 ? '' : 's'} in cart</span>
+            <span className="font-display font-700">{(total / 100).toFixed(2)} · View cart</span>
+          </button>
+        )}
+
+        {/* Backdrop for the mobile cart sheet */}
+        {cartOpen && (
+          <button aria-label="Close cart" onClick={() => setCartOpen(false)} className="fixed inset-0 z-40 bg-black/40 xl:hidden" />
+        )}
+
+        <Ticket
+          open={cartOpen}
+          onClose={() => setCartOpen(false)}
+          items={items}
+          itemCount={cartLabel}
+          subtotal={subtotal}
+          discount={discount}
+          total={total}
+          maxPercent={maxPercent}
+          discountTooBig={discountTooBig}
+          payment={payment}
+          paymentError={built.error}
+          checkingOut={checkingOut}
+          lastReceipt={lastReceipt}
+          onQuantity={updateQuantity}
+          onRemove={removeItem}
+          onDiscount={(cents) => { setDiscount(cents); setCheckoutError(''); }}
+          onPayment={(next) => { setPayment(next); setCheckoutError(''); }}
+          onCharge={handleCheckout}
+        />
       </div>
     </div>
   );

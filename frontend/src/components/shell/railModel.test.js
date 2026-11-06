@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { ALL_ITEMS, filterVisible, homeRouteFor } from '../navItems';
-import { buildRail, activeEntryId, coversPath } from './railModel';
+import { buildRail, activeEntryId, coversPath, tillRail, CLOSE_SHIFT_TO } from './railModel';
 import { ROLES, canFor, hasRoleFor } from './testRoles';
 
 function railFor(role, can = canFor(role)) {
@@ -24,10 +24,29 @@ describe('buildRail', () => {
     expect(railFor('cashier').rail.settings).toBeNull();
   });
 
-  it('gives the cashier a flat rail of their seven pages, in workspace order', () => {
+  it('gives the cashier a flat rail: Start, their seven pages in workspace order, then Shift', () => {
     const { rail } = railFor('cashier');
     expect(rail.flat).toBe(true);
-    expect(labels(rail.entries)).toEqual(['Terminal', 'Orders', 'Leads', 'Sales history', 'Approvals', 'Requisitions', 'Attendance']);
+    expect(labels(rail.entries)).toEqual(['Start', 'Terminal', 'Orders', 'Leads', 'Sales history', 'Approvals', 'Requisitions', 'Attendance', 'Shift']);
+  });
+
+  it('does not count Start toward the flat-rail threshold, so a cashier keeps the flat rail', () => {
+    const { visible } = railFor('cashier');
+    expect(visible).toHaveLength(8);
+    expect(buildRail(visible).flat).toBe(true);
+  });
+
+  it('Shift goes to the till with the close-shift form open, and covers no page', () => {
+    const shift = railFor('cashier').rail.entries.find((e) => e.id === 'shift');
+    expect(shift.to).toBe(CLOSE_SHIFT_TO);
+    expect(shift.to).toBe('/terminal?shift=close');
+    expect(shift.pages).toEqual([]);
+  });
+
+  it('gives Shift only to people who have the till', () => {
+    for (const role of ['admin', 'manager', 'store']) {
+      expect(labels(railFor(role).rail.entries)).not.toContain('Shift');
+    }
   });
 
   it('gives the storekeeper a flat rail of two', () => {
@@ -82,7 +101,7 @@ describe('activeEntryId', () => {
 
   it('treats / as wherever that role lands', () => {
     expect(activeEntryId(admin, '/', '/dashboard')).toBe('today');
-    expect(activeEntryId(cashier, '/', '/terminal')).toBe('/terminal');
+    expect(activeEntryId(cashier, '/', '/start')).toBe('/start');
   });
 
   it('marks Settings, and nothing for pages outside the navigation', () => {
@@ -95,6 +114,42 @@ describe('activeEntryId', () => {
       const { rail } = railFor(role);
       const home = homeRouteFor(role, canFor(role));
       expect(activeEntryId(rail, '/', home), role).not.toBeNull();
+    }
+  });
+});
+
+describe('Shift is an action, never the active item', () => {
+  it('the till is Sell, not Shift, even when opened from the Shift item', () => {
+    const { rail } = railFor('cashier');
+    expect(activeEntryId(rail, '/terminal', '/start')).toBe('/terminal');
+  });
+});
+
+describe('tillRail', () => {
+  const cashier = railFor('cashier').rail;
+
+  it('at the till gives a cashier Exit till, Sell, Orders and Approvals only', () => {
+    const r = tillRail(cashier, '/terminal', '/start');
+    expect(labels(r.entries)).toEqual(['Exit till', 'Terminal', 'Orders', 'Approvals']);
+    expect(r.entries[0]).toMatchObject({ id: 'exit', to: '/start' });
+  });
+
+  it('has no Start item, and keeps the till as the active entry', () => {
+    const r = tillRail(cashier, '/terminal', '/start');
+    expect(labels(r.entries)).not.toContain('Start');
+    expect(activeEntryId(r, '/terminal', '/start')).toBe('/terminal');
+  });
+
+  it('leaves the rail alone on every other page', () => {
+    expect(tillRail(cashier, '/start', '/start')).toBe(cashier);
+    expect(tillRail(cashier, '/orders', '/start')).toBe(cashier);
+    expect(tillRail(cashier, '/terminal-notes', '/start')).toBe(cashier);
+  });
+
+  it('leaves workspace rails (admin, manager) and the storekeeper alone, even at the till', () => {
+    for (const role of ['admin', 'manager', 'store']) {
+      const rail = railFor(role).rail;
+      expect(tillRail(rail, '/terminal', homeRouteFor(role, canFor(role)))).toBe(rail);
     }
   });
 });

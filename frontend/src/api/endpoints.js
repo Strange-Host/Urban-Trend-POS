@@ -118,6 +118,8 @@ export const salesApi = {
   getById: (id) => client.get(`/sales/${id}`),
   /** @param {Id} id */
   void: (id) => client.post(`/sales/${id}/void`),
+  // The signed-in person's own cap on sale discounts, as a percent of the goods' value (0 = no limit).
+  discountLimit: () => client.get('/sales/discount-limit'),
 };
 
 export const modulesApi = {

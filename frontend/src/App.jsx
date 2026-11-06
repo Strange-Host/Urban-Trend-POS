@@ -20,6 +20,8 @@ import POSTerminal from './pages/POSTerminal';
 // path through the app.
 const ChangePassword = lazy(() => import('./pages/ChangePassword'));
 const Security = lazy(() => import('./pages/Security'));
+// The cashier's Start screen: only people on the new layout reach it.
+const Start = lazy(() => import('./pages/Start'));
 const Orders = lazy(() => import('./pages/Orders'));
 const PaymentReconciliation = lazy(() => import('./pages/PaymentReconciliation'));
 const MoneyAtRisk = lazy(() => import('./pages/MoneyAtRisk'));
@@ -73,6 +75,7 @@ export default function App() {
               >
                 <Route path="/" element={<Home />} />
                 {/* The till itself. "/" is only each role's landing page (admins/managers go on to the dashboard), so the sidebar's Terminal link must point here. */}
+                <Route path="/start" element={<ProtectedRoute roles={['admin', 'manager', 'cashier']}><Start /></ProtectedRoute>} />
                 <Route path="/terminal" element={<ProtectedRoute roles={['admin', 'manager', 'cashier']}><POSTerminal /></ProtectedRoute>} />
                 <Route path="/security" element={<Security />} />
                 <Route

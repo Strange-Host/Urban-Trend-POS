@@ -1,12 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MemoryRouter } from 'react-router-dom';
 import POSTerminal from './POSTerminal';
-import { salesApi, productsApi } from '../api/endpoints';
+import { salesApi, productsApi, categoriesApi } from '../api/endpoints';
 import useCartStore from '../hooks/useCartStore';
 
 vi.mock('../api/endpoints', () => ({
-  salesApi: { checkout: vi.fn() },
+  salesApi: { checkout: vi.fn(), discountLimit: vi.fn() },
+  categoriesApi: { list: vi.fn() },
   productsApi: { list: vi.fn(), getByBarcode: vi.fn() },
   receiptsApi: { sale: vi.fn() },
 }));
@@ -17,11 +19,13 @@ vi.mock('../context/UIContext', () => ({ useToast: () => ({ success: vi.fn(), er
 const product = { id: 1, name: 'Hoodie', sku: 'H-1', sell_price: 150000, tax_rate: 0, total_stock: 10 };
 
 function mount() {
-  return render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><POSTerminal /></QueryClientProvider>);
+  return render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><MemoryRouter><POSTerminal /></MemoryRouter></QueryClientProvider>);
 }
 
 beforeEach(() => {
   salesApi.checkout.mockReset();
+  salesApi.discountLimit.mockResolvedValue({ data: { data: { maxPercent: 0 } } });
+  categoriesApi.list.mockResolvedValue({ data: { data: [] } });
   productsApi.list.mockResolvedValue({ data: { data: [product] } });
   useCartStore.setState({ items: [{ product_id: 1, name: 'Hoodie', sku: 'H-1', unit_price: 150000, tax_rate: 0, quantity: 1, available: 10 }] });
 });

@@ -84,14 +84,6 @@ body {
 .font-display { font-family: var(--font-display); }
 .font-mono { font-family: var(--font-mono); }
 
-/* Receipt-strip signature: perforated top edge on the cart panel */
-.receipt-perforation {
-  background-image: radial-gradient(circle, var(--color-paper) 4px, transparent 4.5px);
-  background-size: 16px 16px;
-  background-position: -4px -4px;
-  height: 10px;
-}
-
 ::selection {
   background: var(--color-accent);
   color: var(--color-accent-ink);

@@ -66,10 +66,26 @@ describe('the rail, per role', () => {
     expect(screen.queryByRole('link', { name: 'Settings' })).toBeNull();
   });
 
-  it('cashier: a flat rail of their seven pages', () => {
+  it('cashier: a flat rail with Start first and Shift last', () => {
+    auth.role = 'cashier';
+    mount('/orders');
+    expect(labels(rail())).toEqual(['Start', 'Terminal', 'Orders', 'Leads', 'Sales history', 'Approvals', 'Requisitions', 'Attendance', 'Shift']);
+    expect(rail().getByRole('link', { name: 'Shift' }).getAttribute('href')).toBe('/terminal?shift=close');
+    expect(screen.getByRole('link', { name: 'Urban Trends, home' }).getAttribute('href')).toBe('/start');
+  });
+
+  it('cashier at the till: Exit till, Sell, Orders and Approvals, and Exit goes to Start', () => {
     auth.role = 'cashier';
     mount('/terminal');
-    expect(labels(rail())).toEqual(['Terminal', 'Orders', 'Leads', 'Sales history', 'Approvals', 'Requisitions', 'Attendance']);
+    expect(labels(rail())).toEqual(['Exit till', 'Terminal', 'Orders', 'Approvals']);
+    expect(rail().getByRole('link', { name: 'Exit till' }).getAttribute('href')).toBe('/start');
+    expect(rail().getByRole('link', { name: 'Terminal' }).getAttribute('aria-current')).toBe('page');
+  });
+
+  it('manager at the till keeps the full workspace rail', () => {
+    auth.role = 'manager';
+    mount('/terminal');
+    expect(labels(rail())).toEqual(['Today', 'Sell', 'Stock', 'Money', 'Team']);
   });
 
   it('storekeeper: a flat rail of two, and the logo goes to the catalog', () => {
