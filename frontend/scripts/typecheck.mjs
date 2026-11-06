@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const SCOPE = ['src/api/', 'src/hooks/', 'src/utils/uiVersion.js', 'src/types.d.ts'];
+const SCOPE = ['src/api/', 'src/hooks/', 'src/utils/uiVersion.js', 'src/utils/cashierHome.js', 'src/types.d.ts'];
 
 const bin = path.join(root, 'node_modules', 'typescript', 'bin', 'tsc');
 const run = spawnSync(process.execPath, [bin, '-p', 'jsconfig.json', '--pretty', 'false'], { cwd: root, encoding: 'utf8' });
