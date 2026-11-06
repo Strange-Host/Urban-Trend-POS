@@ -150,6 +150,13 @@ const ADDITIVE_COLUMNS = {
     `owner_decision_by INTEGER REFERENCES users(id)`,
     `owner_decision_at TEXT`,
     `owner_decision_notes TEXT`,
+    // Mobile v2: when a telesales agent said they would call the customer back (Reschedule), and who received a returned
+    // parcel and what condition they found it in (the owner's decision comes after).
+    `callback_at TEXT`,
+    `callback_count INTEGER NOT NULL DEFAULT 0`,
+    `return_received_by INTEGER REFERENCES users(id)`,
+    `return_received_at TEXT`,
+    `return_received_condition TEXT`,
     // Phase 8 (dispute management):
     `dispute_status TEXT CHECK (dispute_status IN ('open','resolved'))`,
     `dispute_reason TEXT`,

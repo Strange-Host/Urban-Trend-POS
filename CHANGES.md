@@ -1,3 +1,30 @@
+# Mobile API v2: telesales orders, leads, returns
+
+New endpoints under `/api/v1` (documented in `/api/v1/openapi.json`). Same rules as v1.1: money is integer cents, every write is re-checked on the server and
+leaves an activity-log row with who, which phone and why.
+
+**Telesales** (`telesales.work`, cashiers by default). `GET /telesales/orders` lists the agent's own unconfirmed COD orders, oldest first, with `confirmBy`
+(the end of the confirmation window). `GET /telesales/orders/:id`, `POST /orders/:id/confirm | /reschedule | /cancel`. Someone else's order answers 404, not 403.
+Confirming uses the website's COD gate (`confirmCod`), so the web Orders page shows it at once; dispatch is still the shop's step. Reschedule records
+`callback_at` (up to 7 days ahead) and restarts the confirmation window from that time, so the 15-minute auto-cancel sweep cannot cancel the order before the
+promised call. Cancel needs a reason.
+
+**Duplicate phone numbers.** If the customer's phone has another active order, confirm answers 409 `DUPLICATE_PHONE` with the other orders. The agent asks with
+`POST /orders/:id/duplicate-approval`; a person holding `orders.approve_duplicate` (admin and manager by default) decides it from the existing `GET /approvals` list
+(new type `duplicate_order`, same approve/reject calls, never your own request). Only then can the agent confirm. An approver may confirm directly.
+
+**Leads** (`leads.work`). `GET /leads`, `GET/PATCH /leads/:id`, `POST /leads/:id/activities` (call, message, note: the agent records the outcome), `POST /leads/:id/convert`.
+These call the website's lead service, so its status rules, duplicate checks and one-transaction conversion are unchanged; an agent sees only their own leads. A lead
+cannot be set to converted by hand from the phone (`USE_CONVERT`).
+
+**Returns** (`returns.receive`). A return is the order that came back, so its id is the order id. `GET /returns?status=awaiting|decided`, `GET /returns/orders?q=`
+(find the parcel), `POST /returns` (reason code and condition; stock does not move), `POST /returns/:id/decision`. `restock` is the website's inspection "good" and
+needs `orders.inspect`; `write_off` and `dispose` are the owner's (admin) call, exactly as on the website, and keep the stock out. A parcel the website already
+inspected as damaged cannot be restocked.
+
+New permission keys: `telesales.work`, `leads.work`, `orders.approve_duplicate`, `returns.receive`. New table `duplicate_order_approvals`; new `orders` columns
+`callback_at`, `callback_count`, `return_received_by`, `return_received_at`, `return_received_condition`.
+
 # Mobile API v1.1: catalog, bulk prices, stock-take, payment matching, courier remittance, attendance
 
 New endpoints under `/api/v1` for the phone app (all documented in `/api/v1/openapi.json`; money is integer cents; lists page with `?cursor=&limit=`).

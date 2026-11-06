@@ -17,6 +17,10 @@ const stockTakes = require('../../controllers/mobileStockTakes.controller');
 const payments = require('../../controllers/mobilePayments.controller');
 const couriers = require('../../controllers/mobileCouriers.controller');
 const mobileAttendance = require('../../controllers/mobileAttendance.controller');
+const v2 = require('../../validation/mobile.v2.schema');
+const telesales = require('../../controllers/mobileTelesales.controller');
+const mobileLeads = require('../../controllers/mobileLeads.controller');
+const mobileReturns = require('../../controllers/mobileReturns.controller');
 const requireModule = require('../../middleware/requireModule');
 
 // The mobile app's API, mounted at /api/v1 (app.js). The rule for this prefix: fields may be ADDED to responses and
@@ -48,7 +52,7 @@ router.delete('/devices/:id', authenticate, devices.revoke);
 // ---- approvals: anyone who can decide at least one kind sees the list; the service then shows and allows only the kinds
 // their own permissions cover (void/refund: approvals.review, expense: expenses.approve, requisition: requisitions.approve,
 // large stock change: inventory.approve_adjust), and never their own requests.
-const DECIDER = requireAnyPermission('approvals.review', 'expenses.approve', 'requisitions.approve', 'inventory.approve_adjust');
+const DECIDER = requireAnyPermission('approvals.review', 'expenses.approve', 'requisitions.approve', 'inventory.approve_adjust', 'orders.approve_duplicate');
 router.get('/approvals', authenticate, DECIDER, api.approvalsList);
 router.post('/approvals/:id/approve', authenticate, DECIDER, validate(schema.approveBody), api.approve);
 router.post('/approvals/:id/reject', authenticate, DECIDER, validate(schema.rejectBody), api.reject);
@@ -118,5 +122,28 @@ router.post('/couriers/:id/remittances', authenticate, settleKey, validate(v11.c
 router.get('/attendance/me', authenticate, requireModule('hr'), mobileAttendance.me);
 router.post('/attendance/clock-in', authenticate, requireModule('hr'), validate(v11.clockIn), mobileAttendance.clockIn);
 router.post('/attendance/clock-out', authenticate, requireModule('hr'), validate(v11.clockOut), mobileAttendance.clockOut);
+
+// ---- v2: telesales orders, leads, returns
+// Telesales: an agent only ever reaches orders assigned to them (anything else is a 404), and confirming goes through the
+// website's COD gate. A duplicate-phone order needs a manager's approval, decided from the ordinary approvals list.
+const teleKey = requirePermission('telesales.work');
+router.get('/telesales/orders', authenticate, teleKey, telesales.list);
+router.get('/telesales/orders/:id', authenticate, teleKey, telesales.get);
+router.post('/orders/:id/confirm', authenticate, teleKey, telesales.confirm);
+router.post('/orders/:id/reschedule', authenticate, teleKey, validate(v2.rescheduleOrder), telesales.reschedule);
+router.post('/orders/:id/cancel', authenticate, teleKey, validate(v2.cancelOrder), telesales.cancel);
+router.post('/orders/:id/duplicate-approval', authenticate, teleKey, validate(v2.requestDuplicateApproval), telesales.requestApproval);
+const leadsKey = requirePermission('leads.work');
+router.get('/leads', authenticate, leadsKey, mobileLeads.list);
+router.get('/leads/:id', authenticate, leadsKey, mobileLeads.get);
+router.patch('/leads/:id', authenticate, leadsKey, validate(v2.patchLead), mobileLeads.patch);
+router.post('/leads/:id/activities', authenticate, leadsKey, validate(v2.leadActivity), mobileLeads.addActivity);
+router.post('/leads/:id/convert', authenticate, leadsKey, validate(v2.convertLead), mobileLeads.convert);
+const receiveKey = requirePermission('returns.receive');
+router.get('/returns', authenticate, receiveKey, mobileReturns.list);
+router.get('/returns/orders', authenticate, receiveKey, mobileReturns.receivable);
+router.post('/returns', authenticate, receiveKey, validate(v2.receiveReturn), mobileReturns.receive);
+// Restocking needs orders.inspect and writing off / disposing needs the owner; the controller checks which one applies.
+router.post('/returns/:id/decision', authenticate, requireAnyPermission('orders.inspect'), validate(v2.returnDecision), mobileReturns.decide);
 
 module.exports = router;

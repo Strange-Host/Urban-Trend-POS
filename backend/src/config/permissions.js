@@ -61,6 +61,11 @@ const PERMISSIONS = {
   // away exactly these from one person.
   'orders.view':           { group: 'Orders',    label: 'See the orders list and order details in the mobile app', roles: ['admin', 'manager'] },
   'inventory.approve_adjust': { group: 'Stock',  label: 'Approve or reject large stock adjustments sent for approval', roles: ['admin'] },
+  // Mobile v2 (telesales and returns).
+  'telesales.work':        { group: 'Sales',     label: 'Confirm, reschedule or cancel your own assigned online orders from the mobile app', roles: ['cashier'] },
+  'leads.work':            { group: 'Sales',     label: 'See and work CRM leads in the mobile app (agents see only their own)', roles: ['admin', 'manager', 'cashier'] },
+  'orders.approve_duplicate': { group: 'Orders', label: 'Approve confirming an order whose phone number already has another active order', roles: ['admin', 'manager'] },
+  'returns.receive':       { group: 'Orders',    label: 'Receive a returned parcel and record its reason and condition', roles: ['admin', 'manager', 'cashier'] },
   'app.manage':            { group: 'Mobile app', label: 'Upload the mobile app (APK) and make download links', roles: ['admin'] },
 };
 

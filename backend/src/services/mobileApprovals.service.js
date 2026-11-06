@@ -24,6 +24,7 @@ const TYPES = {
   expense:          { permission: 'expenses.approve' },
   requisition:      { permission: 'requisitions.approve' },
   stock_adjustment: { permission: 'inventory.approve_adjust' },
+  duplicate_order:  { permission: 'orders.approve_duplicate' },
 };
 
 const iso = (s) => (s ? new Date(`${String(s).replace(' ', 'T')}${/[zZ]|[+-]\d\d:?\d\d$/.test(String(s)) ? '' : 'Z'}`).toISOString() : null);
@@ -127,6 +128,21 @@ const SOURCES = {
       }));
     },
   },
+  duplicate_order: {
+    permission: 'orders.approve_duplicate',
+    load: ({ user, status, limit, onlyId }) => {
+      const f = filters({ alias: 'd', requesterCol: 'requested_by', user, status, onlyId });
+      return db.prepare(`
+        SELECT d.*, o.product_code, o.total, c.name AS customer, u.name AS who, v.name AS decider FROM duplicate_order_approvals d
+        JOIN orders o ON o.id = d.order_id JOIN customers c ON c.id = o.customer_id JOIN users u ON u.id = d.requested_by LEFT JOIN users v ON v.id = d.reviewed_by
+        WHERE ${f.sql} ORDER BY d.id DESC LIMIT ?`).all(...f.params, limit).map((r) => shape({
+        id: `duplicate_order:${r.id}`, type: 'duplicate_order', status: statusOf(r.status), rawStatus: r.status,
+        title: `Confirm ${r.product_code || `#${r.order_id}`}: ${r.customer} has another active order`,
+        requestedBy: r.who, requestedByUserId: r.requested_by, requestedAt: r.requested_at, amountCents: r.total,
+        reason: r.note || 'Same phone number as another active order', decidedBy: r.decider, decidedAt: r.reviewed_at, decisionNote: r.review_note,
+      }));
+    },
+  },
 };
 
 const PUBLIC = (a) => { const { requestedByUserId, rawStatus, ...rest } = a; return rest; };   // eslint-disable-line no-unused-vars
@@ -195,6 +211,8 @@ function decide({ user, session, rawId, decision, note, biometricConfirmed }) {
     } else if (type === 'requisition') {
       if (decision === 'approve') requisitionsService.approve({ requisitionId: num, items: undefined, staffId: user.id, storeId: user.storeId });
       else requisitionsService.reject({ requisitionId: num, reason: note, staffId: user.id, storeId: user.storeId });
+    } else if (type === 'duplicate_order') {
+      decideDuplicateOrder({ id: num, user, decision, note });
     } else {
       decideStockAdjustment({ id: num, user, decision, note });
     }
@@ -212,6 +230,20 @@ function decide({ user, session, rawId, decision, note, biometricConfirmed }) {
   audit({ user, session, item, decision, biometric: biometricConfirmed === true, note });
   const after = readOne({ user, type, num });
   return { applied: true, approval: PUBLIC(after || { ...item, status: decision === 'approve' ? 'approved' : 'rejected' }) };
+}
+
+function decideDuplicateOrder({ id, user, decision, note }) {
+  const row = db.prepare('SELECT * FROM duplicate_order_approvals WHERE id = ? AND store_id = ?').get(id, user.storeId);
+  if (!row) throw new ApiError(404, 'Request not found.');
+  const outcome = decision === 'approve' ? 'approved' : 'rejected';
+  const claimed = db.prepare(`UPDATE duplicate_order_approvals SET status = ?, reviewed_by = ?, reviewed_at = datetime('now'), review_note = ? WHERE id = ? AND status = 'pending'`)
+    .run(outcome, user.id, decision === 'reject' ? String(note).trim() : (note || null), id);
+  if (claimed.changes !== 1) throw new ApiError(409, 'This request has already been handled.');
+  notifications.notify({
+    storeId: row.store_id, userIds: [row.requested_by], type: 'approval_decided', severity: outcome === 'approved' ? 'info' : 'warning',
+    title: outcome === 'approved' ? 'You can confirm that order now' : 'A manager refused to confirm that order',
+    body: decision === 'reject' ? String(note).trim() : null, entityType: 'order', entityId: row.order_id, dedupeKey: `duplicate_order_decided:${id}`,
+  });
 }
 
 function decideStockAdjustment({ id, user, decision, note }) {

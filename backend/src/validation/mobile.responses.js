@@ -109,7 +109,7 @@ const Summary = z.discriminatedUnion('scope', [SummaryShop, SummaryMine])
 const ApprovalLine = z.looseObject({ name: z.string(), qty: z.number().int(), priceCents: cents.nullable() });
 const Approval = z.looseObject({
   id: z.string().describe('"<type>:<number>", e.g. "void:12"'),
-  type: z.enum(['void', 'refund', 'expense', 'requisition', 'stock_adjustment']),
+  type: z.enum(['void', 'refund', 'expense', 'requisition', 'stock_adjustment', 'duplicate_order']),
   status: z.enum(['pending', 'approved', 'rejected']),
   title: z.string(),
   requestedBy: z.string(), requestedAt: iso,

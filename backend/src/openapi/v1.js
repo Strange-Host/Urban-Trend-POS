@@ -233,7 +233,7 @@ function build() {
       description: 'The API the Android app uses. Compatibility rule: fields and endpoints may be ADDED, but nothing is renamed or removed while an older app may still be installed; a breaking change goes to /api/v2. Clients must ignore fields they do not know.',
     },
     servers: [{ url: '/api/v1' }],
-    tags: [{ name: 'Sign-in' }, { name: 'Home' }, { name: 'Approvals' }, { name: 'Alerts' }, { name: 'Stock' }, { name: 'Orders' }, { name: 'Devices' }, { name: 'App' }, { name: 'Catalog' }, { name: 'Prices' }, { name: 'Stock-take' }, { name: 'Payments' }, { name: 'Couriers' }, { name: 'Attendance' }],
+    tags: [{ name: 'Sign-in' }, { name: 'Home' }, { name: 'Approvals' }, { name: 'Alerts' }, { name: 'Stock' }, { name: 'Orders' }, { name: 'Devices' }, { name: 'App' }, { name: 'Telesales' }, { name: 'Leads' }, { name: 'Returns' }, { name: 'Catalog' }, { name: 'Prices' }, { name: 'Stock-take' }, { name: 'Payments' }, { name: 'Couriers' }, { name: 'Attendance' }],
     paths,
     components: { securitySchemes: { bearerAuth: { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' } } },
   };
@@ -241,5 +241,6 @@ function build() {
 
 // v1.1 endpoints live in their own file; they join the same document.
 ENDPOINTS.push(...require('./v11').ENDPOINTS);
+ENDPOINTS.push(...require('./v2').ENDPOINTS);
 
 module.exports = { ENDPOINTS, build };

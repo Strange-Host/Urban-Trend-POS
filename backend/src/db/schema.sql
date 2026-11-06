@@ -1903,3 +1903,25 @@ CREATE TABLE IF NOT EXISTS stock_take_lines (
   applied         INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (take_id, product_id)
 );
+
+-- ---------------------------------------------------------------------
+-- MOBILE v2: telesales and returns
+-- ---------------------------------------------------------------------
+-- A telesales agent may not confirm an order whose customer phone already has another active order without a manager's
+-- say-so. The agent asks (pending), a manager decides from the approvals list, the agent then confirms.
+CREATE TABLE IF NOT EXISTS duplicate_order_approvals (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  store_id      INTEGER NOT NULL REFERENCES stores(id),
+  order_id      INTEGER NOT NULL REFERENCES orders(id),
+  status        TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected','cancelled')),
+  other_order_ids TEXT,                          -- comma separated ids of the other active orders when it was asked for
+  note          TEXT,
+  requested_by  INTEGER NOT NULL REFERENCES users(id),
+  requested_at  TEXT NOT NULL DEFAULT (datetime('now')),
+  reviewed_by   INTEGER REFERENCES users(id),
+  reviewed_at   TEXT,
+  review_note   TEXT,
+  device_id     INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_dup_approvals_status ON duplicate_order_approvals(store_id, status, id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_dup_approvals_one_open ON duplicate_order_approvals(order_id) WHERE status IN ('pending','approved');
