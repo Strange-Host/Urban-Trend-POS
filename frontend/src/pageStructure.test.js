@@ -21,12 +21,7 @@ const offenders = (pred) => files.filter(pred).map((f) => f.path).sort();
 // past and the reason. Splitting a page below the limit means removing it from this list (the last test insists).
 const MAX_PAGE_LINES = 400;
 const OVERSIZE_PAGES = {
-  'pages/Settings.jsx': [1082, 'split into tab components (R6 step 2)'],
-  'pages/Orders.jsx': [633, 'review for the same split (R6 step 3)'],
-  'pages/Products.jsx': [493, 'not scheduled: over the limit before R6'],
-  'pages/SettingsMessaging.jsx': [486, 'becomes a Settings tab component in the Settings split'],
-  'pages/Leads.jsx': [411, 'a few lines over; not scheduled'],
-  'pages/ShopifySync.jsx': [403, 'a few lines over; not scheduled'],
+  // Empty since R6 step 2. Add a page here only with its ceiling and a reason; remove it when it is split.
 };
 const lineCount = (f) => f.text.split('\n').length - (f.text.endsWith('\n') ? 1 : 0);
 const pageFiles = files.filter((f) => f.path.startsWith('pages/'));
