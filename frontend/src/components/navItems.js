@@ -3,7 +3,7 @@
 // (CommandPalette.jsx). `workspace` places each page in one of the redesign's five workspaces (or Settings); the old
 // sidebar ignores it and keeps its own groups until cutover.
 import {
-  Banknote, ChartColumn, ClipboardCheck, Clock, GitCompareArrows, History, LayoutDashboard, Package, ReceiptText,
+  Banknote, ChartColumn, ClipboardCheck, Clock, GitCompareArrows, History, House, LayoutDashboard, Package, ReceiptText,
   RefreshCw, ScrollText, Settings, ShoppingCart, Tags, TriangleAlert, UserCog, UserPlus, Users, Wallet, Warehouse,
 } from 'lucide-react';
 
@@ -17,6 +17,10 @@ import {
 // they're where a shift starts, and burying either one behind a disclosure
 // triangle to save two lines would be a bad trade.
 export const PINNED_TOP = [
+  // The cashier's Start screen (pages/Start.jsx). `uncounted`: a landing page rather than another destination, so it does not
+  // count toward FLAT_BELOW and a cashier keeps the flat rail. `v2Only`: part of the redesign, so the old layout (flag off)
+  // does not list it.
+  { to: '/start', workspace: 'sell', label: 'Start', icon: House, keywords: 'home start shift tiles what are you doing', roles: ['cashier'], uncounted: true, v2Only: true },
   { to: '/terminal', workspace: 'sell', label: 'Terminal', icon: ShoppingCart, keywords: 'till pos checkout register sell sale cashier', roles: ['admin', 'manager', 'cashier'] },
   { to: '/dashboard', workspace: 'today', label: 'Dashboard', icon: LayoutDashboard, keywords: 'home overview kpi', roles: ['admin', 'manager'], perm: 'reports.view' },
   { to: '/reports', workspace: 'money', label: 'Reports', icon: ChartColumn, keywords: 'report profit loss p&l vat discount export', roles: ['admin', 'manager'], perm: 'reports.view' },
@@ -103,7 +107,7 @@ export const WORKSPACES = [
 // The order pages appear in within a workspace (and in the flat rail). The first one a person can see is where the
 // workspace's rail item takes them.
 export const ROUTE_ORDER = [
-  '/dashboard',
+  '/start', '/dashboard',
   '/terminal', '/orders', '/leads', '/sales', '/approvals',
   '/catalog', '/stock', '/shopify-sync',
   '/finance', '/reconciliation', '/money-at-risk', '/requisitions', '/reports',

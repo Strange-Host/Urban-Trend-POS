@@ -27,7 +27,6 @@ const OVERSIZE_PAGES = {
   'pages/SettingsMessaging.jsx': [486, 'becomes a Settings tab component in the Settings split'],
   'pages/Leads.jsx': [411, 'a few lines over; not scheduled'],
   'pages/ShopifySync.jsx': [403, 'a few lines over; not scheduled'],
-  'pages/POSTerminal.jsx': [403, 'restyled in redesign Phase 3; leave until then'],
 };
 const lineCount = (f) => f.text.split('\n').length - (f.text.endsWith('\n') ? 1 : 0);
 const pageFiles = files.filter((f) => f.path.startsWith('pages/'));

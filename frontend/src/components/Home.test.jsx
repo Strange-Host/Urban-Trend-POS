@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import { Suspense } from 'react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import Home from './Home';
 import { setUiVersion } from '../utils/uiVersion';
@@ -12,18 +11,16 @@ vi.mock('../context/AuthContext', () => ({
   useAuth: () => ({ user: { name: 'Pat', role: auth.role }, can: canFor(auth.role) }),
 }));
 vi.mock('../pages/POSTerminal', () => ({ default: () => <div>THE TILL</div> }));
-vi.mock('../pages/Start', () => ({ default: () => <div>THE START SCREEN</div> }));
 
 function renderHome() {
   return render(
     <MemoryRouter initialEntries={['/']}>
-      <Suspense fallback={<div>loading</div>}>
-        <Routes>
-          <Route path="/" element={<Home />} />
-          <Route path="/dashboard" element={<div>DASHBOARD</div>} />
-          <Route path="/catalog" element={<div>CATALOG</div>} />
-        </Routes>
-      </Suspense>
+      <Routes>
+        <Route path="/" element={<Home />} />
+        <Route path="/start" element={<div>THE START SCREEN</div>} />
+        <Route path="/dashboard" element={<div>DASHBOARD</div>} />
+        <Route path="/catalog" element={<div>CATALOG</div>} />
+      </Routes>
     </MemoryRouter>,
   );
 }
@@ -36,7 +33,7 @@ describe('Home', () => {
     expect(screen.getByText('THE TILL')).toBeInTheDocument();
   });
 
-  it('opens a cashier on the Start screen with the new layout', async () => {
+  it('sends a cashier to the Start screen (/start) with the new layout', async () => {
     setUiVersion('v2');
     renderHome();
     expect(await screen.findByText('THE START SCREEN')).toBeInTheDocument();

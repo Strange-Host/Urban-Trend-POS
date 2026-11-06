@@ -106,7 +106,7 @@ export default function Layout() {
   });
 
   // `module` marks menu items that belong to an optional module (hidden while it is switched off).
-  const visible = (items) => filterVisible(items, { hasRole, can, modules });
+  const visible = (items) => filterVisible(items.filter((i) => !i.v2Only), { hasRole, can, modules });
   const activeGroupId = GROUPS.find((g) => g.items.some((i) => i.to === location.pathname))?.id;
 
   useEffect(() => {
@@ -175,7 +175,7 @@ export default function Layout() {
   const groupedCount = visibleGroups.reduce((n, g) => n + g.items.length, 0);
   const flat = groupedCount < FLAT_BELOW;
   // The last few pages visited (not the current one), for one-click return. Only when the list is long enough to need it.
-  const visibleAll = filterVisible(ALL_ITEMS, { hasRole, can, modules });
+  const visibleAll = filterVisible(ALL_ITEMS.filter((i) => !i.v2Only), { hasRole, can, modules });
   const recentItems = flat ? [] : recentPaths
     .filter((path) => path !== location.pathname)
     .map((path) => visibleAll.find((i) => i.to === path))

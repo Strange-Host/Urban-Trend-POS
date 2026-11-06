@@ -21,8 +21,8 @@ describe('filterVisible: who sees what (unchanged by the redesign)', () => {
     for (const adminOnly of ['Staff', 'Onboarding', 'Activity log', 'Settings']) expect(seen).not.toContain(adminOnly);
   });
 
-  it('cashier sees seven, storekeeper two', () => {
-    expect(labels(visibleFor('cashier'))).toEqual(['Terminal', 'Orders', 'Leads', 'Sales history', 'Approvals', 'Requisitions', 'Attendance']);
+  it('cashier sees their Start screen and the same seven pages as before, storekeeper two', () => {
+    expect(labels(visibleFor('cashier'))).toEqual(['Start', 'Terminal', 'Orders', 'Leads', 'Sales history', 'Approvals', 'Requisitions', 'Attendance']);
     expect(labels(visibleFor('store'))).toEqual(['Catalog', 'Stock control']);
   });
 
@@ -48,7 +48,8 @@ describe('workspaces', () => {
   it('matches the plan: where the pages live', () => {
     const inWorkspace = (id) => labels(byRouteOrder(ALL_ITEMS.filter((i) => i.workspace === id)));
     expect(inWorkspace('today')).toEqual(['Dashboard']);
-    expect(inWorkspace('sell')).toEqual(['Terminal', 'Orders', 'Leads', 'Sales history', 'Approvals']);
+    // Start is the cashier's landing page; only a cashier sees it, so no workspace rail ever lists it.
+    expect(inWorkspace('sell')).toEqual(['Start', 'Terminal', 'Orders', 'Leads', 'Sales history', 'Approvals']);
     expect(inWorkspace('stock')).toEqual(['Catalog', 'Stock control', 'Shopify sync']);
     expect(inWorkspace('money')).toEqual(['Finance', 'Reconciliation', 'Money at risk', 'Requisitions', 'Reports']);
     expect(inWorkspace('team')).toEqual(['Attendance', 'Payroll', 'Staff', 'Onboarding', 'Activity log']);
@@ -72,8 +73,12 @@ describe('homeRouteFor', () => {
     expect(homeRouteFor('admin', all)).toBe('/dashboard');
     expect(homeRouteFor('manager', all)).toBe('/dashboard');
   });
-  it('sends admins and managers without the reports permission, and cashiers, to the till', () => {
+  it('sends admins and managers without the reports permission to the till', () => {
     expect(homeRouteFor('manager', none)).toBe('/terminal');
+    expect(homeRouteFor('admin', none)).toBe('/terminal');
+  });
+  it('sends cashiers to the till (Home and the layout decide whether they see Start first)', () => {
     expect(homeRouteFor('cashier', all)).toBe('/terminal');
+    expect(homeRouteFor('cashier', none)).toBe('/terminal');
   });
 });

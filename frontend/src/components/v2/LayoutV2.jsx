@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import { Lock, Monitor, Moon, Sun } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import useCashierHome from '../../hooks/useCashierHome';
 import useModules from '../../hooks/useModules';
 import useRecentPages from '../../hooks/useRecentPages';
 import { setThemePreference } from '../../hooks/useTheme';
@@ -13,7 +14,7 @@ import BottomBar from '../shell/BottomBar';
 import StatusLine from '../shell/StatusLine';
 import WorkspaceTabs from '../shell/WorkspaceTabs';
 import { ShellChromeContext } from '../shell/pageChromeContext';
-import { activeEntryId, buildRail } from '../shell/railModel';
+import { activeEntryId, buildRail, tillRail } from '../shell/railModel';
 
 // The redesigned shell, shown instead of Layout while the ut_ui=v2 flag is on: a 76px rail on large screens, a bottom
 // bar on phones, a status line, and the page in an <Outlet /> exactly as before (so no route changes between the two).
@@ -41,7 +42,11 @@ export default function LayoutV2() {
 
   const visibleAll = filterVisible(ALL_ITEMS, { hasRole, can, modules });
   const rail = buildRail(visibleAll);
-  const homeRoute = homeRouteFor(user?.role, can);
+  const { home: cashierHome } = useCashierHome();
+  // A cashier's home is the Start screen unless they chose to open on the till (account menu); everyone else as navItems says.
+  const homeRoute = user?.role === 'cashier' && cashierHome === 'start' ? '/start' : homeRouteFor(user?.role, can);
+  // At the till a cashier gets the till's own rail (Exit till to Start, Sell, Orders, Approvals); the phone bar keeps the full list.
+  const railForScreen = tillRail(rail, location.pathname, '/start');
   const activeId = activeEntryId(rail, location.pathname, homeRoute);
   const activePath = location.pathname === '/' ? homeRoute : location.pathname;
   // The pages of the current workspace, as links (workspace rail only: the flat rail already lists every page).
@@ -70,7 +75,7 @@ export default function LayoutV2() {
 
   return (
     <div className="flex h-dvh bg-paper text-text">
-      <Rail entries={rail.entries} settings={rail.settings} activeId={activeId} homeRoute={homeRoute} onSearch={openSearch} />
+      <Rail entries={railForScreen.entries} settings={rail.settings} activeId={activeId} homeRoute={homeRoute} onSearch={openSearch} />
 
       <div className="flex min-w-0 flex-1 flex-col">
         {claims === 0 && (

@@ -1,96 +1,125 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MemoryRouter } from 'react-router-dom';
 import Start from './Start';
+import { cashSessionsApi, ordersApi } from '../api/endpoints';
+import useOfflineQueue from '../hooks/useOfflineQueue';
 import { canFor } from '../components/shell/testRoles';
 
-const auth = { role: 'cashier', can: canFor('cashier') };
+const auth = { can: canFor('cashier') };
 vi.mock('../context/AuthContext', () => ({
-  useAuth: () => ({ user: { name: 'Cathy Cashier', role: auth.role }, can: auth.can }),
+  useAuth: () => ({ user: { name: 'Cathy Cashier', role: 'cashier' }, can: auth.can }),
 }));
-const session = { current: null };
+vi.mock('../components/shell/PageHeader', () => ({ default: ({ title }) => <h1>{title}</h1> }));
 vi.mock('../api/endpoints', () => ({
-  cashSessionsApi: { current: () => Promise.resolve({ data: { data: session.current } }) },
-}));
-// The shift widget has its own tests and its own API calls; here it only needs to show that it was asked to close.
-vi.mock('../components/ShiftWidget', () => ({
-  default: ({ closeRequest }) => <div data-testid="shift-widget">close requests: {closeRequest}</div>,
-}));
-vi.mock('../components/shell/PageHeader', () => ({
-  default: ({ title, description }) => <header><h1>{title}</h1><p>{description}</p></header>,
+  cashSessionsApi: { current: vi.fn() },
+  ordersApi: { list: vi.fn() },
 }));
 
 function renderStart() {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
-    <QueryClientProvider client={client}><MemoryRouter><Start /></MemoryRouter></QueryClientProvider>,
+    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+      <MemoryRouter><Start /></MemoryRouter>
+    </QueryClientProvider>,
   );
 }
-const tileNames = () => within_tiles().map((el) => el.querySelector('.font-display').textContent);
-const within_tiles = () => [...screen.getByTestId('start-tiles').children];
+const href = (name) => screen.getByRole('link', { name: new RegExp(`^${name}`) }).getAttribute('href');
+const has = (name) => screen.queryByRole('link', { name: new RegExp(`^${name}`) }) !== null;
+const openSession = { id: 1, opened_at: '2026-11-05T07:58:00', opening_amount: 5000, sales_count: 3, sales_total: 2140000 };
 
-beforeEach(() => { auth.role = 'cashier'; auth.can = canFor('cashier'); session.current = null; });
+beforeEach(() => {
+  auth.can = canFor('cashier');
+  cashSessionsApi.current.mockResolvedValue({ data: { data: null } });
+  ordersApi.list.mockResolvedValue({ data: { data: [], total: 4 } });
+  useOfflineQueue.setState({ queue: [] });
+});
 
 describe('Start tiles follow permissions', () => {
-  it('shows a default cashier the till, orders and void/refund, and no stock tiles', async () => {
+  it('shows a default cashier New sale, Online orders and Void or refund, and no stock tiles', () => {
     renderStart();
-    expect(tileNames()).toEqual(['New sale', 'Online orders', 'Void or refund']);
+    expect(has('New sale')).toBe(true);
+    expect(has('Online orders')).toBe(true);
+    expect(has('Void or refund')).toBe(true);
+    expect(has('Receive stock')).toBe(false);
+    expect(has('Count stock')).toBe(false);
   });
 
-  it('adds Receive and Count stock when those permissions are granted', () => {
+  it('adds Receive and Count stock, linked to their tabs, when those permissions are granted', () => {
     auth.can = (p) => ['stock.receive', 'stock.count', 'sales.void_request'].includes(p);
     renderStart();
-    expect(tileNames()).toEqual(['New sale', 'Online orders', 'Receive stock', 'Count stock', 'Void or refund']);
-  });
-
-  it('hides Void or refund when the person may do neither', () => {
-    auth.can = () => false;
-    renderStart();
-    expect(tileNames()).toEqual(['New sale', 'Online orders']);
-  });
-
-  it('shows either kind of request as enough for Void or refund', () => {
-    auth.can = (p) => p === 'payments.refund_request';
-    renderStart();
-    expect(tileNames()).toContain('Void or refund');
-  });
-
-  it('links each tile to the page that does the job', () => {
-    auth.can = () => true;
-    renderStart();
-    const href = (name) => screen.getByRole('link', { name: new RegExp(name) }).getAttribute('href');
-    expect(href('New sale')).toBe('/terminal');
-    expect(href('Online orders')).toBe('/orders');
     expect(href('Receive stock')).toBe('/stock?tab=receive');
     expect(href('Count stock')).toBe('/stock?tab=counts');
+  });
+
+  it('hides Void or refund when the person may do neither, and shows it for either one', () => {
+    auth.can = () => false;
+    const first = renderStart();
+    expect(has('Void or refund')).toBe(false);
+    first.unmount();
+    auth.can = (p) => p === 'payments.refund_request';
+    renderStart();
     expect(href('Void or refund')).toBe('/approvals');
+  });
+
+  it('points New sale and Online orders at the till and the orders page', () => {
+    renderStart();
+    expect(href('New sale')).toBe('/terminal');
+    expect(href('Online orders')).toBe('/orders');
+  });
+
+  it('puts keyboard focus on New sale, so Enter goes straight to the till', () => {
+    renderStart();
+    expect(document.activeElement).toBe(screen.getByRole('link', { name: /^New sale/ }));
   });
 });
 
-describe('Start behaviour', () => {
-  it('puts focus on New sale so Enter goes straight to the till', () => {
+describe('Online orders count', () => {
+  it('says how many orders are waiting to dispatch', async () => {
     renderStart();
-    expect(screen.getByRole('link', { name: /New sale/ })).toHaveFocus();
+    expect(await screen.findByText('4 to dispatch')).toBeTruthy();
+    expect(ordersApi.list).toHaveBeenCalledWith({ status: 'awaiting_dispatch', limit: 1 });
   });
 
-  it('offers End shift only while a shift is open, and asks the shift widget to close', async () => {
+  it('still shows the tile, without a number, when the count cannot be read', async () => {
+    ordersApi.list.mockRejectedValue(new Error('Network Error'));
     renderStart();
-    expect(screen.queryByRole('button', { name: /End shift/ })).toBeNull();
+    expect(await screen.findByText('Dispatch, payments and returns')).toBeTruthy();
+  });
+});
 
-    session.current = { id: 7, opened_at: '2026-11-06T06:00:00Z', opening_amount: 50000 };
-    document.body.innerHTML = '';
+describe('End shift and the shift summary', () => {
+  it('has no End shift tile with no shift open, and says so, offering the till to open one', async () => {
     renderStart();
-    const user = userEvent.setup();
-    const end = await screen.findByRole('button', { name: /End shift/ });
-    expect(screen.getByTestId('shift-widget')).toHaveTextContent('close requests: 0');
-    await user.click(end);
-    await waitFor(() => expect(screen.getByTestId('shift-widget')).toHaveTextContent('close requests: 1'));
+    expect(await screen.findByText('Not open')).toBeTruthy();
+    expect(has('End shift')).toBe(false);
+    expect(screen.getByRole('link', { name: 'Open one at the till' }).getAttribute('href')).toBe('/terminal');
+    expect(screen.queryByText('Sales this shift')).toBeNull();
   });
 
-  it('greets the person by name', () => {
+  it('with a shift open, End shift opens the till with the close-shift form requested', async () => {
+    cashSessionsApi.current.mockResolvedValue({ data: { data: openSession } });
     renderStart();
-    expect(screen.getByText('Hello, Cathy Cashier.')).toBeInTheDocument();
+    await waitFor(() => expect(has('End shift')).toBe(true));
+    expect(href('End shift')).toBe('/terminal?shift=close');
+  });
+
+  it('shows when the shift opened and what it has taken so far', async () => {
+    cashSessionsApi.current.mockResolvedValue({ data: { data: openSession } });
+    renderStart();
+    expect(await screen.findByText('Shift opened')).toBeTruthy();
+    expect(screen.getByText('KES 21,400')).toBeTruthy();
+  });
+
+  it('counts sales waiting to sync and calls out any the server rejected', () => {
+    useOfflineQueue.setState({ queue: [
+      { clientSaleId: 'a', payload: {}, ringedUpAt: '', attempts: 0 },
+      { clientSaleId: 'b', payload: {}, ringedUpAt: '', attempts: 0 },
+      { clientSaleId: 'c', payload: {}, ringedUpAt: '', attempts: 1, failed: true },
+    ] });
+    renderStart();
+    expect(screen.getByText('2 sales')).toBeTruthy();
+    expect(screen.getByText('Rejected by the server')).toBeTruthy();
+    expect(screen.getByText('1 sale')).toBeTruthy();
   });
 });
