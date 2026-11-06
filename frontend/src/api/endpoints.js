@@ -404,6 +404,21 @@ export const stockApi = {
   receipts: (params) => client.get('/stock/receipts', { params }),
   /** @param {Payload} data */
   receive: (data) => client.post('/stock/receipts', data),
+  // Draft receipts: a delivery saved half-entered. Saving one puts no stock in; submitting runs the ordinary receive.
+  receiptDrafts: () => client.get('/stock/receipts/drafts'),
+  /** @param {Id} id */
+  receiptDraft: (id) => client.get(`/stock/receipts/drafts/${id}`),
+  /** @param {Payload} data */
+  saveReceiptDraft: (data) => client.post('/stock/receipts/drafts', data),
+  /**
+   * @param {Id} id
+   * @param {Payload} data
+   */
+  updateReceiptDraft: (id, data) => client.put(`/stock/receipts/drafts/${id}`, data),
+  /** @param {Id} id */
+  deleteReceiptDraft: (id) => client.delete(`/stock/receipts/drafts/${id}`),
+  /** @param {Id} id */
+  submitReceiptDraft: (id) => client.post(`/stock/receipts/drafts/${id}/submit`),
   /** @param {Params} params */
   issues: (params) => client.get('/stock/issues', { params }),
   /** @param {Payload} data */

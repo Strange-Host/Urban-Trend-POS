@@ -1,5 +1,6 @@
 const router = require('express').Router();
 const receiving = require('../controllers/stockReceiving.controller');
+const drafts = require('../controllers/stockReceiptDrafts.controller');
 const transfers = require('../controllers/stockTransfers.controller');
 const counts = require('../controllers/stockCounts.controller');
 const batches = require('../controllers/stockBatches.controller');
@@ -11,6 +12,13 @@ router.use(authenticate);
 // Buying price per received batch. 'awaiting-cost' is declared before '/receipts/:id' so it is not read as an id.
 router.get('/receipts/awaiting-cost', requirePermission('products.view_cost'), batches.listAwaitingCost);
 router.put('/receipts/:id/costs', requirePermission('products.view_cost'), batches.setCosts);
+// Draft receipts: a delivery saved half-entered. Declared before '/receipts/:id' so "drafts" is not read as an id.
+router.get('/receipts/drafts', requirePermission('stock.receive'), drafts.list);
+router.post('/receipts/drafts', requirePermission('stock.receive'), drafts.create);
+router.get('/receipts/drafts/:id', requirePermission('stock.receive'), drafts.getOne);
+router.put('/receipts/drafts/:id', requirePermission('stock.receive'), drafts.update);
+router.delete('/receipts/drafts/:id', requirePermission('stock.receive'), drafts.remove);
+router.post('/receipts/drafts/:id/submit', requirePermission('stock.receive'), drafts.submit);
 router.get('/receipts', requirePermission('stock.receive'), receiving.listReceipts);
 router.get('/receipts/:id', requirePermission('stock.receive'), receiving.getReceipt);
 router.post('/receipts', requirePermission('stock.receive'), receiving.createReceipt);

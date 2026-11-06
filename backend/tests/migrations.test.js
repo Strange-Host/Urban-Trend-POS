@@ -164,11 +164,19 @@ describe('real database: fresh install vs a database from before the runner', ()
     }
   });
 
-  it('a fresh database is recorded as 0001 and a second run changes nothing', () => {
+  // The baseline plus every numbered file that ships in src/db/migrations, as the runner records them. Derived from the
+  // folder, so adding 0003 later does not mean editing this test.
+  const shipped = () => fs.readdirSync(path.join(__dirname, '..', 'src', 'db', 'migrations'))
+    .map((f) => f.match(/^(\d{4})_(.+)\.sql$/))
+    .filter(Boolean)
+    .map((m) => ({ version: Number(m[1]), name: m[2] }))
+    .sort((a, b) => a.version - b.version);
+
+  it('a fresh database is recorded as the baseline plus each shipped migration, and a second run changes nothing', () => {
     const f = tmp('fresh');
     migrate(f);
     const d = new Database(f, { readonly: true });
-    expect(d.prepare('SELECT version, name FROM schema_migrations').all()).toEqual([{ version: 1, name: 'baseline' }]);
+    expect(d.prepare('SELECT version, name FROM schema_migrations ORDER BY version').all()).toEqual([{ version: 1, name: 'baseline' }, ...shipped()]);
     d.close();
     expect(migrate(f)).toContain('Database is up to date.');
   });
@@ -187,7 +195,7 @@ describe('real database: fresh install vs a database from before the runner', ()
     migrate(legacy);
     expect(schemaOf(legacy)).toEqual(schemaOf(fresh));
     const after = new Database(legacy, { readonly: true });
-    expect(after.prepare('SELECT version FROM schema_migrations').all()).toEqual([{ version: 1 }]);
+    expect(after.prepare('SELECT version FROM schema_migrations ORDER BY version').all()).toEqual([{ version: 1 }, ...shipped().map(({ version }) => ({ version }))]);
     expect(after.prepare("SELECT value FROM settings WHERE key = 'shop_note'").get().value).toBe('kept');   // data untouched
     after.close();
   });
