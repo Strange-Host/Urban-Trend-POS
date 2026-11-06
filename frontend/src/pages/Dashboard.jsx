@@ -3,6 +3,10 @@ import StatCard from '../components/StatCard';
 import Panel from '../components/Panel';
 import RevenueChart from '../components/RevenueChart';
 import useSlidingPill from '../hooks/useSlidingPill';
+import useAttentionQueue from '../hooks/useAttentionQueue';
+import useUiVersion from '../hooks/useUiVersion';
+import PageHeader from '../components/shell/PageHeader';
+import AttentionQueue from './today/AttentionQueue';
 import { useAuth } from '../context/AuthContext';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
@@ -230,6 +234,10 @@ function AttentionSection({ alerts }) {
 export default function Dashboard() {
   const { user } = useAuth();
   const [range, setRange] = useState('30');
+  // The new layout (ut_ui=v2) shows this page as "Today" with two tabs; the current layout is unchanged.
+  const { isV2 } = useUiVersion();
+  const [tab, setTab] = useState('overview');
+  const queue = useAttentionQueue({ enabled: isV2 });
   const from = range === 'all' ? '1970-01-01' : new Date(Date.now() - Number(range) * 86400000).toISOString();
   const params = { from };
   // The period just before this one, same length, for "vs previous" arrows. Not available for All time.
@@ -280,8 +288,21 @@ export default function Dashboard() {
   const today = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
   const rangeLabel = range === 'all' ? 'All time' : `Last ${range} days`;
 
+  const todayHeader = (
+    <PageHeader
+      title="Today"
+      description={`${today}. ${firstName ? `${greeting()}, ${firstName}. ` : ''}Across every store and channel.`}
+      actions={tab === 'overview' ? <RangeToggle value={range} onChange={setRange} /> : undefined}
+      tabs={{ items: [{ key: 'overview', label: 'Overview' }, { key: 'attention', label: 'Attention', badge: queue.count }], active: tab, onChange: setTab }}
+    />
+  );
+  if (isV2 && tab === 'attention') {
+    return <div className="p-4 md:p-8 max-w-6xl">{todayHeader}<AttentionQueue queue={queue} /></div>;
+  }
+
   return (
     <div className="p-4 md:p-8 max-w-6xl">
+      {isV2 ? todayHeader : (
       <div className="flex items-end justify-between flex-wrap gap-4 mb-6">
         <div>
           <div className="inline-flex items-center text-xs text-text-muted font-mono bg-surface border border-line rounded-full px-2.5 py-1 mb-3">{today}</div>
@@ -290,6 +311,7 @@ export default function Dashboard() {
         </div>
         <RangeToggle value={range} onChange={setRange} />
       </div>
+      )}
 
       {overviewLoading || stockAlertsLoading
         ? <SkeletonCards count={3} className="md:grid-cols-3 mb-6" />

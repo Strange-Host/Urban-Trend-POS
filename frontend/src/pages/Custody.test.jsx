@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MemoryRouter } from 'react-router-dom';
 import Custody, { ageInDays } from './Custody';
 import Finance from './Finance';
 import { custodyApi } from '../api/endpoints';
@@ -98,14 +99,14 @@ describe('Custody', () => {
 describe('Finance tab', () => {
   it('shows the Custody tab only with the custody.manage permission', async () => {
     custodyApi.list.mockReturnValue(ok([]));
-    mount(<Finance />);
+    mount(<MemoryRouter><Finance /></MemoryRouter>); // Finance reads ?tab=, so it lives inside a router, as in the app
     fireEvent.click(await screen.findByRole('tab', { name: 'Custody' }));
     expect(await screen.findByText(/No shop cash is being held/)).toBeInTheDocument();
   });
 
   it('hides it without the permission', () => {
     perms = new Set();
-    mount(<Finance />);
+    mount(<MemoryRouter><Finance /></MemoryRouter>); // Finance reads ?tab=, so it lives inside a router, as in the app
     expect(screen.getByRole('tab', { name: 'Couriers' })).toBeInTheDocument();
     expect(screen.queryByRole('tab', { name: 'Custody' })).not.toBeInTheDocument();
     expect(custodyApi.list).not.toHaveBeenCalled();

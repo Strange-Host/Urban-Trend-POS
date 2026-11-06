@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import PageHeader from '../components/shell/PageHeader';
 import PageSection from '../components/shell/PageSection';
 import Payments from './Payments';
@@ -24,9 +25,11 @@ const TABS = [
 
 export default function Finance() {
   const { can } = useAuth();
-  const [tab, setTab] = useState('payments');
   // A tab with a `permission` shows only to people the API would let use it.
   const tabs = TABS.filter((t) => !t.permission || can(t.permission));
+  // /finance?tab=couriers opens on that tab (the Attention queue links here); anything else, or none, opens on Payments.
+  const [searchParams] = useSearchParams();
+  const [tab, setTab] = useState(() => tabs.find((t) => t.key === searchParams.get('tab'))?.key ?? 'payments');
 
   return (
     <div>
