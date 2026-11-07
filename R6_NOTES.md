@@ -65,8 +65,9 @@ both ways. The list is empty: no page is over the limit. (POSTerminal left it in
 
 ## Next in this stage
 
-1. Restyle, in this order: redesign Phase 3 (cashier) and Phase 4 (manager Today) are in; next Phase 5 (Receive form, which
-   needs draft receipts and approval of buying prices on the backend first), then Phase 6 (workspace tab strips).
+1. Restyle, in this order: redesign Phase 3 (cashier), Phase 4 (manager Today) and Phase 5 part 1 (draft receipts) are in.
+   Phase 6 (workspace tab strips) turned out to be built already by Phases 1 and 2 and is now covered by a walk-through test
+   (`docs/redesign/phase-6-workspaces.md`). What remains is Phase 7 (cutover) and the visual restyles that need the mockups.
 2. Add the files in `pages/` subfolders and the remaining components to the type check as each is touched (73 errors are
    still outside the checked scope).
 
