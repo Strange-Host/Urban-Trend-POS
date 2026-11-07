@@ -5,12 +5,14 @@ import type { HomeAttention, HomeSummary, SessionUser } from "../api/types";
 // The refresh token lives only in the Android Keystore (SecureStore).
 const K_REFRESH = "ut.refresh.v1";
 const K_PROFILE = "ut.profile.v1";
-const K_HOME = "ut.home.cache.v1";
+const K_HOME = "ut.home.cache.v2";
+const K_INSTALL = "ut.install.v1";
 
 export interface StoredProfile {
   user: SessionUser;
   autoLockSeconds: number;
-  biometricApprovalAboveCents?: number;
+  /** null = the owner never asks for fingerprint or face on approvals. */
+  biometricApprovalAboveCents?: number | null;
 }
 
 export const secure = {
@@ -31,6 +33,18 @@ export const secure = {
     } catch {
       return null;
     }
+  },
+  /** This install's own id: made once, kept across sign-outs, so the same phone signing in again is one device, not many. */
+  async installId(): Promise<string> {
+    try {
+      const have = await SecureStore.getItemAsync(K_INSTALL);
+      if (have) return have;
+    } catch {
+      // fall through and make one
+    }
+    const id = `ut-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+    await SecureStore.setItemAsync(K_INSTALL, id).catch(() => {});
+    return id;
   },
   async clear() {
     await SecureStore.deleteItemAsync(K_REFRESH);

@@ -31,7 +31,7 @@ export default function AlertsScreen() {
             <Card
               key={n.id}
               onPress={() => {
-                if (!openDeepLink(nav, n.deepLink)) Alert.alert(n.title, "This screen is built in a later release.");
+                if (!openDeepLink(nav, n.deepLink)) Alert.alert(n.title, "This one opens on the website.");
               }}
             >
               <View style={row.between}>

@@ -128,7 +128,7 @@ function detail(u: SessionUser, o: MOrder): TelesalesOrder {
 function own(u: SessionUser, id: number): MOrder {
   const o = orders.find((x) => x.id === id);
   // someone else's order is a plain 404, like the real server
-  if (!o || (u.role !== "owner" && o.assignedTo !== u.id)) throw fail("NOT_FOUND", "Order not found.", 404);
+  if (!o || (u.role !== "admin" && o.assignedTo !== u.id)) throw fail("NOT_FOUND", "Order not found.", 404);
   return o;
 }
 function waiting(o: MOrder) {
@@ -167,10 +167,10 @@ const leadView = (l: MLead): Lead => { const { activities: _a, ...rest } = l; vo
 const leadDetail = (l: MLead): LeadDetail => ({ ...leadView(l), activities: [...l.activities].sort((a, b) => b.at.localeCompare(a.at)) });
 function ownLead(u: SessionUser, id: number): MLead {
   const l = leads.find((x) => x.id === id);
-  if (!l || (u.role !== "owner" && !can(u, "orders.approve_duplicate") && l.assignedTo?.id !== u.id)) throw fail("NOT_FOUND", "Lead not found.", 404);
+  if (!l || (u.role !== "admin" && !can(u, "orders.approve_duplicate") && l.assignedTo?.id !== u.id)) throw fail("NOT_FOUND", "Lead not found.", 404);
   return l;
 }
-const seeAll = (u: SessionUser) => u.role === "owner" || can(u, "orders.approve_duplicate"); // managers see every lead, agents their own
+const seeAll = (u: SessionUser) => u.role === "admin" || can(u, "orders.approve_duplicate"); // managers see every lead, agents their own
 let activitySeq = 100;
 function logActivity(l: MLead, u: SessionUser, type: string, content: string) {
   activitySeq += 1;
@@ -385,7 +385,7 @@ export function createMockV2({ gate, userFor }: MockDeps): ApiV2 {
         const o = orders.find((x) => x.id === id);
         if (!o) throw fail("NOT_FOUND", "Order not found.", 404);
         if (decision === "restock") need(u, "orders.inspect");
-        else if (u.role !== "owner") throw new ApiError("FORBIDDEN", "Only the owner can write off or dispose of returned stock.", 403);
+        else if (u.role !== "admin") throw new ApiError("FORBIDDEN", "Only the owner can write off or dispose of returned stock.", 403);
         if (decidedStates(o)) throw fail("ALREADY_DECIDED", "This return was already decided.");
         if (o.status === "returned_damaged" && decision === "restock") throw fail("NOT_RESTOCKABLE", "This parcel was inspected as damaged and cannot go back on sale.");
         if (!awaitingStates(o)) throw fail("NOT_RECEIVED", "This parcel has not been received yet.");

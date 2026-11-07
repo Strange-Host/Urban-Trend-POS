@@ -25,7 +25,7 @@ export default function StockScreen() {
   const [error, setError] = useState<string | null>(null);
   const input = useRef<React.ComponentRef<typeof TextInput>>(null);
   const seq = useRef(0);
-  const canAdjust = !!user?.permissions.includes("stock.adjust");
+  const canAdjust = !!user?.permissions.includes("inventory.adjust");
 
   const run = useCallback(
     async (q: Query) => {

@@ -1,19 +1,28 @@
-# Urban Trends mobile (v1 skeleton)
+# Urban Trends mobile
 
-Expo (React Native, TypeScript) Android app. This step: login, biometric unlock, home screen, running against a mock of /api/v1.
+Expo (React Native, TypeScript) Android app for the Urban Trends POS: v1 (sign-in, approvals, stock, orders, dashboard), v1.1 and v2, running against the real `/api/v1` or a mock of it.
 
 ## Run
     npm install
     npx expo start        # then open in Expo Go on the phone, or: npm run android
     npm run typecheck && npm test
 
-Mock sign-in: `owner / owner123` (everything), `manager / manager123` (catalog, stock-take review, attendance with open orders), `keeper / keeper123` (stock-take counting only), `agent / agent123` and `agent2 / agent123` (telesales: own orders and leads only).
+Mock sign-in is by email: `owner@urbantrends.test / owner123` (admin, everything), `manager@urbantrends.test / manager123` (catalog, stock-take review, attendance with open orders), `keeper@urbantrends.test / keeper123` (stock-take counting only), `agent@urbantrends.test / agent123` and `agent2@urbantrends.test / agent123` (telesales: own orders and leads only), and `otp@urbantrends.test / otp123` (signs in with a text-message code, `123456`). The short names (`owner`, `manager`, ...) work too.
 More tab -> "Mock controls": offline, expire token, revoke device, force update.
 
 ## Point at the real backend
 In `app.json` set `expo.extra.apiMode` to `"http"` and add `expo.extra.apiBaseUrl`.
-Contract lives in `src/api/types.ts`; the HTTP client is `src/api/http.ts`.
-Reconcile `types.ts` with the real responses first (field names were taken from the spec, not the server).
+The contract is `src/api/types.ts`, read from the server's own response schemas (`backend/src/validation/mobile.responses.js`); the HTTP client is `src/api/http.ts`.
+
+Three places hold the translation between what the server sends and what the screens use:
+- `src/api/adapters.ts`: the sign-in session (`token` becomes `accessToken`, the owner's app settings are filled in).
+- `src/api/errorMap.ts`: the server answers every auth problem with a bare 401, so the meaning comes from which call failed: a wrong password on sign-in, a refused refresh token, a signed-in call whose access token ran out (refresh once and retry), or a signed-in call whose session was ended (signed out on the phone's behalf).
+- `src/lib/deeplink.ts`: the server's `<entity>:<id>` links (`order:41`, `expense:12`, `lead:7`) and push `data.link`. Records the app has no screen for open nothing and say so.
+
+### Live check
+`npm run live-check` drives the app's real HTTP client against a running backend and checks every v1 call returns what the screens expect: sign-in for all four roles, refresh rotation and replay, expiry and sign-out handling, home, approvals (including the biometric rule), notifications, stock, orders and the dashboard's report endpoints. Point it with `LIVE_BASE` (default `http://localhost:4100`) and `LIVE_PASSWORD`. It expects the users and sample records named at the top of `scripts/liveCheck.ts`, and it approves one pending expense, so re-seed to run it twice. Run it whenever the backend's mobile API changes.
+
+Things the server does that the app has to respect: an account with a temporary password can sign in but every call is refused until it is changed on the website (the app signs out with that message); an approval at or above the owner's limit needs fingerprint or face, and a limit of `null` means never; which screens appear follows the server's permission names (Orders needs `orders.view`, Approvals any of the approval permissions, Stock `inventory.adjust`, `stock.review` or `stock.receive`).
 
 ## Layout
 - `src/api/` types, mock (`mock/mockApi.ts`), real client (`http.ts`), switch (`index.ts`)
@@ -26,7 +35,7 @@ Login, unlock, Home (needs attention), Approvals (list, detail, approve with bio
 Approvals screens block screenshots. Lists keep a per-user read-only cache for offline; every action needs a connection.
 
 ## Push
-`src/lib/push.ts` registers the native FCM token through `POST /devices` and routes taps by `data.deepLink`. It needs a development or release build with `google-services.json` (see `docs/RELEASE.md`); in Expo Go it is skipped.
+`src/lib/push.ts` registers the native FCM token through `POST /devices` and routes taps by `data.link`. It needs a development or release build with `google-services.json` (see `docs/RELEASE.md`); in Expo Go it is skipped.
 
 ## v1.1 screens (open from the menu, each hidden without its permission)
 - **Catalog** (`products.manage`): search, category filter, active toggle; product create/edit with a required reason on price changes, cost only with `products.view_cost`, deactivate instead of delete; **Categories** (add, rename, up/down reorder, deactivate); **Price history** per product.

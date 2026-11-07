@@ -18,7 +18,11 @@ export default function UpdateScreen() {
         continue.
       </Text>
       <View style={{ flex: 1 }} />
-      {update ? <PrimaryButton label="Download update" onPress={() => Linking.openURL(update.downloadUrl)} /> : null}
+      {update?.downloadUrl ? (
+        <PrimaryButton label="Download update" onPress={() => Linking.openURL(update.downloadUrl as string)} />
+      ) : (
+        <Text style={s.sub}>There is no download link yet. Ask the owner for the new version.</Text>
+      )}
     </View>
   );
 }

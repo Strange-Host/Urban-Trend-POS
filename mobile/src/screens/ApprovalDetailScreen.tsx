@@ -7,13 +7,14 @@ import type { Approval, ApprovalDecisionResult, ApprovalStatus } from "../api/ty
 import { useAuth } from "../auth/AuthContext";
 import { Header } from "../components/Header";
 import { Banner, Card, Pill, PrimaryButton, row, text } from "../components/ui";
+import { needsBiometric } from "../lib/approvals";
 import { authenticate } from "../lib/biometric";
 import { formatKes, timeAgo } from "../lib/format";
 import { approvalTypeLabel } from "../lib/labels";
 import { useSecureScreen } from "../lib/secureScreen";
 import { MIN_TOUCH, colors, radius } from "../theme";
 
-async function findApproval(token: string, id: number): Promise<Approval | null> {
+async function findApproval(token: string, id: string): Promise<Approval | null> {
   for (const status of ["pending", "approved", "rejected"] as ApprovalStatus[]) {
     const page = await api.approvals(token, status);
     const hit = page.items.find((a) => a.id === id);
@@ -25,7 +26,7 @@ async function findApproval(token: string, id: number): Promise<Approval | null>
 export default function ApprovalDetailScreen() {
   useSecureScreen();
   const nav = useNavigation<any>();
-  const { params } = useRoute<any>() as { params: { id: number; approval?: Approval } };
+  const { params } = useRoute<any>() as { params: { id: string; approval?: Approval } };
   const { request, offline, approvalBiometricAboveCents } = useAuth();
   const [approval, setApproval] = useState<Approval | null>(params.approval ?? null);
   const [loading, setLoading] = useState(!params.approval);
@@ -74,16 +75,19 @@ export default function ApprovalDetailScreen() {
   function approve() {
     if (!approval) return;
     const label = `${approvalTypeLabel[approval.type]}${approval.amountCents ? ` of ${formatKes(approval.amountCents)}` : ""}`;
+    const amount = approval.amountCents ?? 0;
     Alert.alert(`Approve ${label}?`, `Requested by ${approval.requestedBy}.`, [
       { text: "Cancel", style: "cancel" },
       {
         text: "Approve",
         onPress: async () => {
-          if (approval.amountCents > approvalBiometricAboveCents) {
-            const ok = await authenticate(`Confirm approval of ${formatKes(approval.amountCents)}`);
+          let confirmed = false;
+          if (needsBiometric(amount, approvalBiometricAboveCents)) {
+            const ok = await authenticate(`Confirm approval of ${formatKes(amount)}`);
             if (!ok) return;
+            confirmed = true;
           }
-          run((t) => api.approve(t, approval.id));
+          run((t) => api.approve(t, approval.id, confirmed));
         },
       },
     ]);
@@ -115,7 +119,7 @@ export default function ApprovalDetailScreen() {
       ) : approval ? (
         <ScrollView contentContainerStyle={{ paddingBottom: 32 }}>
           <Card>
-            <Text style={s.amount}>{approval.amountCents > 0 ? formatKes(approval.amountCents) : "No amount"}</Text>
+            <Text style={s.amount}>{approval.amountCents ? formatKes(approval.amountCents) : "No amount"}</Text>
             <Text style={text.sub}>
               Requested by {approval.requestedBy} · {timeAgo(approval.requestedAt)}
             </Text>
@@ -132,7 +136,7 @@ export default function ApprovalDetailScreen() {
                   <Text style={[s.itemName, { flexShrink: 1 }]}>
                     {it.qty} × {it.name}
                   </Text>
-                  {it.priceCents > 0 ? <Text style={s.itemName}>{formatKes(it.priceCents * it.qty)}</Text> : null}
+                  {it.priceCents ? <Text style={s.itemName}>{formatKes(it.priceCents * it.qty)}</Text> : null}
                 </View>
               ))}
             </Card>

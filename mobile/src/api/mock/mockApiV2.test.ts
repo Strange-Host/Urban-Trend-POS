@@ -2,10 +2,11 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { isApiError } from "../errors";
 import { createMockApi } from "./mockApi";
+import type { MobileLoginResponse } from "../types";
 import { countdown, callbackChoices, followUpIn, isDueToday } from "../../lib/telesales";
 
 const api = createMockApi();
-const login = async (u: string, p = u + "123") => (await api.login({ username: u, password: p, deviceName: "t", platform: "android" } as never)).accessToken;
+const login = async (u: string, p = u + "123") => ((await api.login({ email: `${u}@urbantrends.test`, password: p, device: { name: "t", appVersion: "2.0.0" } })) as MobileLoginResponse).accessToken;
 const code = async (p: Promise<unknown>) => { try { await p; return "ok"; } catch (e) { return isApiError(e) ? e.code : "other"; } };
 const inHours = (h: number) => new Date(Date.now() + h * 3_600_000).toISOString();
 

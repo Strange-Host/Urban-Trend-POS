@@ -10,11 +10,14 @@ export const approvalTypeLabel: Record<ApprovalType, string> = {
 };
 
 export const orderStatusLabel: Record<OrderStatus, string> = {
-  pending_confirmation: "Pending confirmation",
   awaiting_dispatch: "Awaiting dispatch",
-  dispatched: "Dispatched",
-  delivered: "Delivered",
-  returned: "Returned",
+  dispatched_unpaid: "Dispatched, unpaid",
+  dispatched_partial: "Dispatched, part paid",
+  dispatched_paid: "Dispatched, paid",
+  returned_in_transit: "Returning",
+  returned_awaiting_inspection: "Returned, to inspect",
+  returned_resellable: "Returned, resellable",
+  returned_damaged: "Returned, damaged",
   cancelled: "Cancelled",
 };
 

@@ -36,8 +36,10 @@ export async function listenForNotificationTaps(onLink: (deepLink: string) => vo
   try {
     const N = await import("expo-notifications");
     const pick = (r: { notification: { request: { content: { data?: unknown } } } } | null) => {
-      const data = r?.notification.request.content.data as { deepLink?: unknown } | undefined;
-      if (typeof data?.deepLink === "string") onLink(data.deepLink);
+      // the server puts "<entity>:<id>" under `link`
+      const data = r?.notification.request.content.data as { link?: unknown; deepLink?: unknown } | undefined;
+      const link = typeof data?.link === "string" ? data.link : typeof data?.deepLink === "string" ? data.deepLink : "";
+      if (link) onLink(link);
     };
     pick(await N.getLastNotificationResponseAsync());
     const sub = N.addNotificationResponseReceivedListener(pick);

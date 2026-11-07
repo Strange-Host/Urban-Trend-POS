@@ -1,4 +1,6 @@
 import { ApiError } from "./errors";
+import { toSession, type RawSession } from "./adapters";
+import { mapErrorCode, type CallKind } from "./errorMap";
 import { createHttpV11 } from "./httpV11";
 import { createHttpV2 } from "./httpV2";
 import { V11_ERROR_CODES } from "./typesV11";
@@ -20,13 +22,13 @@ import type {
   ApprovalStatus,
   HomeAttention,
   HomeSummary,
+  LoginResult,
   MobileLoginResponse,
   OrderDetail,
   OrderFilter,
   OrdersPage,
   Paginated,
   StockItem,
-  TokenPair,
 } from "./types";
 
 const KNOWN: ApiErrorCode[] = [
@@ -35,7 +37,10 @@ const KNOWN: ApiErrorCode[] = [
   "REFRESH_INVALID",
   "DEVICE_REVOKED",
   "FORBIDDEN",
-  ...V2_ERROR_CODES,
+  "ACCOUNT_LOCKED",
+  "PASSWORD_CHANGE_REQUIRED",
+  "BIOMETRIC_REQUIRED",
+  "RATE_LIMITED",
   ...V2_ERROR_CODES, // v2: DUPLICATE_PHONE, NOT_AWAITING, NOT_RETURNABLE, ...
   ...V11_ERROR_CODES, // the v1.1 screens branch on these (REASON_REQUIRED, PREVIEW_STALE, ALREADY_MATCHED, ...)
 ];
@@ -44,7 +49,7 @@ async function call<T>(
   base: string,
   method: string,
   path: string,
-  opts: { token?: string; body?: unknown; prefix?: string } = {},
+  opts: { token?: string; body?: unknown; prefix?: string; kind?: CallKind } = {},
 ): Promise<T> {
   let res: Response;
   try {
@@ -63,7 +68,8 @@ async function call<T>(
   const json = (await res.json().catch(() => null)) as unknown;
   if (!res.ok) {
     const body = json as Partial<ApiErrorBody> | null;
-    const raw = body?.error?.code as ApiErrorCode | undefined;
+    const kind: CallKind = opts.kind ?? (opts.token ? "authed" : "public");
+    const raw = mapErrorCode(res.status, body?.error?.code, kind) as ApiErrorCode | undefined;
     const code = raw && KNOWN.includes(raw) ? raw : "UNKNOWN";
     throw new ApiError(code, body?.error?.message ?? `HTTP ${res.status}`, res.status, (json as { details?: unknown } | null)?.details);
   }
@@ -222,28 +228,37 @@ async function loadAnalytics(base: string, token: string, range: AnalyticsRange)
   };
 }
 
+type OtpChallengeRaw = Extract<LoginResult, { twoFactorRequired: true }>;
+
 export function createHttpApi(base: string): Api {
   return {
     ...createHttpV11(base, call),
     ...createHttpV2(base, call),
-    ...createHttpV2(base, call),
-    login: (req) =>
-      call<MobileLoginResponse>(base, "POST", "/auth/mobile/login", { body: req }),
-    refresh: (refreshToken) =>
-      call<TokenPair>(base, "POST", "/auth/mobile/refresh", { body: { refreshToken } }),
+    login: async (req): Promise<LoginResult> => {
+      const raw = await call<RawSession | OtpChallengeRaw>(base, "POST", "/auth/mobile/login", { body: req, kind: "login" });
+      return "twoFactorRequired" in raw ? raw : toSession(raw);
+    },
+    verifyOtp: async (req): Promise<MobileLoginResponse> =>
+      toSession(await call<RawSession>(base, "POST", "/auth/mobile/verify-otp", { body: req, kind: "login" })),
+    refresh: async (refreshToken): Promise<MobileLoginResponse> =>
+      toSession(await call<RawSession>(base, "POST", "/auth/mobile/refresh", { body: { refreshToken }, kind: "refresh" })),
     logout: (refreshToken) =>
-      call<void>(base, "POST", "/auth/mobile/logout", { body: { refreshToken } }),
+      call<void>(base, "POST", "/auth/mobile/logout", { body: { refreshToken }, kind: "refresh" }),
     registerDevice: (token, body) => call<void>(base, "POST", "/devices", { token, body }),
     homeAttention: (token) => call<HomeAttention>(base, "GET", "/home/attention", { token }),
     homeSummary: (token) => call<HomeSummary>(base, "GET", "/home/summary", { token }),
-    appVersion: () => call<AppVersionInfo>(base, "GET", "/app/version"),
+    appVersion: (current) =>
+      call<AppVersionInfo>(base, "GET", `/app/version${current ? `?current=${encodeURIComponent(current)}` : ""}`),
 
     approvals: (token, status) =>
       call<Paginated<Approval>>(base, "GET", `/approvals?status=${status}`, { token }),
-    approve: (token, id) =>
-      call<ApprovalDecisionResult>(base, "POST", `/approvals/${id}/approve`, { token, body: {} }),
+    approve: (token, id, biometricConfirmed) =>
+      call<ApprovalDecisionResult>(base, "POST", `/approvals/${encodeURIComponent(id)}/approve`, {
+        token,
+        body: biometricConfirmed ? { biometricConfirmed: true } : {},
+      }),
     reject: (token, id, reason) =>
-      call<ApprovalDecisionResult>(base, "POST", `/approvals/${id}/reject`, {
+      call<ApprovalDecisionResult>(base, "POST", `/approvals/${encodeURIComponent(id)}/reject`, {
         token,
         body: { reason },
       }),
@@ -260,7 +275,7 @@ export function createHttpApi(base: string): Api {
       const qs = q.barcode
         ? `barcode=${encodeURIComponent(q.barcode)}`
         : `q=${encodeURIComponent(q.q ?? "")}`;
-      return call<StockItem[]>(base, "GET", `/stock/lookup?${qs}`, { token });
+      return call<{ items: StockItem[] }>(base, "GET", `/stock/lookup?${qs}`, { token }).then((r) => r.items);
     },
     stockAdjust: (token, req) =>
       call<AdjustResult>(base, "POST", "/stock/adjustments", { token, body: req }),

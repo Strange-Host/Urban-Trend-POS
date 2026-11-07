@@ -1,93 +1,148 @@
-// Contract for /api/v1 as described in the v1 spec (sections 3, 4, 5.3).
-// ASSUMPTION: field names below are inferred from the spec, not read from the
-// backend. Before pointing the app at the real server, reconcile this file first.
+// Contract for /api/v1, read from the server's own response schemas (backend/src/validation/mobile.responses.js and
+// mobile.schema.js). The server is the source of truth: the live check (npm run live-check) drives this client against a
+// running backend, so a drift shows up as a failing step rather than a broken screen.
 // Money is integer cents (same convention as the rest of the POS API).
-// The v1.1 endpoints (catalog, stock-take, payments, couriers, attendance) are in typesV11.ts and were read from the real
-// server schemas, so unlike the v1 parts below they need no reconciling.
 import type { ApiErrorCodeV11, ApiV11 } from "./typesV11";
 import type { ApiErrorCodeV2, ApiV2 } from "./typesV2";
 
-export type Role = "owner" | "manager" | "dispatch" | "telesales";
+// What the server calls a role. Permissions, not the role, decide what a person sees; the role is for display and for
+// the few owner-only actions the server itself restricts to admin.
+export type Role = "admin" | "manager" | "cashier" | "store";
 
 export interface SessionUser {
   id: number;
   name: string;
-  username: string;
+  email: string;
   role: Role;
+  store_id?: number | null;
   permissions: string[];
 }
 
 export interface DeviceInfo {
   name: string;
   appVersion: string;
+  platform?: string;
+  /** This install's own id, kept on the phone, so signing in again from the same phone reuses its device row. */
+  deviceId?: string;
 }
 
 export interface MobileLoginRequest {
-  username: string;
+  email: string;
   password: string;
   device: DeviceInfo;
 }
 
 export interface TokenPair {
   accessToken: string;
-  refreshToken: string; // returned in body in mobile mode, stored in Keystore
-  expiresIn: number; // seconds
+  refreshToken: string; // single use: every refresh returns a new one. Kept in secure storage
+}
+
+export interface AppSettings {
+  autoLockSeconds: number; // owner-configurable
+  /** An approval of at least this amount needs fingerprint or face. null = never ask. */
+  biometricApprovalAboveCents: number | null;
 }
 
 export interface MobileLoginResponse extends TokenPair {
   user: SessionUser;
-  deviceId: number;
-  settings: {
-    autoLockSeconds: number; // owner-configurable, default 120
-    biometricApprovalAboveCents?: number; // approve above this needs biometric confirmation
-  };
+  settings: AppSettings;
+  sessionId: number;
+  /** The hard end of this sign-in, however active the phone is. */
+  sessionExpiresAt: string;
 }
 
-export type AttentionKind =
-  | "approvals"
-  | "money_at_risk"
-  | "unmatched_payments"
-  | "stock_alerts";
+/** The account uses sign-in codes: the code went to `phoneHint`; answer it with verifyOtp. */
+export interface OtpChallenge {
+  twoFactorRequired: true;
+  challengeToken: string;
+  phoneHint: string;
+  expiresInSeconds: number;
+}
+
+export type LoginResult = MobileLoginResponse | OtpChallenge;
+export const isOtpChallenge = (r: LoginResult): r is OtpChallenge => "twoFactorRequired" in r;
+
+export interface VerifyOtpRequest {
+  challengeToken: string;
+  code: string;
+  device: DeviceInfo;
+}
+
+export type Severity = "info" | "warning" | "urgent";
+
+/** Where tapping an attention item goes: the kind of record and its row id. */
+export interface AttentionLink {
+  type: string;
+  id: number;
+}
 
 export interface AttentionItem {
-  id: string;
-  kind: AttentionKind; // server returns these already ordered by urgency
+  id: string; // stable per item, e.g. "approval_request:12"
+  kind: string; // approval_request, unpaid_parcel, unmatched_payment, low_stock, ... (the server adds kinds over time)
+  severity: Severity;
   title: string;
-  subtitle: string;
-  badge?: string; // e.g. "Oldest 4h"
-  urgent?: boolean;
-  deepLink: string; // e.g. "approvals" | "orders?unpaid=1" | "stock?alerts=1"
+  detail: string | null;
+  amountCents: number | null;
+  since: string | null; // when it started waiting
+  link: AttentionLink | null;
 }
 
 export interface HomeAttention {
-  total: number;
+  total: number; // everything waiting on this person, including items beyond those sent
+  counts: Record<string, number>;
   items: AttentionItem[];
-  generatedAt: string; // ISO; server caches 30-60 s
-}
-
-export interface HomeSummary {
-  salesCents: number;
-  orders: number;
-  cashVarianceCents: number;
   generatedAt: string;
 }
+
+interface SummaryBase {
+  generatedAt: string;
+  date: string;
+  currency: string;
+}
+/** People who may see reports get the whole shop. */
+export interface HomeSummaryShop extends SummaryBase {
+  scope: "shop";
+  posSalesCents: number;
+  posSalesCount: number;
+  onlineSalesCents: number;
+  onlineOrderCount: number;
+  totalSalesCents: number;
+  cashCollectedCents: number;
+  lowStockCount: number;
+  attentionCount: number;
+}
+/** Everyone else sees only their own sales today. Never cost or profit. */
+export interface HomeSummaryMine extends SummaryBase {
+  scope: "mine";
+  mySalesCount: number;
+  mySalesCents: number;
+}
+export type HomeSummary = HomeSummaryShop | HomeSummaryMine;
 
 export interface AppVersionInfo {
   minimumVersion: string;
   latestVersion: string;
-  downloadUrl: string;
+  /** null until the owner uploads an APK or sets a link. */
+  downloadUrl: string | null;
+  updateRequired: boolean;
+  updateAvailable: boolean;
 }
 
 export interface ApiErrorBody {
   error: { code: string; message: string };
+  details?: unknown;
 }
 
 export type ApiErrorCode =
   | "INVALID_CREDENTIALS"
-  | "TOKEN_EXPIRED"
-  | "REFRESH_INVALID" // rotation / replay detected / token_version bumped
-  | "DEVICE_REVOKED"
+  | "TOKEN_EXPIRED" // the access token ran out: refresh once and retry
+  | "REFRESH_INVALID" // the refresh token was refused (used twice, session ended, account changed): sign in again
+  | "DEVICE_REVOKED" // the session was ended from elsewhere (owner revoked the phone, signed out on another device)
   | "FORBIDDEN"
+  | "ACCOUNT_LOCKED" // too many wrong passwords; details.retryAfterMinutes
+  | "PASSWORD_CHANGE_REQUIRED" // a temporary password: it must be changed on the website first
+  | "BIOMETRIC_REQUIRED" // an approval above the owner's limit needs fingerprint or face
+  | "RATE_LIMITED"
   | "NETWORK" // client-side: no connection
   | "UNKNOWN"
   | ApiErrorCodeV11
@@ -98,28 +153,29 @@ export interface Paginated<T> {
   nextCursor: string | null;
 }
 
-// ---- approvals (spec 5.1 #3, 5.2)
+// ---- approvals
 export type ApprovalType = "void" | "refund" | "requisition" | "expense" | "stock_adjustment" | "duplicate_order";
 export type ApprovalStatus = "pending" | "approved" | "rejected";
 
 export interface ApprovalLine {
   name: string;
   qty: number;
-  priceCents: number;
+  priceCents: number | null;
 }
 
 export interface Approval {
-  id: number;
+  id: string; // "<type>:<number>", e.g. "void:12"
   type: ApprovalType;
   status: ApprovalStatus;
+  title: string;
   requestedBy: string;
   requestedAt: string;
-  amountCents: number;
+  amountCents: number | null;
   reason: string;
   items: ApprovalLine[];
-  decidedBy?: string;
-  decidedAt?: string;
-  decisionNote?: string;
+  decidedBy: string | null;
+  decidedAt: string | null;
+  decisionNote: string | null;
 }
 
 /** applied=false means someone else decided first; `approval` carries the existing decision. */
@@ -131,14 +187,17 @@ export interface ApprovalDecisionResult {
 // ---- alerts (same data as the web bell)
 export interface AppNotification {
   id: number;
+  type: string;
+  severity: Severity;
   title: string;
   body: string;
   createdAt: string;
   read: boolean;
+  /** "<entity>:<id>" (e.g. "order:41") or empty. */
   deepLink: string;
 }
 
-// ---- stock (spec 5.1 #5-6)
+// ---- stock
 export interface StockItem {
   id: number;
   sku: string;
@@ -169,17 +228,20 @@ export interface AdjustRequest {
 /** Above the server threshold the change is not applied; it becomes an approval for the owner. */
 export interface AdjustResult {
   applied: boolean;
-  approvalId?: number;
+  approvalId?: string;
   newAvailable?: number;
 }
 
-// ---- orders (spec 5.1 #7)
+// ---- orders
 export type OrderStatus =
-  | "pending_confirmation"
   | "awaiting_dispatch"
-  | "dispatched"
-  | "delivered"
-  | "returned"
+  | "dispatched_unpaid"
+  | "dispatched_partial"
+  | "dispatched_paid"
+  | "returned_in_transit"
+  | "returned_awaiting_inspection"
+  | "returned_resellable"
+  | "returned_damaged"
   | "cancelled";
 export type PaymentState = "paid" | "unpaid" | "partial";
 
@@ -295,20 +357,22 @@ export interface Analytics {
 
 // The surface the app depends on. Mock and HTTP both implement this.
 export interface Api extends ApiV11, ApiV2 {
-  login(req: MobileLoginRequest): Promise<MobileLoginResponse>;
-  refresh(refreshToken: string): Promise<TokenPair>;
+  login(req: MobileLoginRequest): Promise<LoginResult>;
+  verifyOtp(req: VerifyOtpRequest): Promise<MobileLoginResponse>;
+  /** Returns the whole session again: the user's permissions and the owner's app settings are refreshed with it. */
+  refresh(refreshToken: string): Promise<MobileLoginResponse>;
   logout(refreshToken: string): Promise<void>;
   registerDevice(
     accessToken: string,
-    body: DeviceInfo & { pushToken?: string },
+    body: DeviceInfo & { pushToken?: string | null },
   ): Promise<void>;
   homeAttention(accessToken: string): Promise<HomeAttention>;
   homeSummary(accessToken: string): Promise<HomeSummary>;
-  appVersion(): Promise<AppVersionInfo>;
+  appVersion(current?: string): Promise<AppVersionInfo>;
 
   approvals(accessToken: string, status: ApprovalStatus): Promise<Paginated<Approval>>;
-  approve(accessToken: string, id: number): Promise<ApprovalDecisionResult>;
-  reject(accessToken: string, id: number, reason: string): Promise<ApprovalDecisionResult>;
+  approve(accessToken: string, id: string, biometricConfirmed?: boolean): Promise<ApprovalDecisionResult>;
+  reject(accessToken: string, id: string, reason: string): Promise<ApprovalDecisionResult>;
 
   notifications(accessToken: string, cursor?: string): Promise<Paginated<AppNotification>>;
 

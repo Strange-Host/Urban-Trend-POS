@@ -31,7 +31,7 @@ export default function ReturnsScreen() {
   const [note, setNote] = useState("");
 
   const canRestock = can(user, "orders.inspect");
-  const isOwner = user?.role === "owner";
+  const isOwner = user?.role === "admin";
 
   const load = useCallback(async (cursor?: string) => {
     if (tab === "receive") return;

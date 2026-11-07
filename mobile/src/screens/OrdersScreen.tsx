@@ -13,7 +13,8 @@ import { orderStatusLabel, paymentLabel } from "../lib/labels";
 import { useRemote } from "../lib/useRemote";
 import { colors } from "../theme";
 
-const STATUS_CHIPS: OrderStatus[] = ["pending_confirmation", "awaiting_dispatch", "dispatched", "delivered", "returned"];
+// "Unpaid" (its own chip) already covers dispatched_unpaid and dispatched_partial.
+const STATUS_CHIPS: OrderStatus[] = ["awaiting_dispatch", "dispatched_paid", "returned_awaiting_inspection", "returned_resellable", "returned_damaged", "cancelled"];
 
 export default function OrdersScreen() {
   const nav = useNavigation<any>();

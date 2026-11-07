@@ -52,7 +52,7 @@ export default function OrderDetailScreen() {
                 <Text style={[text.sub, { marginTop: 0, flexShrink: 1 }]}>
                   {it.qty} × {it.name}
                 </Text>
-                <Text style={[text.sub, { marginTop: 0 }]}>{formatKes(it.priceCents * it.qty)}</Text>
+                {it.priceCents !== null ? <Text style={[text.sub, { marginTop: 0 }]}>{formatKes(it.priceCents * it.qty)}</Text> : null}
               </View>
             ))}
             <View style={[row.between, { paddingTop: 6 }]}>

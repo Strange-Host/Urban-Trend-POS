@@ -12,7 +12,7 @@ import React, {
 import { AppState } from "react-native";
 import { api } from "../api";
 import { ApiError, isApiError } from "../api/errors";
-import type { AppVersionInfo, SessionUser } from "../api/types";
+import { isOtpChallenge, type AppVersionInfo, type DeviceInfo, type MobileLoginResponse, type OtpChallenge, type SessionUser } from "../api/types";
 import { authenticate, isAuthenticating } from "../lib/biometric";
 import { compareVersions } from "../lib/format";
 import { shouldLock } from "../lib/lock";
@@ -30,9 +30,11 @@ interface AuthCtx {
   notice: string | null;
   update: AppVersionInfo | null;
   autoLockSeconds: number;
-  /** Approvals above this amount need biometric confirmation (0 = always). */
-  approvalBiometricAboveCents: number;
-  signIn(username: string, password: string): Promise<void>;
+  /** Approvals of at least this amount need fingerprint or face; null = the owner never asks. */
+  approvalBiometricAboveCents: number | null;
+  /** Signs in. When the account uses sign-in codes the answer is the challenge to complete with verifyOtp. */
+  signIn(email: string, password: string): Promise<OtpChallenge | null>;
+  verifyOtp(challenge: OtpChallenge, code: string): Promise<void>;
   unlock(): Promise<boolean>;
   lockNow(): void;
   signOut(): Promise<void>;
@@ -48,7 +50,14 @@ export function useAuth(): AuthCtx {
   return c;
 }
 
-const FATAL = new Set(["DEVICE_REVOKED", "REFRESH_INVALID"]);
+// PASSWORD_CHANGE_REQUIRED: a temporary password can sign in but cannot do anything until it is changed on the website.
+const FATAL = new Set(["DEVICE_REVOKED", "REFRESH_INVALID", "PASSWORD_CHANGE_REQUIRED"]);
+
+const FATAL_MESSAGE: Record<string, string> = {
+  DEVICE_REVOKED: "This device was signed out. Sign in again.",
+  REFRESH_INVALID: "Your session ended. Sign in again.",
+  PASSWORD_CHANGE_REQUIRED: "Change your temporary password on the website first, then sign in again.",
+};
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [status, setStatusState] = useState<AuthStatus>("booting");
@@ -57,7 +66,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [notice, setNotice] = useState<string | null>(null);
   const [update, setUpdate] = useState<AppVersionInfo | null>(null);
   const [autoLockSeconds, setAutoLockSeconds] = useState(DEFAULT_AUTO_LOCK_SECONDS);
-  const [approvalBiometricAboveCents, setApprovalThreshold] = useState(0);
+  const [approvalBiometricAboveCents, setApprovalThreshold] = useState<number | null>(null);
 
   const statusRef = useRef<AuthStatus>("booting");
   const setStatus = useCallback((s: AuthStatus) => {
@@ -85,24 +94,38 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [setStatus],
   );
 
+  const applySession = useCallback((res: MobileLoginResponse) => {
+    const threshold = res.settings.biometricApprovalAboveCents;
+    secure
+      .saveProfile({ user: res.user, autoLockSeconds: res.settings.autoLockSeconds, biometricApprovalAboveCents: threshold })
+      .catch(() => {});
+    setApprovalThreshold(threshold);
+    lockLimit.current = res.settings.autoLockSeconds;
+    setAutoLockSeconds(res.settings.autoLockSeconds);
+    setUser(res.user);
+  }, []);
+
   const refreshTokens = useCallback((): Promise<string> => {
     if (refreshing.current) return refreshing.current;
     const rt = tokens.current.refresh;
     if (!rt) return Promise.reject(new ApiError("REFRESH_INVALID", "No session", 401));
     const p = api
       .refresh(rt)
-      .then(async (pair) => {
-        tokens.current = { access: pair.accessToken, refresh: pair.refreshToken };
+      .then(async (res) => {
+        tokens.current = { access: res.accessToken, refresh: res.refreshToken };
         // rotation: the old refresh token is dead, persist the new one immediately
-        await secure.saveRefresh(pair.refreshToken);
-        return pair.accessToken;
+        await secure.saveRefresh(res.refreshToken);
+        // the refresh carries the person's current permissions and the owner's app settings, so a change reaches the phone
+        // within minutes instead of at the next sign-in
+        applySession(res);
+        return res.accessToken;
       })
       .finally(() => {
         refreshing.current = null;
       });
     refreshing.current = p;
     return p;
-  }, []);
+  }, [applySession]);
 
   const request = useCallback(
     async <T,>(fn: (accessToken: string) => Promise<T>): Promise<T> => {
@@ -121,11 +144,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             throw e;
           }
           if (FATAL.has(e.code)) {
-            await endSession(
-              e.code === "DEVICE_REVOKED"
-                ? "This device was signed out. Sign in again."
-                : "Your session ended. Sign in again.",
-            );
+            await endSession(FATAL_MESSAGE[e.code] ?? "Your session ended. Sign in again.");
             throw e;
           }
           if (e.code === "TOKEN_EXPIRED" && attempt === 0) {
@@ -141,32 +160,45 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [refreshTokens, endSession],
   );
 
-  const signIn = useCallback(
-    async (username: string, password: string) => {
-      const device = {
-        name: Device.deviceName ?? Device.modelName ?? "Android device",
-        appVersion: APP_VERSION,
-      };
-      const res = await api.login({ username, password, device });
+  const deviceInfo = useCallback(async (): Promise<DeviceInfo> => ({
+    name: Device.deviceName ?? Device.modelName ?? "Android device",
+    appVersion: APP_VERSION,
+    platform: `${Device.osName ?? "android"} ${Device.osVersion ?? ""}`.trim(),
+    deviceId: await secure.installId(),
+  }), []);
+
+  const startSession = useCallback(
+    async (res: MobileLoginResponse, device: DeviceInfo) => {
       tokens.current = { access: res.accessToken, refresh: res.refreshToken };
       await secure.saveRefresh(res.refreshToken);
-      const threshold = res.settings.biometricApprovalAboveCents ?? 0;
-      await secure.saveProfile({
-        user: res.user,
-        autoLockSeconds: res.settings.autoLockSeconds,
-        biometricApprovalAboveCents: threshold,
-      });
-      setApprovalThreshold(threshold);
-      lockLimit.current = res.settings.autoLockSeconds;
-      setAutoLockSeconds(res.settings.autoLockSeconds);
-      setUser(res.user);
+      applySession(res);
       setNotice(null);
       setOffline(false);
       setStatus("unlocked");
       // best effort; the push token is added when FCM is wired in
       api.registerDevice(res.accessToken, device).catch(() => {});
     },
-    [setStatus],
+    [applySession, setStatus],
+  );
+
+  const signIn = useCallback(
+    async (email: string, password: string): Promise<OtpChallenge | null> => {
+      const device = await deviceInfo();
+      const res = await api.login({ email, password, device });
+      if (isOtpChallenge(res)) return res;
+      await startSession(res, device);
+      return null;
+    },
+    [deviceInfo, startSession],
+  );
+
+  const verifyOtp = useCallback(
+    async (challenge: OtpChallenge, code: string) => {
+      const device = await deviceInfo();
+      const res = await api.verifyOtp({ challengeToken: challenge.challengeToken, code, device });
+      await startSession(res, device);
+    },
+    [deviceInfo, startSession],
   );
 
   const unlock = useCallback(async () => {
@@ -197,8 +229,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     let alive = true;
     (async () => {
       try {
-        const v = await api.appVersion();
-        if (compareVersions(APP_VERSION, v.minimumVersion) < 0) {
+        const v = await api.appVersion(APP_VERSION);
+        if (v.updateRequired || compareVersions(APP_VERSION, v.minimumVersion) < 0) {
           if (!alive) return;
           setUpdate(v);
           setStatus("updateRequired");
@@ -216,7 +248,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         tokens.current = { refresh: rt };
         lockLimit.current = profile.autoLockSeconds;
         setAutoLockSeconds(profile.autoLockSeconds);
-        setApprovalThreshold(profile.biometricApprovalAboveCents ?? 0);
+        setApprovalThreshold(profile.biometricApprovalAboveCents ?? null);
         setUser(profile.user);
         setStatus("locked");
       } else {
@@ -252,12 +284,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       autoLockSeconds,
       approvalBiometricAboveCents,
       signIn,
+      verifyOtp,
       unlock,
       lockNow,
       signOut,
       request,
     }),
-    [status, user, offline, notice, update, autoLockSeconds, approvalBiometricAboveCents, signIn, unlock, lockNow, signOut, request],
+    [status, user, offline, notice, update, autoLockSeconds, approvalBiometricAboveCents, signIn, verifyOtp, unlock, lockNow, signOut, request],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

@@ -1,5 +1,5 @@
 import { createNavigationContainerRef } from "@react-navigation/native";
-import { parseDeepLink, type DeepTarget } from "../lib/deeplink";
+import { entityTarget, parseDeepLink, type DeepTarget } from "../lib/deeplink";
 
 export const navigationRef = createNavigationContainerRef<any>();
 
@@ -26,6 +26,14 @@ export function goTo(nav: { navigate: (...a: any[]) => void }, t: DeepTarget) {
 /** Returns false when the link points at a screen that does not exist yet. */
 export function openDeepLink(nav: { navigate: (...a: any[]) => void }, link: string): boolean {
   const t = parseDeepLink(link);
+  if (!t) return false;
+  goTo(nav, t);
+  return true;
+}
+
+/** The same for a home-feed item's { type, id } link. */
+export function openEntityLink(nav: { navigate: (...a: any[]) => void }, link: { type: string; id: number } | null): boolean {
+  const t = link ? entityTarget(link.type, link.id) : null;
   if (!t) return false;
   goTo(nav, t);
   return true;

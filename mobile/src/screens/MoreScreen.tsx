@@ -26,7 +26,7 @@ export default function MoreScreen() {
         <Card>
           <Text style={text.title}>{user?.name}</Text>
           <Text style={text.sub}>
-            {user?.role} · {user?.username}
+            {user?.role} · {user?.email}
           </Text>
         </Card>
         <Card>
@@ -41,7 +41,9 @@ export default function MoreScreen() {
           <Text style={text.title}>Security</Text>
           <Text style={text.sub}>Unlocks with fingerprint, face or screen lock. Locks after {Math.round(autoLockSeconds / 60)} min in the background.</Text>
           <Text style={text.sub}>
-            Approvals above {approvalBiometricAboveCents > 0 ? `KES ${Math.round(approvalBiometricAboveCents / 100).toLocaleString("en-US")}` : "KES 0"} ask for biometric confirmation.
+            {approvalBiometricAboveCents === null
+              ? "Approvals do not ask for biometric confirmation."
+              : `Approvals of KES ${Math.round(approvalBiometricAboveCents / 100).toLocaleString("en-US")} or more ask for biometric confirmation.`}
           </Text>
           <Text style={text.sub}>Approvals, cost and payment screens block screenshots. The owner can revoke this device from the web app.</Text>
         </Card>

@@ -42,7 +42,7 @@ export default function ApprovalsScreen() {
               <View style={row.between}>
                 <Text style={text.title}>
                   {approvalTypeLabel[a.type]}
-                  {a.amountCents > 0 ? ` · ${formatKes(a.amountCents)}` : ""}
+                  {a.amountCents ? ` · ${formatKes(a.amountCents)}` : ""}
                 </Text>
                 <Pill text={ageShort(a.requestedAt)} tone={Date.now() - new Date(a.requestedAt).getTime() > 3 * 3_600_000 ? "red" : "amber"} />
               </View>

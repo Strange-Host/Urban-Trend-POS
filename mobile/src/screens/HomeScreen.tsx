@@ -7,8 +7,9 @@ import type { AttentionItem, HomeAttention, HomeSummary } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 import { Header } from "../components/Header";
 import { Banner, Card, Pill, row, text } from "../components/ui";
-import { openDeepLink } from "../navigation/linking";
-import { formatAmount, timeAgo } from "../lib/format";
+import { openEntityLink } from "../navigation/linking";
+import { formatKes, timeAgo } from "../lib/format";
+import { ageShort } from "../lib/age";
 import { homeCache } from "../lib/storage";
 import { colors } from "../theme";
 
@@ -66,7 +67,7 @@ export default function HomeScreen() {
   );
 
   function open(item: AttentionItem) {
-    if (!openDeepLink(nav, item.deepLink)) Alert.alert(item.title, "This screen is built in a later release.");
+    if (!openEntityLink(nav, item.link)) Alert.alert(item.title, "This one opens on the website.");
   }
 
   const total = data?.attention.total ?? 0;
@@ -113,19 +114,27 @@ export default function HomeScreen() {
             <Card key={item.id} onPress={() => open(item)}>
               <View style={row.between}>
                 <Text style={[text.title, { flexShrink: 1 }]}>{item.title}</Text>
-                {item.badge ? <Pill text={item.badge} tone={item.urgent ? "red" : "amber"} /> : null}
+                {item.since ? <Pill text={ageShort(item.since)} tone={item.severity === "urgent" ? "red" : "amber"} /> : null}
               </View>
-              <Text style={text.sub}>{item.subtitle}</Text>
+              {item.detail ? <Text style={text.sub}>{item.detail}</Text> : null}
+              {item.amountCents ? <Text style={text.sub}>{formatKes(item.amountCents)}</Text> : null}
             </Card>
           ))}
 
           {data ? (
             <Card>
-              <View style={[row.between, { alignItems: "flex-start" }]}>
-                <Stat label="Sales" value={formatAmount(data.summary.salesCents)} />
-                <Stat label="Orders" value={String(data.summary.orders)} />
-                <Stat label="Cash variance" value={formatAmount(data.summary.cashVarianceCents)} />
-              </View>
+              {data.summary.scope === "shop" ? (
+                <View style={[row.between, { alignItems: "flex-start" }]}>
+                  <Stat label="Sales today" value={formatKes(data.summary.totalSalesCents)} />
+                  <Stat label="Orders" value={String(data.summary.posSalesCount + data.summary.onlineOrderCount)} />
+                  <Stat label="Cash in" value={formatKes(data.summary.cashCollectedCents)} />
+                </View>
+              ) : (
+                <View style={[row.between, { alignItems: "flex-start" }]}>
+                  <Stat label="Your sales today" value={formatKes(data.summary.mySalesCents)} />
+                  <Stat label="Sales made" value={String(data.summary.mySalesCount)} />
+                </View>
+              )}
             </Card>
           ) : null}
         </ScrollView>

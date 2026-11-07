@@ -34,7 +34,8 @@ import { toInternational, whatsappUrl, telUrl } from "./phone";
 
 test("parseDeepLink", () => {
   assert.deepEqual(parseDeepLink("approvals"), { kind: "tab", tab: "Approvals" });
-  assert.deepEqual(parseDeepLink("approvals/3"), { kind: "approval", id: 3 });
+  assert.deepEqual(parseDeepLink("approvals/void:3"), { kind: "approval", id: "void:3" });
+  assert.deepEqual(parseDeepLink("approvals/3"), { kind: "tab", tab: "Approvals" }); // a bare number does not name an approval
   assert.deepEqual(parseDeepLink("orders/1004"), { kind: "order", id: 1004 });
   const o = parseDeepLink("orders?unpaid=1");
   assert.equal(o?.kind === "tab" && o.tab, "Orders");
@@ -108,9 +109,9 @@ test("channelTotals drops empty channels", () => {
   assert.deepEqual(channelTotals(rows), [{ sourceType: "local", revenueCents: 150 }]);
 });
 
-test("can: owner always, others by key", () => {
-  const u = (role: "owner" | "manager", permissions: string[]) => ({ id: 1, name: "x", username: "x", role, permissions });
-  assert.equal(can(u("owner", []), "reports.view"), true);
+test("can: admin always, others by key", () => {
+  const u = (role: "admin" | "manager", permissions: string[]) => ({ id: 1, name: "x", email: "x@example.com", role, permissions });
+  assert.equal(can(u("admin", []), "reports.view"), true);
   assert.equal(can(u("manager", ["reports.view"]), "reports.view"), true);
   assert.equal(can(u("manager", ["orders.view"]), "reports.view"), false);
   assert.equal(can(u("manager", ["a"]), ["b", "a"]), true);

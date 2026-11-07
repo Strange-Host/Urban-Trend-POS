@@ -11,6 +11,10 @@ export interface MenuItem {
   perm?: string | string[];
 }
 
+// The same keys the server asks for (GET /approvals, GET /stock/lookup): a screen the server would answer 403 is not offered.
+export const APPROVER_PERMS = ["approvals.review", "expenses.approve", "requisitions.approve", "inventory.approve_adjust", "orders.approve_duplicate"];
+export const STOCK_LOOKUP_PERMS = ["inventory.adjust", "stock.review", "stock.receive"];
+
 export const PINNED_TOP: MenuItem[] = [
   { label: "Home", icon: "⌂", screen: "Home" },
   { label: "Dashboard", icon: "▲", screen: "Dashboard", perm: "reports.view" },
@@ -21,8 +25,8 @@ export const GROUPS: { id: string; label: string; items: MenuItem[] }[] = [
     id: "sell",
     label: "Sell",
     items: [
-      { label: "Orders", icon: "⊞", screen: "Orders" },
-      { label: "Approvals", icon: "✓", screen: "Approvals" },
+      { label: "Orders", icon: "⊞", screen: "Orders", perm: "orders.view" },
+      { label: "Approvals", icon: "✓", screen: "Approvals", perm: APPROVER_PERMS },
       { label: "My orders", icon: "☎", route: "MyOrders", perm: "telesales.work" },
       { label: "Leads", icon: "☍", route: "MyLeads", perm: "leads.work" },
       { label: "Returns", icon: "↩", route: "Returns", perm: "returns.receive" },
@@ -33,7 +37,7 @@ export const GROUPS: { id: string; label: string; items: MenuItem[] }[] = [
     id: "stock",
     label: "Stock",
     items: [
-      { label: "Stock control", icon: "⇅", screen: "Stock" },
+      { label: "Stock control", icon: "⇅", screen: "Stock", perm: STOCK_LOOKUP_PERMS },
       { label: "Catalog", icon: "▤", route: "Catalog", perm: "products.manage" },
       { label: "Stock-take", icon: "☑", route: "StockTakes", perm: "stock.count" },
     ],

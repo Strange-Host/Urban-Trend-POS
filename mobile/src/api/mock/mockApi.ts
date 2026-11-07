@@ -22,6 +22,7 @@ import type {
   StockItem,
   TokenPair,
 } from "../types";
+import { APPROVER_PERMS, STOCK_LOOKUP_PERMS } from "../../navigation/menu";
 
 // Dev switches, flipped from the "Mock controls" card on the More screen.
 export const mockControls = {
@@ -33,44 +34,64 @@ export const mockControls = {
   latencyMs: 350,
 };
 
-const USERS: Record<string, { password: string; user: SessionUser }> = {
+// Permission names are the server's own (backend/src/config/permissions.js); the mock enforces them the way the server does.
+const OWNER_PERMS = [
+  "reports.view", "orders.view", "approvals.review", "expenses.approve", "requisitions.approve", "inventory.adjust",
+  "inventory.approve_adjust", "orders.approve_duplicate", "orders.inspect", "products.manage", "products.view_cost", "prices.bulk",
+  "stock.count", "stock.review", "stock.receive", "payments.reconcile", "couriers.settle", "leads.work", "returns.receive",
+];
+
+interface MockUser {
+  password: string;
+  user: SessionUser;
+  /** Signs in with a code sent by text; the mock accepts OTP_CODE. */
+  otp?: boolean;
+}
+export const OTP_CODE = "123456";
+
+const USERS: Record<string, MockUser> = {
   owner: {
     password: "owner123",
-    user: {
-      id: 1,
-      name: "Jon",
-      username: "owner",
-      role: "owner",
-      permissions: ["approvals.decide", "stock.adjust", "stock.view", "cost.view", "orders.view", "reports.view"],
-    },
+    user: { id: 1, name: "Jon", email: "owner@urbantrends.test", role: "admin", store_id: 1, permissions: OWNER_PERMS },
   },
   manager: {
     password: "manager123",
     user: {
       id: 2,
       name: "Wanjiru",
-      username: "manager",
+      email: "manager@urbantrends.test",
       role: "manager",
-      // Catalog, stock-take, payments and couriers, but NOT products.view_cost or prices.bulk: the manager sees no cost and
-      // cannot change prices in bulk (the owner can grant both on the server).
-      permissions: ["approvals.decide", "orders.view", "stock.view", "reports.view", "products.manage", "stock.count", "stock.review", "payments.reconcile", "couriers.settle", "leads.work", "returns.receive", "orders.inspect", "orders.approve_duplicate"],
+      store_id: 1,
+      // Catalog, stock-take, payments and couriers, but NOT products.view_cost, prices.bulk or inventory.approve_adjust: the manager
+      // sees no cost, cannot change prices in bulk and cannot approve a large stock adjustment (the owner can grant them on the server).
+      permissions: ["approvals.review", "expenses.approve", "requisitions.approve", "orders.view", "inventory.adjust", "reports.view", "products.manage", "stock.count", "stock.review", "stock.receive", "payments.reconcile", "couriers.settle", "leads.work", "returns.receive", "orders.inspect", "orders.approve_duplicate"],
     },
   },
   // Telesales agents: only their own assigned orders and leads, and they can receive a returned parcel. A second agent exists so
   // "someone else's order" can be tried (it is a 404, not an error screen).
   agent: {
     password: "agent123",
-    user: { id: 4, name: "Njoki", username: "agent", role: "telesales", permissions: ["telesales.work", "leads.work", "returns.receive"] },
+    user: { id: 4, name: "Njoki", email: "agent@urbantrends.test", role: "cashier", store_id: 1, permissions: ["telesales.work", "leads.work", "returns.receive", "stock.count"] },
   },
   agent2: {
     password: "agent123",
-    user: { id: 5, name: "Otieno", username: "agent2", role: "telesales", permissions: ["telesales.work", "leads.work", "returns.receive"] },
+    user: { id: 5, name: "Otieno", email: "agent2@urbantrends.test", role: "cashier", store_id: 1, permissions: ["telesales.work", "leads.work", "returns.receive", "stock.count"] },
   },
   // Counts stock and nothing else: useful for trying the stock-take without catalog access.
   keeper: {
     password: "keeper123",
-    user: { id: 3, name: "Brian", username: "keeper", role: "dispatch", permissions: ["stock.count", "stock.view"] },
+    user: { id: 3, name: "Brian", email: "keeper@urbantrends.test", role: "store", store_id: 1, permissions: ["stock.count", "stock.receive"] },
   },
+  // An account that signs in with a text-message code (the code is 123456).
+  otp: {
+    password: "otp123",
+    otp: true,
+    user: { id: 6, name: "Amina", email: "otp@urbantrends.test", role: "manager", store_id: 1, permissions: ["approvals.review", "orders.view", "reports.view"] },
+  },
+};
+const userKeyOf = (login: string): string | undefined => {
+  const l = login.trim().toLowerCase();
+  return Object.keys(USERS).find((k) => k === l || (USERS[k] as MockUser).user.email === l);
 };
 
 // Refresh tokens rotate: reusing an old one is replay and kills the family.
@@ -104,66 +125,46 @@ function issue(username: string): TokenPair {
   const refreshToken = mint("rt");
   access.set(accessToken, username);
   refreshLive.set(refreshToken, username);
-  return { accessToken, refreshToken, expiresIn: 900 };
+  return { accessToken, refreshToken };
 }
+
+const BIOMETRIC_ABOVE_CENTS = 500_000;
+const session = (username: string): MobileLoginResponse => ({
+  ...issue(username),
+  user: (USERS[username] as MockUser).user,
+  settings: { autoLockSeconds: 120, biometricApprovalAboveCents: BIOMETRIC_ABOVE_CENTS },
+  sessionId: 7,
+  sessionExpiresAt: new Date(Date.now() + 30 * 86_400_000).toISOString(),
+});
+const challenges = new Map<string, string>();
 
 
 const mins = (n: number) => new Date(Date.now() - n * 60_000).toISOString();
 
+const ap = (a: Partial<Approval> & Pick<Approval, "id" | "type" | "requestedBy" | "requestedAt" | "amountCents" | "reason">): Approval => ({
+  status: "pending",
+  title: "",
+  items: [],
+  decidedBy: null,
+  decidedAt: null,
+  decisionNote: null,
+  ...a,
+});
+
 const approvals: Approval[] = [
-  {
-    id: 1,
-    type: "void",
-    status: "pending",
-    requestedBy: "Brian (cashier)",
-    requestedAt: mins(240),
-    amountCents: 640_000,
-    reason: "Customer changed mind after payment keyed in",
-    items: [{ name: "Linen shirt L", qty: 2, priceCents: 320_000 }],
-  },
-  {
-    id: 2,
-    type: "void",
-    status: "pending",
-    requestedBy: "Faith (cashier)",
-    requestedAt: mins(95),
-    amountCents: 120_000,
-    reason: "Wrong size scanned",
-    items: [{ name: "Canvas belt", qty: 1, priceCents: 120_000 }],
-  },
-  {
-    id: 3,
-    type: "refund",
-    status: "pending",
-    requestedBy: "Wanjiru (manager)",
-    requestedAt: mins(30),
-    amountCents: 1_080_000,
-    reason: "Item returned unworn within 7 days",
-    items: [
-      { name: "Denim jacket M", qty: 1, priceCents: 780_000 },
-      { name: "Cap", qty: 1, priceCents: 300_000 },
-    ],
-  },
-  {
-    id: 4,
-    type: "expense",
-    status: "approved",
-    requestedBy: "Wanjiru (manager)",
-    requestedAt: mins(2000),
-    amountCents: 350_000,
-    reason: "Shop cleaning supplies",
-    items: [],
-    decidedBy: "Jon",
-    decidedAt: mins(1900),
-  },
+  ap({ id: "void:1", type: "void", title: "Void sale #1", requestedBy: "Brian (cashier)", requestedAt: mins(240), amountCents: 640_000, reason: "Customer changed mind after payment keyed in", items: [{ name: "Linen shirt L", qty: 2, priceCents: 320_000 }] }),
+  ap({ id: "void:2", type: "void", title: "Void sale #2", requestedBy: "Faith (cashier)", requestedAt: mins(95), amountCents: 120_000, reason: "Wrong size scanned", items: [{ name: "Canvas belt", qty: 1, priceCents: 120_000 }] }),
+  ap({ id: "refund:3", type: "refund", title: "Refund sale #3", requestedBy: "Wanjiru (manager)", requestedAt: mins(30), amountCents: 1_080_000, reason: "Item returned unworn within 7 days", items: [{ name: "Denim jacket M", qty: 1, priceCents: 780_000 }, { name: "Cap", qty: 1, priceCents: 300_000 }] }),
+  ap({ id: "expense:4", type: "expense", title: "Shop cleaning supplies", status: "approved", requestedBy: "Wanjiru (manager)", requestedAt: mins(2000), amountCents: 350_000, reason: "Shop cleaning supplies", decidedBy: "Jon", decidedAt: mins(1900) }),
 ];
 let nextApprovalId = 5;
 
 const notifications: AppNotification[] = [
-  { id: 1, title: "Approval needed", body: "Refund KES 10,800 from Wanjiru", createdAt: mins(30), read: false, deepLink: "approvals/3" },
-  { id: 2, title: "Courier remittance overdue", body: "Swift Riders owes KES 41,000 (3 days)", createdAt: mins(180), read: false, deepLink: "orders?unpaid=1" },
-  { id: 3, title: "Unmatched payment", body: "M-Pesa KES 4,500 from 0712 345 678 waiting over 1 hour", createdAt: mins(240), read: true, deepLink: "payments/unmatched" },
-  { id: 4, title: "New device login", body: "A new phone signed in as manager", createdAt: mins(1400), read: true, deepLink: "more" },
+  { id: 1, type: "approval", severity: "warning", title: "Approval needed", body: "Refund KES 10,800 from Wanjiru", createdAt: mins(30), read: false, deepLink: "approval:3" },
+  { id: 2, type: "courier_remittance_overdue", severity: "urgent", title: "Courier remittance overdue", body: "Swift Riders owes KES 41,000 (3 days)", createdAt: mins(180), read: false, deepLink: "courier:2" },
+  { id: 3, type: "unmatched_payment", severity: "warning", title: "Unmatched payment", body: "M-Pesa KES 4,500 from 0712 345 678 waiting over 1 hour", createdAt: mins(240), read: true, deepLink: "payment_notification:9" },
+  { id: 4, type: "order", severity: "info", title: "Order returned", body: "UT-1004 came back from the courier", createdAt: mins(1400), read: true, deepLink: "order:1004" },
+  { id: 5, type: "security", severity: "info", title: "New device login", body: "A new phone signed in as manager", createdAt: mins(1500), read: true, deepLink: "" },
 ];
 
 const stock: StockItem[] = [
@@ -174,15 +175,14 @@ const stock: StockItem[] = [
 ];
 
 const COURIERS = ["Swift Riders", "Mtaani Express", "Direct Boda"];
-const STATUSES: OrderStatus[] = ["pending_confirmation", "awaiting_dispatch", "dispatched", "delivered", "returned", "cancelled"];
+const STATUSES: OrderStatus[] = ["awaiting_dispatch", "dispatched_unpaid", "dispatched_partial", "dispatched_paid", "returned_awaiting_inspection", "returned_resellable", "returned_damaged", "cancelled"];
 const NAMES = ["Achieng", "Kamau", "Njeri", "Otieno", "Mwende", "Barasa", "Chebet", "Kiptoo"];
 
 const orders: OrderDetail[] = Array.from({ length: 34 }, (_, i) => {
   const status = STATUSES[i % STATUSES.length] as OrderStatus;
-  const dispatched = status === "dispatched" || status === "delivered";
   const paymentState: PaymentState =
-    status === "delivered" ? "paid" : status === "dispatched" ? (i % 2 ? "unpaid" : "paid") : status === "cancelled" ? "unpaid" : "unpaid";
-  const courier = dispatched || status === "returned" ? (COURIERS[i % COURIERS.length] as string) : null;
+    status === "dispatched_paid" ? "paid" : status === "dispatched_partial" ? "partial" : "unpaid";
+  const courier = status.startsWith("dispatched") || status.startsWith("returned") ? (COURIERS[i % COURIERS.length] as string) : null;
   return {
     id: 1000 + i,
     number: `UT-${1000 + i}`,
@@ -200,12 +200,13 @@ const orders: OrderDetail[] = Array.from({ length: 34 }, (_, i) => {
 });
 
 const PAGE = 10;
-const requirePerm = (username: string, perm: string) => {
-  if (!USERS[username]?.user.permissions.includes(perm))
-    throw new ApiError("FORBIDDEN", "You do not have permission for this", 403);
+const requirePerm = (username: string, perm: string) => requireAny(username, [perm]);
+const requireAny = (username: string, perms: string[]) => {
+  const have = USERS[username]?.user.permissions ?? [];
+  if (!perms.some((p) => have.includes(p))) throw new ApiError("FORBIDDEN", "You do not have permission to do that.", 403);
 };
 
-function decide(id: number, who: string, status: "approved" | "rejected", note?: string): ApprovalDecisionResult {
+function decide(id: string, who: string, status: "approved" | "rejected", note?: string): ApprovalDecisionResult {
   const a = approvals.find((x) => x.id === id);
   if (!a) throw new ApiError("UNKNOWN", "Approval not found", 404);
   if (mockControls.alreadyDecided && a.status === "pending") {
@@ -217,7 +218,7 @@ function decide(id: number, who: string, status: "approved" | "rejected", note?:
   }
   if (a.status !== "pending") return { applied: false, approval: { ...a } };
   a.status = status;
-  a.decidedBy = USERS[who]?.user.name;
+  a.decidedBy = USERS[who]?.user.name ?? null;
   a.decidedAt = new Date().toISOString();
   if (note) a.decisionNote = note;
   return { applied: true, approval: { ...a } };
@@ -356,17 +357,26 @@ export function createMockApi(): Api {
     ...v2,
     async login(req) {
       await gate();
-      const rec = USERS[req.username.trim().toLowerCase()];
-      if (!rec || rec.password !== req.password)
-        throw new ApiError("INVALID_CREDENTIALS", "Wrong username or password", 401);
+      const key = userKeyOf(req.email);
+      const rec = key ? USERS[key] : undefined;
+      if (!key || !rec || rec.password !== req.password)
+        throw new ApiError("INVALID_CREDENTIALS", "Invalid email or password.", 401);
       mockControls.revokeDevice = false;
-      const res: MobileLoginResponse = {
-        ...issue(rec.user.username),
-        user: rec.user,
-        deviceId: 7,
-        settings: { autoLockSeconds: 120, biometricApprovalAboveCents: 500_000 },
-      };
-      return res;
+      if (rec.otp) {
+        const challengeToken = mint("ch");
+        challenges.set(challengeToken, key);
+        return { twoFactorRequired: true as const, challengeToken, phoneHint: "07•• ••• 678", expiresInSeconds: 300 };
+      }
+      return session(key);
+    },
+
+    async verifyOtp(req) {
+      await gate();
+      const key = challenges.get(req.challengeToken);
+      if (!key) throw new ApiError("INVALID_CREDENTIALS", "That sign-in has expired. Start again.", 401);
+      if (req.code.trim() !== OTP_CODE) throw new ApiError("INVALID_CREDENTIALS", "That code is not right.", 401);
+      challenges.delete(req.challengeToken);
+      return session(key);
     },
 
     async refresh(refreshToken) {
@@ -381,7 +391,7 @@ export function createMockApi(): Api {
         throw new ApiError("DEVICE_REVOKED", "This device was signed out by the owner", 401);
       refreshLive.delete(refreshToken);
       refreshUsed.add(refreshToken);
-      return issue(u);
+      return session(u);
     },
 
     async logout(refreshToken) {
@@ -397,66 +407,54 @@ export function createMockApi(): Api {
     async homeAttention(token): Promise<HomeAttention> {
       await gate();
       const u = authed(token);
-      const isOwner = u === "owner";
+      const isAdmin = u === "owner";
       const items: HomeAttention["items"] = [
-        {
-          id: "appr",
-          kind: "approvals",
-          title: "3 approvals waiting",
-          subtitle: "2 voids, 1 refund · KES 18,400",
-          badge: "Oldest 4h",
-          urgent: true,
-          deepLink: "approvals",
-        },
-        {
-          id: "risk",
-          kind: "money_at_risk",
-          title: "Money at risk · KES 96,200",
-          subtitle: "11 unpaid parcels · 2 courier remittances overdue",
-          deepLink: "orders?unpaid=1",
-        },
+        { id: "approval_request:3", kind: "approval_request", severity: "urgent", title: "Refund of KES 10,800 waiting", detail: "Requested by Wanjiru (manager)", amountCents: 1_080_000, since: mins(240), link: { type: "approval", id: 3 } },
+        { id: "courier_remittance_overdue:2", kind: "courier_remittance_overdue", severity: "warning", title: "Swift Riders owes KES 41,000", detail: "3 days overdue", amountCents: 4_100_000, since: mins(4320), link: { type: "courier", id: 2 } },
       ];
-      if (isOwner)
-        items.push({
-          id: "unm",
-          kind: "unmatched_payments",
-          title: "4 unmatched M-Pesa payments",
-          subtitle: "KES 23,500 waiting to be matched",
-          deepLink: "payments/unmatched",
-        });
-      items.push({
-        id: "stk",
-        kind: "stock_alerts",
-        title: "9 items low on stock",
-        subtitle: "3 stuck in Awaiting Dispatch over 48h",
-        deepLink: "stock?alerts=1",
-      });
-      return { total: items.length + 3, items, generatedAt: ago(2) };
+      if (isAdmin)
+        items.push({ id: "unmatched_payment:9", kind: "unmatched_payment", severity: "warning", title: "Unmatched M-Pesa payment", detail: "KES 4,500 from 0712 345 678", amountCents: 450_000, since: mins(95), link: { type: "unmatched_payment", id: 9 } });
+      items.push({ id: "stock_transfer_pending:5", kind: "stock_transfer_pending", severity: "info", title: "Stock transfer waiting", detail: "Opens on the website", amountCents: null, since: null, link: { type: "stock_transfer", id: 5 } });
+      const counts: Record<string, number> = {};
+      for (const i of items) counts[i.kind] = (counts[i.kind] ?? 0) + 1;
+      return { total: items.length, counts, items, generatedAt: ago(2) };
     },
 
     async homeSummary(token): Promise<HomeSummary> {
       await gate();
-      authed(token);
+      const u = authed(token);
+      const base = { generatedAt: ago(2), date: isoDay(new Date()), currency: "KES" };
+      if (!USERS[u]?.user.permissions.includes("reports.view")) return { ...base, scope: "mine", mySalesCount: 4, mySalesCents: 1_240_000 };
       return {
-        salesCents: 14_230_000,
-        orders: 38,
-        cashVarianceCents: -20_000,
-        generatedAt: ago(2),
+        ...base,
+        scope: "shop",
+        posSalesCents: 9_230_000,
+        posSalesCount: 29,
+        onlineSalesCents: 5_000_000,
+        onlineOrderCount: 9,
+        totalSalesCents: 14_230_000,
+        cashCollectedCents: 7_100_000,
+        lowStockCount: 6,
+        attentionCount: 4,
       };
     },
 
-    async appVersion(): Promise<AppVersionInfo> {
+    async appVersion(current): Promise<AppVersionInfo> {
       await gate();
+      const minimumVersion = mockControls.forceUpdate ? "9.0.0" : "0.1.0";
+      const cmp = (a: string, b: string) => a.localeCompare(b, undefined, { numeric: true });
       return {
-        minimumVersion: mockControls.forceUpdate ? "9.0.0" : "0.1.0",
+        minimumVersion,
         latestVersion: "0.1.0",
         downloadUrl: "https://example.invalid/urbantrends.apk",
+        updateRequired: current ? cmp(current, minimumVersion) < 0 : false,
+        updateAvailable: current ? cmp(current, "0.1.0") < 0 : false,
       };
     },
     async approvals(token, status) {
       await gate();
       const u = authed(token);
-      requirePerm(u, "approvals.decide");
+      requireAny(u, APPROVER_PERMS);
       const items = approvals
         .filter((a) => a.status === status)
         .sort((a, b) => a.requestedAt.localeCompare(b.requestedAt))
@@ -464,17 +462,21 @@ export function createMockApi(): Api {
       return { items, nextCursor: null };
     },
 
-    async approve(token, id) {
+    async approve(token, id, biometricConfirmed) {
       await gate();
       const u = authed(token);
-      requirePerm(u, "approvals.decide");
+      requireAny(u, APPROVER_PERMS);
+      // the server's rule: at or above the owner's limit, the phone must have confirmed with fingerprint or face
+      const a = approvals.find((x) => x.id === id);
+      if (a && a.status === "pending" && (a.amountCents ?? 0) >= BIOMETRIC_ABOVE_CENTS && biometricConfirmed !== true)
+        throw new ApiError("BIOMETRIC_REQUIRED", "Confirm with your fingerprint or face to approve this amount.", 403);
       return decide(id, u, "approved");
     },
 
     async reject(token, id, reason) {
       await gate();
       const u = authed(token);
-      requirePerm(u, "approvals.decide");
+      requireAny(u, APPROVER_PERMS);
       if (!reason.trim()) throw new ApiError("UNKNOWN", "A reason is required", 400);
       return decide(id, u, "rejected", reason.trim());
     },
@@ -487,7 +489,8 @@ export function createMockApi(): Api {
 
     async stockLookup(token, q) {
       await gate();
-      authed(token);
+      const u = authed(token);
+      requireAny(u, STOCK_LOOKUP_PERMS);
       const term = (q.q ?? "").trim().toLowerCase();
       const hits = q.barcode
         ? stock.filter((p) => p.barcode === q.barcode)
@@ -498,23 +501,25 @@ export function createMockApi(): Api {
     async stockAdjust(token, req): Promise<AdjustResult> {
       await gate();
       const u = authed(token);
-      requirePerm(u, "stock.adjust");
+      requirePerm(u, "inventory.adjust");
       const p = stock.find((x) => x.id === req.productId);
       if (!p) throw new ApiError("UNKNOWN", "Product not found", 404);
       if (!req.delta) throw new ApiError("UNKNOWN", "Quantity change cannot be zero", 400);
       if (p.available + req.delta < 0) throw new ApiError("UNKNOWN", "Available stock cannot go below zero", 400);
       if (Math.abs(req.delta) > 20) {
-        const id = nextApprovalId++;
-        approvals.push({
-          id,
-          type: "stock_adjustment",
-          status: "pending",
-          requestedBy: USERS[u]?.user.name ?? u,
-          requestedAt: new Date().toISOString(),
-          amountCents: 0,
-          reason: `${req.reason}${req.note ? `: ${req.note}` : ""}`,
-          items: [{ name: `${p.name} (${req.delta > 0 ? "+" : ""}${req.delta})`, qty: Math.abs(req.delta), priceCents: 0 }],
-        });
+        const id = `stock_adjustment:${nextApprovalId++}`;
+        approvals.push(
+          ap({
+            id,
+            type: "stock_adjustment",
+            title: `Stock adjustment for ${p.name}`,
+            requestedBy: USERS[u]?.user.name ?? u,
+            requestedAt: new Date().toISOString(),
+            amountCents: null,
+            reason: `${req.reason}${req.note ? `: ${req.note}` : ""}`,
+            items: [{ name: `${p.name} (${req.delta > 0 ? "+" : ""}${req.delta})`, qty: Math.abs(req.delta), priceCents: null }],
+          }),
+        );
         return { applied: false, approvalId: id };
       }
       p.available += req.delta;
@@ -529,7 +534,7 @@ export function createMockApi(): Api {
         (o) =>
           (!f.status || o.status === f.status) &&
           (!f.courier || o.courier === f.courier) &&
-          (!f.unpaid || (o.paymentState !== "paid" && (o.status === "dispatched" || o.status === "returned"))),
+          (!f.unpaid || o.status === "dispatched_unpaid" || o.status === "dispatched_partial"),
       );
       const start = f.cursor ? parseInt(f.cursor, 10) || 0 : 0;
       const page = list.slice(start, start + PAGE);

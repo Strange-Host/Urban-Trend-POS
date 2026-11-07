@@ -569,7 +569,7 @@ export function createMockV11({ gate, userFor }: MockDeps): ApiV11 {
     const tk = takes.find((x) => x.id === id);
     if (!tk) throw fail("NOT_FOUND", "Stock-take not found.", 404);
     if (tk.status !== "pending_approval") throw fail("NOT_PENDING", "This stock-take is not waiting for a decision.");
-    if (tk.createdBy === u.id && u.role !== "owner") throw new ApiError("SELF_APPROVAL", "You counted this stock, so someone else has to decide on it.", 403);
+    if (tk.createdBy === u.id && u.role !== "admin") throw new ApiError("SELF_APPROVAL", "You counted this stock, so someone else has to decide on it.", 403);
     if (approve) {
       for (const [pid, l] of tk.lines) {
         if (l.needs && !l.applied) {
@@ -588,7 +588,7 @@ export function createMockV11({ gate, userFor }: MockDeps): ApiV11 {
     return p;
   }
   function openOrdersFor(u: SessionUser): number {
-    return u.username === "manager" ? 2 : 0; // the manager has two orders still waiting to go out, so the gate's reason path can be tried
+    return u.email === "manager@urbantrends.test" ? 2 : 0; // the manager has two orders still waiting to go out, so the gate's reason path can be tried
   }
   function todayOf(u: SessionUser): AttendanceToday {
     const s = shifts.get(u.id);

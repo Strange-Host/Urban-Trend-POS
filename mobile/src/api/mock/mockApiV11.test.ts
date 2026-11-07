@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createMockApi, mockControls } from "./mockApi";
+import type { MobileLoginResponse } from "../types";
 
 mockControls.latencyMs = 0;
 const dev = { name: "t", appVersion: "1.1.0" };
 const api = createMockApi();
-const sign = async (u: string, p: string) => (await api.login({ username: u, password: p, device: dev })).accessToken;
+const sign = async (u: string, p: string) => ((await api.login({ email: `${u}@urbantrends.test`, password: p, device: dev })) as MobileLoginResponse).accessToken;
 
 test("cost and margin are absent for a manager without products.view_cost, present for the owner", async () => {
   const owner = await sign("owner", "owner123");
