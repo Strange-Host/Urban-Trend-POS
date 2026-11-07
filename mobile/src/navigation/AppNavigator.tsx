@@ -17,6 +17,11 @@ import PaymentsScreen from "../screens/v11/PaymentsScreen";
 import PaymentMatchScreen from "../screens/v11/PaymentMatchScreen";
 import CouriersScreen from "../screens/v11/CouriersScreen";
 import RemittanceScreen from "../screens/v11/RemittanceScreen";
+import MyOrdersScreen from "../screens/v2/MyOrdersScreen";
+import ConfirmOrderScreen from "../screens/v2/ConfirmOrderScreen";
+import MyLeadsScreen from "../screens/v2/MyLeadsScreen";
+import LeadDetailScreen from "../screens/v2/LeadDetailScreen";
+import ReturnsScreen from "../screens/v2/ReturnsScreen";
 import AttendanceScreen from "../screens/v11/AttendanceScreen";
 import RootTabs from "./RootTabs";
 
@@ -43,6 +48,11 @@ export default function AppNavigator() {
       <Stack.Screen name="Couriers" component={CouriersScreen} />
       <Stack.Screen name="Remittance" component={RemittanceScreen} />
       <Stack.Screen name="Attendance" component={AttendanceScreen} />
+      <Stack.Screen name="MyOrders" component={MyOrdersScreen} />
+      <Stack.Screen name="ConfirmOrder" component={ConfirmOrderScreen} />
+      <Stack.Screen name="MyLeads" component={MyLeadsScreen} />
+      <Stack.Screen name="LeadDetail" component={LeadDetailScreen} />
+      <Stack.Screen name="Returns" component={ReturnsScreen} />
       <Stack.Screen name="Scan" component={ScanScreen} options={{ presentation: "fullScreenModal" }} />
     </Stack.Navigator>
   );

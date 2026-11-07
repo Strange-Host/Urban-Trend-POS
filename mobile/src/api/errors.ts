@@ -5,6 +5,8 @@ export class ApiError extends Error {
     public code: ApiErrorCode,
     message: string,
     public status = 0,
+    /** Extra facts the server sent with the error (e.g. the other orders on a duplicate phone number). */
+    public details?: unknown,
   ) {
     super(message);
     this.name = "ApiError";

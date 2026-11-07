@@ -7,7 +7,7 @@ Expo (React Native, TypeScript) Android app. This step: login, biometric unlock,
     npx expo start        # then open in Expo Go on the phone, or: npm run android
     npm run typecheck && npm test
 
-Mock sign-in: `owner / owner123` (everything), `manager / manager123` (catalog, stock-take review, attendance with open orders), `keeper / keeper123` (stock-take counting only).
+Mock sign-in: `owner / owner123` (everything), `manager / manager123` (catalog, stock-take review, attendance with open orders), `keeper / keeper123` (stock-take counting only), `agent / agent123` and `agent2 / agent123` (telesales: own orders and leads only).
 More tab -> "Mock controls": offline, expire token, revoke device, force update.
 
 ## Point at the real backend
@@ -40,5 +40,13 @@ Price master: the POS owns shop prices (`price_master = pos`); approving an onli
 
 All writes need a connection. Nothing in this folder has been run on a device or emulator: it is typechecked and the logic and mock are unit-tested (`npm test`).
 
+## v2 screens (telesales and returns)
+- **My orders** (`telesales.work`): the online COD orders assigned to you that still need a confirmation call, oldest first, each with a countdown to the end of its confirmation window (it uses the server's clock, red under 30 minutes) and a warning when the phone number has another active order.
+- **Confirm order**: customer, items and totals, Call and WhatsApp buttons, then **Confirm** (the website's COD gate), **Customer wants a later call** (pick a call-back time up to 7 days ahead; the auto-cancel window moves past it) or **Customer does not want it** (reason required). An order with a duplicate phone number cannot be confirmed until a manager approves; **Ask a manager to approve** sends the request, which appears for managers in Approvals as "Duplicate order". Someone else's order is not reachable.
+- **My leads / Lead detail** (`leads.work`): agents see only their own leads. Filter by status, search, leads due for a call-back today first. Record the call outcome, add notes, move the lead along the website's status rules (call-back needs a date), and **Convert to order**; if the number already has an active order the app offers to add to it instead.
+- **Returns** (`returns.receive`): find the dispatched order that came back, record the reason and the condition, and it waits for a decision. A manager (`orders.inspect`) can put good units back on sale; only the owner can write off or dispose, as on the website. Stock does not move until that decision.
+
+In the mock, a manager answers a duplicate-phone request about eight seconds after you ask. Call-back times are picked from quick choices rather than a calendar.
+
 ## Not here yet
-Per-user quiet hours (server side), OTA updates (needs the EAS project id), v2 screens. See `docs/RELEASE.md` for builds and distribution.
+Per-user quiet hours (server side), OTA updates (needs the EAS project id). See `docs/RELEASE.md` for builds and distribution.

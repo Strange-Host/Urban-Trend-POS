@@ -1,6 +1,8 @@
 import { ApiError } from "./errors";
 import { createHttpV11 } from "./httpV11";
+import { createHttpV2 } from "./httpV2";
 import { V11_ERROR_CODES } from "./typesV11";
+import { V2_ERROR_CODES } from "./typesV2";
 import { rangeWindow } from "../lib/analytics";
 import type {
   Analytics,
@@ -33,6 +35,8 @@ const KNOWN: ApiErrorCode[] = [
   "REFRESH_INVALID",
   "DEVICE_REVOKED",
   "FORBIDDEN",
+  ...V2_ERROR_CODES,
+  ...V2_ERROR_CODES, // v2: DUPLICATE_PHONE, NOT_AWAITING, NOT_RETURNABLE, ...
   ...V11_ERROR_CODES, // the v1.1 screens branch on these (REASON_REQUIRED, PREVIEW_STALE, ALREADY_MATCHED, ...)
 ];
 
@@ -61,7 +65,7 @@ async function call<T>(
     const body = json as Partial<ApiErrorBody> | null;
     const raw = body?.error?.code as ApiErrorCode | undefined;
     const code = raw && KNOWN.includes(raw) ? raw : "UNKNOWN";
-    throw new ApiError(code, body?.error?.message ?? `HTTP ${res.status}`, res.status);
+    throw new ApiError(code, body?.error?.message ?? `HTTP ${res.status}`, res.status, (json as { details?: unknown } | null)?.details);
   }
   return json as T;
 }
@@ -221,6 +225,8 @@ async function loadAnalytics(base: string, token: string, range: AnalyticsRange)
 export function createHttpApi(base: string): Api {
   return {
     ...createHttpV11(base, call),
+    ...createHttpV2(base, call),
+    ...createHttpV2(base, call),
     login: (req) =>
       call<MobileLoginResponse>(base, "POST", "/auth/mobile/login", { body: req }),
     refresh: (refreshToken) =>

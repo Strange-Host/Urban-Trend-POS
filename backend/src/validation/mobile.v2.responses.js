@@ -20,7 +20,7 @@ const TelesalesOrder = TelesalesOrderSummary.extend({
   items: z.array(z.looseObject({ name: z.string(), sku: z.string(), quantity: z.number().int(), unitPriceCents: cents, discountCents: cents, lineTotalCents: cents })),
   history: z.array(z.looseObject({ status: z.string(), note: z.string().nullable(), at: iso, by: z.string().nullable() })),
   duplicates: z.array(z.looseObject({ orderId: z.number().int(), number: z.string(), status: z.string(), totalCents: cents, createdAt: iso })),
-  duplicateApproval: DuplicateApproval.nullable(), mayOverrideDuplicates: z.boolean(),
+  duplicateApproval: DuplicateApproval.nullable(), mayOverrideDuplicates: z.boolean(), serverTime: iso,
 });
 const DuplicateApprovalResult = z.looseObject({ approval: DuplicateApproval.nullable() });
 

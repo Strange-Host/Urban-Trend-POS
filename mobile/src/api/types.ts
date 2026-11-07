@@ -5,6 +5,7 @@
 // The v1.1 endpoints (catalog, stock-take, payments, couriers, attendance) are in typesV11.ts and were read from the real
 // server schemas, so unlike the v1 parts below they need no reconciling.
 import type { ApiErrorCodeV11, ApiV11 } from "./typesV11";
+import type { ApiErrorCodeV2, ApiV2 } from "./typesV2";
 
 export type Role = "owner" | "manager" | "dispatch" | "telesales";
 
@@ -89,7 +90,8 @@ export type ApiErrorCode =
   | "FORBIDDEN"
   | "NETWORK" // client-side: no connection
   | "UNKNOWN"
-  | ApiErrorCodeV11;
+  | ApiErrorCodeV11
+  | ApiErrorCodeV2;
 
 export interface Paginated<T> {
   items: T[];
@@ -97,7 +99,7 @@ export interface Paginated<T> {
 }
 
 // ---- approvals (spec 5.1 #3, 5.2)
-export type ApprovalType = "void" | "refund" | "requisition" | "expense" | "stock_adjustment";
+export type ApprovalType = "void" | "refund" | "requisition" | "expense" | "stock_adjustment" | "duplicate_order";
 export type ApprovalStatus = "pending" | "approved" | "rejected";
 
 export interface ApprovalLine {
@@ -292,7 +294,7 @@ export interface Analytics {
 }
 
 // The surface the app depends on. Mock and HTTP both implement this.
-export interface Api extends ApiV11 {
+export interface Api extends ApiV11, ApiV2 {
   login(req: MobileLoginRequest): Promise<MobileLoginResponse>;
   refresh(refreshToken: string): Promise<TokenPair>;
   logout(refreshToken: string): Promise<void>;

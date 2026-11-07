@@ -8,7 +8,7 @@ export type DeepTarget =
   | { kind: "route"; name: RouteName; params?: Record<string, unknown> };
 
 /** Stack screens outside the tabs (the v1.1 screens). */
-export type RouteName = "Catalog" | "Payments" | "StockTakes" | "StockTakeDetail" | "Couriers" | "Attendance";
+export type RouteName = "Catalog" | "Payments" | "StockTakes" | "StockTakeDetail" | "Couriers" | "Attendance" | "MyOrders" | "ConfirmOrder" | "MyLeads" | "LeadDetail" | "Returns";
 
 /** Maps server deep links ("approvals/3", "orders?unpaid=1", "stock?alerts=1") to screens. */
 export function parseDeepLink(link: string): DeepTarget | null {
@@ -38,6 +38,12 @@ export function parseDeepLink(link: string): DeepTarget | null {
       return { kind: "route", name: "Couriers" };
     case "attendance":
       return { kind: "route", name: "Attendance" };
+    case "telesales":
+      return Number.isFinite(id) ? { kind: "route", name: "ConfirmOrder", params: { id } } : { kind: "route", name: "MyOrders" };
+    case "leads":
+      return Number.isFinite(id) ? { kind: "route", name: "LeadDetail", params: { id } } : { kind: "route", name: "MyLeads" };
+    case "returns":
+      return { kind: "route", name: "Returns" };
     case "dashboard":
     case "analytics":
       return { kind: "tab", tab: "Dashboard" };

@@ -85,7 +85,7 @@ function detail({ id, user }) {
     ...summary(o), subtotalCents: o.subtotal, discountCents: o.discount_total, notes: o.notes || null, confirmed: Boolean(o.cod_confirmed_at),
     customerRisk: { flag: o.customer_risk_flag, prepayRequired: Boolean(o.customer_prepay_required) },
     items, history, duplicates, duplicateApproval: duplicates.length ? approvalOf(o.id) : null,
-    mayOverrideDuplicates: canOverrideDuplicates(user),
+    mayOverrideDuplicates: canOverrideDuplicates(user), serverTime: new Date().toISOString(),
   };
 }
 
@@ -125,7 +125,7 @@ function requestApproval({ id, user, note, deviceId }) {
   notifications.notify({
     storeId: o.store_id, userIds: permissionsService.userIdsWith(o.store_id, 'orders.approve_duplicate', user.id), type: 'approval_requested', severity: 'info',
     title: `Confirm ${numberOf(o)}? ${o.customer_name} already has another order`, body: note || null,
-    entityType: 'approval', entityId: rowId, dedupeKey: `duplicate_order_requested:${rowId}`,
+    entityType: 'duplicate_order', entityId: rowId, dedupeKey: `duplicate_order_requested:${rowId}`,
   });
   return { approval: approvalOf(o.id), created: true, id: rowId };
 }

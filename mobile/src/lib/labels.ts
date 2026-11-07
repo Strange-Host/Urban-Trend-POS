@@ -6,6 +6,7 @@ export const approvalTypeLabel: Record<ApprovalType, string> = {
   requisition: "Requisition",
   expense: "Expense",
   stock_adjustment: "Stock adjustment",
+  duplicate_order: "Duplicate order",
 };
 
 export const orderStatusLabel: Record<OrderStatus, string> = {

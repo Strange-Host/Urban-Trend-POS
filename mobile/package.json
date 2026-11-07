@@ -7,7 +7,7 @@
     "start": "expo start",
     "android": "expo start --android",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test src/lib/lib.test.ts src/lib/v11.test.ts src/api/mock/mockApi.test.ts src/api/mock/mockApiV11.test.ts"
+    "test": "tsx --test src/lib/lib.test.ts src/lib/v11.test.ts src/api/mock/mockApi.test.ts src/api/mock/mockApiV11.test.ts src/api/mock/mockApiV2.test.ts"
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "2.2.0",

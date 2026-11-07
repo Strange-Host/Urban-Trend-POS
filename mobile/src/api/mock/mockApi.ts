@@ -1,6 +1,7 @@
 import { addDays, isoDay } from "../../lib/analytics";
 import { ApiError } from "../errors";
 import { createMockV11 } from "./mockApiV11";
+import { createMockV2 } from "./mockApiV2";
 import type {
   AdjustResult,
   Analytics,
@@ -52,8 +53,18 @@ const USERS: Record<string, { password: string; user: SessionUser }> = {
       role: "manager",
       // Catalog, stock-take, payments and couriers, but NOT products.view_cost or prices.bulk: the manager sees no cost and
       // cannot change prices in bulk (the owner can grant both on the server).
-      permissions: ["approvals.decide", "orders.view", "stock.view", "reports.view", "products.manage", "stock.count", "stock.review", "payments.reconcile", "couriers.settle"],
+      permissions: ["approvals.decide", "orders.view", "stock.view", "reports.view", "products.manage", "stock.count", "stock.review", "payments.reconcile", "couriers.settle", "leads.work", "returns.receive", "orders.inspect", "orders.approve_duplicate"],
     },
+  },
+  // Telesales agents: only their own assigned orders and leads, and they can receive a returned parcel. A second agent exists so
+  // "someone else's order" can be tried (it is a 404, not an error screen).
+  agent: {
+    password: "agent123",
+    user: { id: 4, name: "Njoki", username: "agent", role: "telesales", permissions: ["telesales.work", "leads.work", "returns.receive"] },
+  },
+  agent2: {
+    password: "agent123",
+    user: { id: 5, name: "Otieno", username: "agent2", role: "telesales", permissions: ["telesales.work", "leads.work", "returns.receive"] },
   },
   // Counts stock and nothing else: useful for trying the stock-take without catalog access.
   keeper: {
@@ -336,8 +347,13 @@ export function createMockApi(): Api {
     gate,
     userFor: (token) => (USERS[authed(token)] as { user: SessionUser }).user,
   });
+  const v2 = createMockV2({
+    gate,
+    userFor: (token) => (USERS[authed(token)] as { user: SessionUser }).user,
+  });
   return {
     ...v11,
+    ...v2,
     async login(req) {
       await gate();
       const rec = USERS[req.username.trim().toLowerCase()];

@@ -23,7 +23,9 @@ export const GROUPS: { id: string; label: string; items: MenuItem[] }[] = [
     items: [
       { label: "Orders", icon: "⊞", screen: "Orders" },
       { label: "Approvals", icon: "✓", screen: "Approvals" },
-      { label: "Leads", icon: "☍" },
+      { label: "My orders", icon: "☎", route: "MyOrders", perm: "telesales.work" },
+      { label: "Leads", icon: "☍", route: "MyLeads", perm: "leads.work" },
+      { label: "Returns", icon: "↩", route: "Returns", perm: "returns.receive" },
       { label: "Sales history", icon: "☰" },
     ],
   },
