@@ -6,7 +6,7 @@ import { toCents } from './helpers';
 // receive nothing is refused here: whatever is filled in is kept, whatever is blank or not yet valid is left out. The
 // receive itself (on submit) is where every rule is checked.
 //
-// An existing-product line also carries `display` ({ name, sku }): only a reminder of how the line looked, so reopening the
+// An existing-product line also carries `display` ({ name, sku, sell_price }): only a reminder of how the line looked, so reopening the
 // draft can show the product without looking it up. The server's receive ignores it; the product id is what counts.
 
 /** @typedef {import('../../types').Payload} Payload */
@@ -29,7 +29,11 @@ export function draftBodyFromForm({ supplierId, reference, note, lines, canCost 
       if (Number.isFinite(cost) && cost >= 0) item.unit_cost = cost;
     }
     if (l.mode === 'existing') {
-      if (l.product) { item.product_id = l.product.id; item.display = { name: l.product.name, sku: l.product.sku }; }
+      if (l.product) {
+        item.product_id = l.product.id;
+        item.display = { name: l.product.name, sku: l.product.sku };
+        if (Number.isFinite(l.product.sell_price)) item.display.sell_price = l.product.sell_price; // so a reopened draft can show the price
+      }
     } else {
       /** @type {Payload} */
       const np = {};
@@ -75,7 +79,7 @@ export function linesFromDraft(body, makeLine) {
         line.parentId = np.new_category.parent_id ?? '';
       } else if (np.category_id) line.categoryId = np.category_id;
     } else if (it.product_id) {
-      line.product = { id: it.product_id, name: it.display?.name || `Product #${it.product_id}`, sku: it.display?.sku || '' };
+      line.product = { id: it.product_id, name: it.display?.name || `Product #${it.product_id}`, sku: it.display?.sku || '', sell_price: it.display?.sell_price };
     }
     return line;
   });

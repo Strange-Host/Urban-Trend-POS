@@ -1,10 +1,10 @@
-# Redesign Phase 5: Receive (part 1: draft receipts)
+# Redesign Phase 5: Receive (part 1: draft receipts; part 2: the restyled form)
 
 Phase 5's backend check found that draft receipts did not exist and that buying prices are set after the fact (not approved
 before stock goes in). Decision taken: **option 1**. A draft saves without touching stock; submitting does today's receive
 (stock goes in then); buying prices stay a separate later step done by someone with costing rights.
 
-This note covers the drafts. The visual restyle of the Receive form waits on the mockups.
+Part 1 (below) is the drafts. Part 2, at the end, is the restyle of the form to the approved Stock board.
 
 ## Backend
 
@@ -73,8 +73,58 @@ expected versions from the folder instead of hard-coding "only 0001". Frontend `
   means the existing costing step, which is a manager or admin with `products.view_cost` and `stock.review`, not admin only.
 - **Selling price per line** for an existing product is still not on the form: the receive records the product's current price and
   takes no per-line price. A new product's price is entered as before.
-- **The Receive restyle** (the mockup's layout) is not started; the mockups are not in the repo.
+- **The Receive restyle** was waiting on the mockups; it is part 2, below.
 - **Not looked at in a browser.** As a storekeeper with the flag on: save a draft, see it listed, Continue, finish it, and check
   the stock went in once; save two drafts as two storekeepers and check each sees only their own; as a manager, see both.
 - The form's labels are not linked to their inputs (screen readers cannot tell which is which). Not changed here; it belongs in the
   Phase 7 accessibility pass.
+
+---
+
+# Part 2: the restyled Receive form (new layout only)
+
+Built from the `Stock` board. With `ut_ui=v2`, Stock > Receive at the main store is the form on the page, not a button and a
+sheet. With the flag off nothing changes (the button, the sheet and the old history table are as they were).
+
+| Part | File |
+| --- | --- |
+| Page orchestration, both layouts | `pages/stock/ReceiveTab.jsx` (owns all state, the checks and every call; unchanged logic) |
+| "New delivery" panel: supplier, delivery note, note, lines, Save draft, Save shipment | `pages/stock/ReceiveForm.jsx` |
+| One line: Item, Quantity, Selling price, Buying price | `pages/stock/ReceiveLineRow.jsx` |
+| Drafts and "Recent activity" beside the form | `pages/stock/ReceiveActivity.jsx` (drafts list is the existing `ReceiveDrafts.jsx`) |
+| The full shipment table and pager (both layouts) | `pages/stock/ReceiveHistory.jsx`, a pure move out of `ReceiveTab` |
+
+## What the form does
+
+- **Lines are table rows** (stacked cards on a phone): Item, Quantity, Selling price, Buying price, Remove.
+- **Item** searches the catalog. "Not in the catalog? Add it as a new item" turns the row into a name field with its own selling
+  price; "Choose an existing item instead" turns it back. Image, category and sub-category (new items), and batch and expiry
+  (all items) sit under **More**, which opens by itself when a row already has something in it, so nothing is hidden.
+- **Selling price** for an existing item is the catalog price, shown read only. It is not sent: the receive records the product's
+  current price and takes no per-line price (unchanged; changing a price stays a product edit). For a new item it is entered.
+- **Buying price** is a field only for someone who may set one (`products.manage` and `products.view_cost`); everyone else sees
+  "Set by admin", as on the board. The note under the form says it is a manager or admin who sets it, after the shipment.
+- **Save draft** and **Save shipment** are as in part 1 (the same functions). The button is not renamed "Submit for approval":
+  stock goes on the shelf when the shipment is saved, nothing waits for approval first (the part 1 decision). "Start a new
+  delivery instead" appears while continuing a draft and drops it.
+- **Recent activity**: drafts first, then the latest five shipments, one line each (units, date, supplier, delivery note, and
+  how many new products are waiting for approval). The history table below keeps batches, expiry, recalls and statuses.
+- A reopened draft shows the product's selling price too (a draft line's `display` reminder now carries `sell_price`; the
+  server ignores `display`, as before).
+- Labels in this form are linked to their inputs (rows use per-line aria-labels), so the part 1 note about unlabelled inputs no
+  longer applies to the new layout. The old sheet is unchanged.
+
+## Tests
+
+`ReceiveTab.layout.test.jsx` (new, 15): the form on the page; "Set by admin" versus the buying price field; read-only selling
+price and what is sent; new-item lines; switching back; adding and removing lines; the quantity check; More opening for a draft
+with a batch; Start a new delivery instead; recent activity and the history table; outlet view; the old layout untouched.
+`ReceiveTab.drafts.test.jsx` follows the form being on the page (no click to open it); every assertion about drafts is kept.
+Frontend: 76 files, 587 tests; lint 22 warnings; type check, build pass. No backend change in part 2.
+
+## Not done
+
+- **Browser check.** As a storekeeper with the flag on: add an existing item and a new item, save a draft, continue it, receive it,
+  and read the recent activity. As a manager: the buying price field. On a phone: the stacked rows.
+- Per-line selling price for an existing item (a business decision, not a layout one).
+- The board's "Suppliers" tab is not part of this.

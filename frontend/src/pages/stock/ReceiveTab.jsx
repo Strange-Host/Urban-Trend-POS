@@ -2,15 +2,17 @@ import { useState } from 'react';
 import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { getErrorMessage } from '../../api/client';
 import { stockApi, suppliersApi, categoriesApi } from '../../api/endpoints';
-import Pager, { usePager } from '../../components/Pager';
+import { usePager } from '../../components/Pager';
 import Picker, { Segmented } from '../../components/Picker';
 import Sheet from '../../components/Sheet';
 import { useAuth } from '../../context/AuthContext';
 import { useDialog, useToast } from '../../context/UIContext';
 import useUiVersion from '../../hooks/useUiVersion';
-import { Badge, ProductSearch, Table } from './shared';
-import ReceiveDrafts from './ReceiveDrafts';
-import { btnPrimary, inputCls, kes, labelCls, toCents } from './helpers';
+import { ProductSearch } from './shared';
+import ReceiveActivity from './ReceiveActivity';
+import ReceiveForm from './ReceiveForm';
+import ReceiveHistory from './ReceiveHistory';
+import { btnPrimary, inputCls, labelCls, toCents } from './helpers';
 import { draftBodyFromForm, linesFromDraft } from './receiptDraft';
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -39,7 +41,7 @@ export default function ReceiveTab({ storeParams, isMainStore }) {
   const pager = usePager(25);
 
   const { data: suppliers = [] } = useQuery({ queryKey: ['suppliers'], queryFn: () => suppliersApi.list().then((r) => r.data.data) });
-  const { data: categories = [] } = useQuery({ queryKey: ['categories'], queryFn: () => categoriesApi.list().then((r) => r.data.data), enabled: open });
+  const { data: categories = [] } = useQuery({ queryKey: ['categories'], queryFn: () => categoriesApi.list().then((r) => r.data.data), enabled: open || isV2 });
   const { data: drafts = [] } = useQuery({
     queryKey: ['stock', 'receipt-drafts'], // under 'stock', so a finished receive refreshes it with everything else
     queryFn: () => stockApi.receiptDrafts().then((r) => r.data.data),
@@ -111,6 +113,7 @@ export default function ReceiveTab({ storeParams, isMainStore }) {
       const b = (await stockApi.receiptDraft(id)).data.data.body;
       setSupplierId(b.supplier_id ?? ''); setReference(b.reference || ''); setNote(b.note || '');
       setLines(linesFromDraft(b, newLine)); setError(''); setDraftId(id); setOpen(true);
+      setTimeout(() => document.getElementById('receive-form-title')?.scrollIntoView?.({ block: 'start' }), 0);
     } catch (err) {
       toast.error(getErrorMessage(err, 'Could not open that draft.'));
     } finally { setBusy(false); }
@@ -151,44 +154,44 @@ export default function ReceiveTab({ storeParams, isMainStore }) {
   }
 
   const receipts = data?.data || [];
+  const notMainStore = <p className="mb-4 px-3 py-2 rounded-lg bg-paper border border-line text-sm text-text-muted">Shipments are received at the main store. Outlets are supplied by a transfer.</p>;
+
+  // The new layout: the delivery form sits on the page beside the drafts and recent activity (no sheet), history below.
+  if (isV2) {
+    return (
+      <>
+        {isMainStore ? (
+          <div className="mb-8 grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1.8fr)_minmax(280px,1fr)]">
+            <ReceiveForm
+              error={error} draftId={draftId} suppliers={suppliers} supplierId={supplierId} setSupplierId={setSupplierId}
+              reference={reference} setReference={setReference} note={note} setNote={setNote}
+              lines={lines} setLine={setLine} onAddLine={() => setLines((ls) => [...ls, newLine()])}
+              onRemoveLine={(key) => setLines((ls) => ls.filter((x) => x.key !== key))}
+              canCost={canCost} canManage={canManage} categories={categories} topLevel={topLevel} catLabel={catLabel}
+              busy={busy} onSaveDraft={saveDraft} onSubmit={save} onClear={reset}
+            />
+            <ReceiveActivity drafts={drafts} onOpenDraft={openDraft} onDeleteDraft={deleteDraft} busy={busy} receipts={receipts} />
+          </div>
+        ) : notMainStore}
+        <h2 className="mb-3 font-display text-base font-700">Past shipments</h2>
+        <ReceiveHistory receipts={receipts} isLoading={isLoading} pager={pager} data={data} />
+      </>
+    );
+  }
+
   return (
     <>
       <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
         <p className="text-sm text-text-muted max-w-xl">Record what arrived. Stock goes on the shelf at once. New products wait for a manager to add the buying price and approve them.</p>
         {isMainStore && <button onClick={() => { reset(); setOpen(true); }} className={btnPrimary}>+ Receive shipment</button>}
       </div>
-      {!isMainStore && <p className="mb-4 px-3 py-2 rounded-lg bg-paper border border-line text-sm text-text-muted">Shipments are received at the main store. Outlets are supplied by a transfer.</p>}
+      {!isMainStore && notMainStore}
 
-      {isV2 && isMainStore && <ReceiveDrafts drafts={drafts} onOpen={openDraft} onDelete={deleteDraft} busy={busy} />}
-
-      <Table head={['Date', 'Supplier', 'Received by', 'Units', 'Items']} loading={isLoading} empty={receipts.length === 0 && 'No shipments recorded yet.'}>
-        {receipts.map((r) => (
-          <tr key={r.id} className="border-b border-line last:border-0 align-top">
-            <td className="px-4 py-3 whitespace-nowrap font-mono text-xs">{r.received_on}</td>
-            <td className="px-4 py-3">{r.supplier_name || <span className="text-text-muted">—</span>}{r.reference && <div className="text-xs text-text-muted">Ref {r.reference}</div>}</td>
-            <td className="px-4 py-3 whitespace-nowrap">{r.received_by_name}</td>
-            <td className="px-4 py-3 font-mono">{r.total_units}</td>
-            <td className="px-4 py-3 text-text-muted">
-              {r.items.map((i) => (
-                <div key={i.id} className="flex items-center gap-2">
-                  <span>{i.quantity} × {i.product_name}</span>
-                  {i.batch_no && <span className="text-xs">batch {i.batch_no}</span>}
-                  {i.expiry_date && <span className="px-1.5 py-0.5 rounded bg-paper border border-line text-xs">expires {i.expiry_date}</span>}
-                  {i.recalled_at && <span className="px-1.5 py-0.5 rounded bg-danger-soft text-danger text-xs">recalled</span>}
-                  {i.is_new_product === 1 && <span className="px-1.5 py-0.5 rounded bg-paper border border-line text-xs">new · {kes(i.sell_price)}</span>}
-                  {i.product_status === 'pending' && <Badge status="pending" />}
-                  {i.product_status === 'rejected' && <Badge status="rejected" />}
-                </div>
-              ))}
-            </td>
-          </tr>
-        ))}
-      </Table>
-      <Pager pager={pager} data={data} noun="shipments" />
+      <ReceiveHistory receipts={receipts} isLoading={isLoading} pager={pager} data={data} />
 
       {open && (
         <Sheet onClose={() => setOpen(false)} size="lg" as="form" onSubmit={save}>
-          <h2 className="font-display font-700 text-lg mb-4">{draftId ? 'Finish a draft shipment' : 'Receive a shipment'}</h2>
+          <h2 className="font-display font-700 text-lg mb-4">Receive a shipment</h2>
           {error && <div className="mb-3 px-3 py-2 rounded-lg bg-danger-soft text-danger text-sm">{error}</div>}
 
           <label className={labelCls}>Supplier</label>
@@ -257,11 +260,9 @@ export default function ReceiveTab({ storeParams, isMainStore }) {
             ))}
           </div>
           <button type="button" onClick={() => setLines((ls) => [...ls, newLine()])} className="text-sm text-text-muted hover:text-text mb-5">+ Add another line</button>
-          {isV2 && !canCost && <p className="text-xs text-text-muted mb-4">Buying prices are set by a manager or admin after the shipment is received.</p>}
 
           <div className="flex gap-2">
             <button type="button" onClick={() => setOpen(false)} className="flex-1 py-2.5 rounded-lg border border-line text-sm font-medium">Cancel</button>
-            {isV2 && <button type="button" onClick={saveDraft} disabled={busy} className="flex-1 py-2.5 rounded-lg border border-line text-sm font-medium hover:border-accent disabled:opacity-50">Save draft</button>}
             <button type="submit" disabled={busy} className="flex-1 py-2.5 rounded-lg bg-ink text-white text-sm font-medium hover:bg-ink-soft disabled:opacity-50">{busy ? 'Saving…' : 'Save shipment'}</button>
           </div>
         </Sheet>

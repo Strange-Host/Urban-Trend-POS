@@ -67,17 +67,15 @@ describe('Receive form with the new layout', () => {
   });
 
   it('says buying prices are set after receiving, for someone who cannot enter them', async () => {
-    const user = mount();
-    await user.click(await screen.findByRole('button', { name: '+ Receive shipment' }));
-    expect(screen.getByText(/Buying prices are set by a manager or admin after the shipment is received/)).toBeInTheDocument();
-    expect(screen.queryByText('Buying price per unit (KES)')).toBeNull();
+    mount();
+    expect(await screen.findByText(/Buying prices are set by a manager or admin after the shipment is received/)).toBeInTheDocument();
+    expect(screen.getByText('Set by admin')).toBeInTheDocument();
+    expect(screen.queryByLabelText(/buying price per unit/i)).toBeNull();
   });
 
   it('saves the form as a draft without checking it, and receives nothing', async () => {
     const user = mount();
-    await user.click(await screen.findByRole('button', { name: '+ Receive shipment' }));
-    // The form's labels are not linked to their inputs yet (an accessibility item for the final pass), so find the input beside its label.
-    await user.type(screen.getByText('Delivery note / invoice no.').parentElement.querySelector('input'), 'DN-100');
+    await user.type(await screen.findByLabelText('Delivery note number'), 'DN-100');
     await user.click(screen.getByRole('button', { name: 'Save draft' })); // the line is still empty: a real receive would refuse this
     await waitFor(() => expect(stockApi.saveReceiptDraft).toHaveBeenCalledWith({ supplier_id: undefined, reference: 'DN-100', note: undefined, items: [] }));
     expect(stockApi.receive).not.toHaveBeenCalled();
@@ -87,7 +85,7 @@ describe('Receive form with the new layout', () => {
   it('reopens a draft as it was left', async () => {
     const user = mount();
     await user.click(await screen.findByRole('button', { name: 'Continue' }));
-    expect(await screen.findByText('Finish a draft shipment')).toBeInTheDocument();
+    expect(await screen.findByText('Finish a draft delivery')).toBeInTheDocument();
     expect(screen.getByDisplayValue('DN-77')).toBeInTheDocument();
     expect(screen.getByText('Soap bar')).toBeInTheDocument();
     expect(screen.getByDisplayValue('12')).toBeInTheDocument();
@@ -142,7 +140,6 @@ describe('Receive form with the new layout', () => {
   it('a direct receive with no draft is unchanged', async () => {
     stockApi.receiptDrafts.mockResolvedValue({ data: { data: [] } });
     const user = mount();
-    await user.click(await screen.findByRole('button', { name: '+ Receive shipment' }));
     await user.click(screen.getByRole('button', { name: 'Save shipment' }));
     expect(await screen.findByText('Line 1: enter how many arrived.')).toBeInTheDocument(); // the quantity is checked first, as before
     expect(stockApi.receive).not.toHaveBeenCalled();

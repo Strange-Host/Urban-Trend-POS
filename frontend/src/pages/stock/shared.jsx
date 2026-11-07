@@ -14,7 +14,7 @@ export function Badge({ status }) {
 }
 
 // Type-to-find a product (name, SKU or barcode). Shows what was chosen, with a button to change it.
-export function ProductSearch({ value, onChange, placeholder = 'Search by name or SKU…' }) {
+export function ProductSearch({ value, onChange, placeholder = 'Search by name or SKU…', ariaLabel }) {
   const [q, setQ] = useState('');
   const term = q.trim();
   const { data: results = [] } = useQuery({
@@ -33,13 +33,13 @@ export function ProductSearch({ value, onChange, placeholder = 'Search by name o
   }
   return (
     <div className="relative">
-      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={placeholder} className={inputCls} />
+      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={placeholder} aria-label={ariaLabel} className={inputCls} />
       {term.length >= 2 && (
         <ul className="absolute z-10 left-0 right-0 mt-1 max-h-56 overflow-auto bg-surface border border-line rounded-lg shadow-lg">
           {results.length === 0 && <li className="px-3 py-2 text-sm text-text-muted">No active product matches.</li>}
           {results.map((p) => (
             <li key={p.id}>
-              <button type="button" onClick={() => { onChange({ id: p.id, name: p.name, sku: p.sku }); setQ(''); }}
+              <button type="button" onClick={() => { onChange({ id: p.id, name: p.name, sku: p.sku, sell_price: p.sell_price }); setQ(''); }}
                 className="w-full text-left px-3 py-2 text-sm hover:bg-paper">
                 {p.name} <span className="text-text-muted font-mono text-xs">{p.sku}</span>
               </button>
