@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import Dashboard from './Dashboard';
@@ -90,5 +90,39 @@ describe('Dashboard revenue cards', () => {
     expect(previous.to).toBe(current.from);
     const day = 86400000;
     expect(Math.round((new Date(current.from) - new Date(previous.from)) / day)).toBe(30);
+  });
+});
+
+describe('Dashboard reports requests', () => {
+  const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+  const everyFromTo = () => [
+    ...reportsApi.salesSummary.mock.calls, ...reportsApi.salesByChannel.mock.calls,
+    ...reportsApi.paymentMethods.mock.calls, ...reportsApi.topProductsByChannel.mock.calls,
+  ].map((c) => c[0]).flatMap((p) => [p.from, p.to]).filter(Boolean);
+
+  it('asks for date-only values (the API refuses a timestamp), for the period and the one before it', async () => {
+    reportsApi.dashboardOverview.mockReturnValue(ok({ lowStockCount: 0, unpaidParcelsByCourier: [] }));
+    mount();
+    await screen.findByText('All clear');
+    const sent = everyFromTo();
+    expect(sent.length).toBeGreaterThanOrEqual(6);
+    for (const d of sent) expect(d).toMatch(DATE_ONLY);
+    // the previous period ends where this one starts
+    const prev = reportsApi.salesSummary.mock.calls.map((c) => c[0]).find((p) => p.to);
+    const current = reportsApi.salesSummary.mock.calls.map((c) => c[0]).find((p) => !p.to);
+    expect(prev.to).toBe(current.from);
+    expect(prev.from < current.from).toBe(true);
+  });
+
+  it('All time starts from 1970-01-01 and sends no previous period', async () => {
+    reportsApi.dashboardOverview.mockReturnValue(ok({ lowStockCount: 0, unpaidParcelsByCourier: [] }));
+    mount();
+    await screen.findByText('All clear');
+    reportsApi.salesSummary.mockClear();
+    fireEvent.click(screen.getByRole('tab', { name: 'All time' }));
+    await screen.findByText('All clear');
+    const calls = reportsApi.salesSummary.mock.calls.map((c) => c[0]);
+    expect(calls).toContainEqual({ from: '1970-01-01' });
+    expect(calls.some((p) => p.to)).toBe(false);
   });
 });

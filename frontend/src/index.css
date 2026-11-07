@@ -42,7 +42,9 @@
   --color-text-muted: #6b6b66;
 
   /* One typeface everywhere: Schibsted Grotesk, served from this app (see main.jsx), so the till looks the same with no
-     connection. The mono token is the same face with tabular figures: codes and amounts line up without a second font. */
+     connection. The mono token is the same face; `.font-mono` (below) turns on tabular figures so codes and amounts line up
+     without a second font. Not set on the body: in this face tabular figures make . , : as wide as a digit, which
+     spaces out running text. */
   --font-display: 'Schibsted Grotesk', ui-sans-serif, system-ui, sans-serif;
   --font-body: 'Schibsted Grotesk', ui-sans-serif, system-ui, sans-serif;
   --font-mono: 'Schibsted Grotesk', ui-sans-serif, system-ui, sans-serif;
@@ -75,7 +77,6 @@
 
 body {
   font-family: var(--font-body);
-  font-variant-numeric: tabular-nums;
   color: var(--color-text);
   background: var(--color-paper);
   -webkit-font-smoothing: antialiased;
@@ -171,7 +172,8 @@ body {
      a coloured bar on the left. Colour the exceptions, not every row.
    --------------------------------------------------------------------- */
 @layer base {
-  td.text-right, th.text-right, .font-mono { font-variant-numeric: tabular-nums; }
+  /* Figures only: td, not th. In this face tabular figures also widen . , : so a header such as "Avg. basket" would be spaced out. */
+  td.text-right, .font-mono { font-variant-numeric: tabular-nums; }
 
   .scroll-x tbody tr { background-color: var(--color-surface); }
   .scroll-x table:not(.stack-sm) tbody tr > :first-child:not([colspan]),

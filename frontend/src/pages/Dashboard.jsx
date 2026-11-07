@@ -238,10 +238,12 @@ export default function Dashboard() {
   const { isV2 } = useUiVersion();
   const [tab, setTab] = useState('overview');
   const queue = useAttentionQueue({ enabled: isV2 });
-  const from = range === 'all' ? '1970-01-01' : new Date(Date.now() - Number(range) * 86400000).toISOString();
+  // The reports API takes date-only values (YYYY-MM-DD) and answers 400 to a full timestamp, which left the cards below loading.
+  const daysAgo = (n) => new Date(Date.now() - n * 86400000).toISOString().slice(0, 10);
+  const from = range === 'all' ? '1970-01-01' : daysAgo(Number(range));
   const params = { from };
   // The period just before this one, same length, for "vs previous" arrows. Not available for All time.
-  const prevFrom = range === 'all' ? null : new Date(Date.now() - 2 * Number(range) * 86400000).toISOString();
+  const prevFrom = range === 'all' ? null : daysAgo(2 * Number(range));
   const prevParams = prevFrom ? { from: prevFrom, to: from } : null;
 
   const { data: summary } = useQuery({ queryKey: ['reports', 'summary', range], queryFn: () => reportsApi.salesSummary(params).then((r) => r.data.data) });
