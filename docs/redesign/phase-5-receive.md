@@ -96,7 +96,11 @@ sheet. With the flag off nothing changes (the button, the sheet and the old hist
 
 ## What the form does
 
-- **Lines are table rows** (stacked cards on a phone): Item, Quantity, Selling price, Buying price, Remove.
+- **Lines are table rows**: Item, Quantity, Selling price, Buying price, with Remove beside "More". The layout follows the width of
+  the form panel, not the screen (container queries): one row under column headings when the panel is at least 42rem wide, the
+  item on a row of its own above the three figures at laptop width (the panel is only about 520px there), and everything
+  stacked with its own label on a phone. A first version used fixed column widths and left the Item field about 66px wide at
+  1366px; the browser check caught it.
 - **Item** searches the catalog. "Not in the catalog? Add it as a new item" turns the row into a name field with its own selling
   price; "Choose an existing item instead" turns it back. Image, category and sub-category (new items), and batch and expiry
   (all items) sit under **More**, which opens by itself when a row already has something in it, so nothing is hidden.
@@ -122,9 +126,27 @@ with a batch; Start a new delivery instead; recent activity and the history tabl
 `ReceiveTab.drafts.test.jsx` follows the form being on the page (no click to open it); every assertion about drafts is kept.
 Frontend: 76 files, 587 tests; lint 22 warnings; type check, build pass. No backend change in part 2.
 
+## Browser check (done in Chrome against a seeded copy, flag on)
+
+Run with Playwright on a clean database with a storekeeper, a second storekeeper, a manager and a cashier. Checked against the database
+after each step, not just on screen:
+
+- Existing item: its catalog price shows read only (KES 800), no price field, nothing price-related is sent.
+- Save draft stores a draft and moves no stock; reload and Continue restores the line, quantity and delivery note, and the price;
+  saving again updates the same draft (still one). Save shipment on the continued draft added exactly 12 units, once, wrote one
+  receipt with the delivery note, deleted the draft, reset the form and listed the shipment in Recent activity and the table.
+- Saving with an empty form posts nothing and shows "Line 1: enter how many arrived."
+- New item (storekeeper): created "Bucket hat" at 900.00, pending approval, 5 units on the books; no buying price field ("Set by admin")
+  and no cost stored; Recent activity says one new product is waiting for approval.
+- Drafts: each storekeeper sees only their own; the manager sees both and gets the buying price field instead of "Set by admin".
+- Phone (390px) and wide (1920px): no sideways scroll; Item takes the full width.
+
+Found and fixed while doing it (separate patch): the Today/Dashboard Overview sent full timestamps as `from`, the reports API
+answers 400 to anything but `YYYY-MM-DD`, so its four KPI cards never left their loading state; and the body-wide `tabular-nums` from
+the font change widened every `.` `,` `:` in running text.
+
 ## Not done
 
-- **Browser check.** As a storekeeper with the flag on: add an existing item and a new item, save a draft, continue it, receive it,
-  and read the recent activity. As a manager: the buying price field. On a phone: the stacked rows.
+- A second pair of eyes on a real phone; the stacked rows were checked in a 390px browser window, not on a device.
 - Per-line selling price for an existing item (a business decision, not a layout one).
 - The board's "Suppliers" tab is not part of this.

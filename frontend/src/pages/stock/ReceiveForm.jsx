@@ -1,7 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { suppliersApi } from '../../api/endpoints';
 import Picker from '../../components/Picker';
-import ReceiveLineRow, { LINE_GRID } from './ReceiveLineRow';
+import ReceiveLineRow, { LINE_COLUMNS } from './ReceiveLineRow';
 import { inputCls, labelCls } from './helpers';
 
 // The new layout's "New delivery" panel: supplier and delivery note, then the lines as a table, then Save draft and Save
@@ -14,7 +14,7 @@ export default function ReceiveForm({
 }) {
   const queryClient = useQueryClient();
   return (
-    <form onSubmit={onSubmit} className="rounded-xl border border-line bg-surface p-5" aria-labelledby="receive-form-title">
+    <form onSubmit={onSubmit} className="@container rounded-xl border border-line bg-surface p-5" aria-labelledby="receive-form-title">
       <div className="mb-3 flex items-start justify-between gap-3">
         <h2 id="receive-form-title" className="font-display text-base font-700">{draftId ? 'Finish a draft delivery' : 'New delivery'}</h2>
         {draftId && <button type="button" onClick={onClear} className="min-h-11 px-2 text-xs text-text-muted hover:text-text">Start a new delivery instead</button>}
@@ -42,8 +42,8 @@ export default function ReceiveForm({
         </div>
       </div>
 
-      <div className={`hidden gap-3 pb-2 text-xs font-semibold text-text-muted md:grid ${LINE_GRID}`} aria-hidden="true">
-        <span>Item</span><span>Quantity</span><span>Selling price</span><span>Buying price</span><span />
+      <div className={`hidden gap-3 pb-2 text-xs font-semibold text-text-muted @2xl:grid ${LINE_COLUMNS}`} aria-hidden="true">
+        <span>Item</span><span>Quantity</span><span>Selling price</span><span>Buying price</span>
       </div>
       {lines.map((l, i) => (
         <ReceiveLineRow key={l.key} line={l} index={i} removable={lines.length > 1} canCost={canCost} canManage={canManage}

@@ -4,9 +4,11 @@ import { ProductSearch } from './shared';
 import { inputCls, kes, labelCls } from './helpers';
 
 // One line of the new Receive form: Item | Quantity | Selling price | Buying price, with batch, expiry and (for a new
-// product) image and category tucked under "More". On a phone the cells stack and carry their own label.
-export const LINE_GRID = 'md:grid-cols-[minmax(0,1fr)_5.5rem_8.5rem_9.5rem_4.5rem]';
-const cellLabel = 'md:hidden block text-xs font-medium text-text-muted mb-1';
+// product) image and category tucked under "More", beside Remove. The layout follows the width of the form panel, not the
+// screen (container queries), because the panel is only ~520px wide on a laptop: below 28rem everything stacks, below 42rem
+// the item takes a row of its own above the three figures, and from 42rem it is one row under the column headings.
+export const LINE_COLUMNS = '@2xl:grid-cols-[minmax(0,1fr)_5.5rem_8.5rem_9.5rem]';
+const cellLabel = '@2xl:hidden block text-xs font-medium text-text-muted mb-1';
 
 export default function ReceiveLineRow({ line: l, index, removable, canCost, canManage, categories, topLevel, catLabel, setLine, onRemove }) {
   const n = index + 1;
@@ -17,8 +19,8 @@ export default function ReceiveLineRow({ line: l, index, removable, canCost, can
 
   return (
     <div className="border-t border-line py-3">
-      <div className={`grid grid-cols-1 gap-3 md:items-start ${LINE_GRID}`}>
-        <div>
+      <div className={`grid grid-cols-1 gap-3 @md:grid-cols-3 @2xl:items-start ${LINE_COLUMNS}`}>
+        <div className="@md:col-span-3 @2xl:col-span-1">
           <span className={cellLabel}>Item</span>
           {isNew ? (
             <input value={l.name} onChange={(e) => setLine(l.key, { name: e.target.value })} aria-label={`Line ${n} new item name`} placeholder="Name of the new item" className={inputCls} />
@@ -53,13 +55,11 @@ export default function ReceiveLineRow({ line: l, index, removable, canCost, can
           )}
         </div>
 
-        <div className="md:text-right">
-          {removable && <button type="button" onClick={onRemove} aria-label={`Remove line ${n}`} className="min-h-11 px-2 text-xs text-danger hover:opacity-70">Remove</button>}
-        </div>
       </div>
 
-      <details className="mt-2 text-sm" open={hasExtras}>
-        <summary className="cursor-pointer select-none text-xs font-medium text-text-muted">{isNew ? 'More: image, category, batch and expiry' : 'More: batch and expiry'}</summary>
+      <div className="mt-2 flex items-start justify-between gap-3">
+      <details className="min-w-0 flex-1 text-sm" open={hasExtras}>
+        <summary className="min-h-11 cursor-pointer select-none py-3 text-xs font-medium text-text-muted">{isNew ? 'More: image, category, batch and expiry' : 'More: batch and expiry'}</summary>
         <div className="mt-3 space-y-3">
           {isNew && (
             <Fragment>
@@ -102,6 +102,8 @@ export default function ReceiveLineRow({ line: l, index, removable, canCost, can
           </div>
         </div>
       </details>
+      {removable && <button type="button" onClick={onRemove} aria-label={`Remove line ${n}`} className="min-h-11 shrink-0 px-2 text-xs text-danger hover:opacity-70">Remove</button>}
+      </div>
     </div>
   );
 }
