@@ -44,7 +44,8 @@ function timeAgo(sqliteUtc) {
 // Polls a tiny indexed count every 30s (the older system's SSE channel never
 // connected, and EventSource can't send an Authorization header anyway). The
 // full list is only fetched while the panel is open.
-// Where the panel opens: next to the wide sidebar, next to the icon rail, under the top bar, or beside the new shell's rail.
+// Where the panel opens: next to the wide sidebar, next to the icon rail, under the top bar (also the redesigned shell's top
+// bar on large screens), or beside the new shell's rail.
 const PANEL_POSITION = {
   sidebar: 'top-[calc(3.5rem+env(safe-area-inset-top)+0.5rem)] inset-x-3 lg:inset-x-auto lg:top-4 lg:left-[15.5rem] lg:w-96',
   rail: 'top-[calc(3.5rem+env(safe-area-inset-top)+0.5rem)] inset-x-3 lg:inset-x-auto lg:top-4 lg:left-[4.5rem] lg:w-96',
@@ -53,7 +54,13 @@ const PANEL_POSITION = {
   shell: 'top-[calc(env(safe-area-inset-top)+0.75rem)] inset-x-3 lg:inset-x-auto lg:top-4 lg:left-[5rem] lg:w-96',
 };
 
-export default function NotificationBell({ className = '', anchor = 'sidebar' }) {
+// tone: 'dark' (default) is for the dark rail and bars; 'light' is for the light top bar of the redesigned shell.
+const BUTTON_TONE = {
+  dark: 'text-white/70 hover:text-white hover:bg-white/10',
+  light: 'text-text-muted hover:text-text hover:bg-paper',
+};
+
+export default function NotificationBell({ className = '', anchor = 'sidebar', tone = 'dark' }) {
   const navigate = useNavigate();
   const toast = useToast();
   const queryClient = useQueryClient();
@@ -123,7 +130,7 @@ export default function NotificationBell({ className = '', anchor = 'sidebar' })
         onClick={() => setOpen((v) => !v)}
         aria-label={unread > 0 ? `Notifications, ${unread} unread` : 'Notifications'}
         aria-expanded={open}
-        className="relative p-2 rounded-lg text-white/70 hover:text-white hover:bg-white/10 transition-colors"
+        className={`relative p-2 rounded-lg transition-colors ${BUTTON_TONE[tone] || BUTTON_TONE.dark}`}
       >
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <path d="M6 8a6 6 0 1 1 12 0c0 7 3 8 3 8H3s3-1 3-8" />

@@ -4,6 +4,7 @@ import { Lock, Monitor, Moon, Sun } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import useCashierHome from '../../hooks/useCashierHome';
 import useModules from '../../hooks/useModules';
+import useMediaQuery from '../../hooks/useMediaQuery';
 import useRecentPages from '../../hooks/useRecentPages';
 import { setThemePreference } from '../../hooks/useTheme';
 import useStackedTableLabels from '../useStackedTableLabels';
@@ -12,18 +13,21 @@ import { ALL_ITEMS, filterVisible, homeRouteFor } from '../navItems';
 import Rail from '../shell/Rail';
 import BottomBar from '../shell/BottomBar';
 import StatusLine from '../shell/StatusLine';
+import TopBar from '../shell/TopBar';
 import WorkspaceTabs from '../shell/WorkspaceTabs';
 import { ShellChromeContext } from '../shell/pageChromeContext';
 import { activeEntryId, buildRail, tillRail } from '../shell/railModel';
 
-// The redesigned shell, shown instead of Layout while the ut_ui=v2 flag is on: a 76px rail on large screens, a bottom
-// bar on phones, a status line, and the page in an <Outlet /> exactly as before (so no route changes between the two).
+// The redesigned shell, shown instead of Layout while the ut_ui=v2 flag is on: a 64px rail and a top bar (status line,
+// Search, Alerts, Settings) on large screens, a bottom bar on phones, and the page in an <Outlet /> exactly as before
+// (so no route changes between the two). On phones there is no top bar, so the status line is drawn under the page title.
 // Roles with few destinations (cashier, storekeeper) get a flat rail; everyone else gets the workspace rail.
 export default function LayoutV2() {
   const { user, hasRole, can, lock } = useAuth();
   const location = useLocation();
   const modules = useModules();
   const mainRef = useRef(null);
+  const wide = useMediaQuery('(min-width: 1024px)'); // lg: the rail + top bar form; below it, the bottom bar form
   useStackedTableLabels(mainRef);
 
   // Ctrl/Cmd+K opens the "go to…" palette from anywhere; the rail's Search button opens the same one.
@@ -61,7 +65,7 @@ export default function LayoutV2() {
   }, []);
   const chrome = {
     claim,
-    status: <StatusLine inline />,
+    status: wide ? null : <StatusLine inline />, // on large screens the top bar carries it
     workspaceTabs: <WorkspaceTabs pages={tabPages} path={activePath} inline />,
   };
 
@@ -75,12 +79,13 @@ export default function LayoutV2() {
 
   return (
     <div className="flex h-dvh bg-paper text-text">
-      <Rail entries={railForScreen.entries} settings={rail.settings} activeId={activeId} homeRoute={homeRoute} onSearch={openSearch} />
+      <Rail entries={railForScreen.entries} activeId={activeId} homeRoute={homeRoute} />
 
       <div className="flex min-w-0 flex-1 flex-col">
+        {wide && <TopBar settings={rail.settings} activeId={activeId} onSearch={openSearch} />}
         {claims === 0 && (
           <>
-            <StatusLine />
+            {!wide && <StatusLine />}
             <WorkspaceTabs pages={tabPages} path={activePath} />
           </>
         )}

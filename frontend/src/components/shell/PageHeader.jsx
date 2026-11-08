@@ -90,7 +90,7 @@ export default function PageHeader({ eyebrow, title, description, meta, actions,
         </div>
         {right}
       </div>
-      {withChrome && <div className="mt-1">{shell.status}</div>}
+      {withChrome && shell.status && <div className="mt-1">{shell.status}</div>}
       {description && <p className="text-text-muted text-sm mt-2 max-w-2xl">{description}</p>}
       {withChrome && shell.workspaceTabs && <div className="mt-3">{shell.workspaceTabs}</div>}
       {tabStrip && <div className="mt-3">{tabStrip}</div>}

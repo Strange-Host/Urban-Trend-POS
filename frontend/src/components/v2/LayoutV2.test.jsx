@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, within, waitFor } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen, within, waitFor, cleanup } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
@@ -41,6 +41,13 @@ function mount(path = '/orders', page = <div>The page</div>) {
     </QueryClientProvider>,
   );
 }
+// jsdom matches no media query, so the shell renders its small-screen form. Wide tests pretend the viewport is lg+.
+const realMatchMedia = window.matchMedia;
+const setWide = (wide) => {
+  window.matchMedia = (q) => ({ matches: wide && q.includes('min-width: 1024px'), media: q, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} });
+};
+afterEach(() => { window.matchMedia = realMatchMedia; });
+const topBar = () => within(screen.getByRole('banner'));
 const rail = () => within(screen.getByRole('navigation', { name: 'Workspaces' }));
 const labels = (nav) => nav.getAllByRole('link').map((a) => a.textContent);
 
@@ -52,15 +59,19 @@ beforeEach(() => {
 });
 
 describe('the rail, per role', () => {
-  it('admin: five workspaces, with Settings in the bottom stack', () => {
+  it('admin: five workspaces; Search, Alerts and Settings are not in the rail (they are in the top bar)', () => {
     mount();
     expect(labels(rail())).toEqual(['Today', 'Sell', 'Stock', 'Money', 'Team']);
     const aside = within(screen.getByRole('complementary', { name: 'Main navigation' }));
-    expect(aside.getByRole('link', { name: 'Settings' }).getAttribute('href')).toBe('/settings');
+    expect(aside.queryByRole('link', { name: 'Settings' })).toBeNull();
+    expect(aside.queryByRole('button', { name: 'Search pages' })).toBeNull();
+    expect(aside.queryByRole('button', { name: 'Notifications' })).toBeNull();
+    expect(aside.getByRole('button', { name: /account menu/i })).toBeTruthy();
   });
 
   it('manager: the same five workspaces, no Settings', () => {
     auth.role = 'manager';
+    setWide(true);
     mount();
     expect(labels(rail())).toEqual(['Today', 'Sell', 'Stock', 'Money', 'Team']);
     expect(screen.queryByRole('link', { name: 'Settings' })).toBeNull();
@@ -140,12 +151,49 @@ describe('search', () => {
     const user = userEvent.setup();
     mount();
     expect(screen.queryByRole('dialog', { name: 'Go to' })).toBeNull();
-    await user.click(within(screen.getByRole('complementary')).getByRole('button', { name: 'Search pages' }));
+    setWide(true);
+    cleanup();
+    mount();
+    await user.click(topBar().getByRole('button', { name: 'Search pages' }));
     expect(screen.getByRole('dialog', { name: 'Go to' })).toBeTruthy();
     await user.keyboard('{Escape}');
     expect(screen.queryByRole('dialog', { name: 'Go to' })).toBeNull();
     await user.keyboard('{Control>}k{/Control}');
     expect(screen.getByRole('dialog', { name: 'Go to' })).toBeTruthy();
+  });
+});
+
+describe('top bar (large screens)', () => {
+  beforeEach(() => setWide(true));
+
+  it('holds Search, Alerts and Settings on the right, and Settings goes to /settings', () => {
+    mount();
+    expect(topBar().getByRole('button', { name: 'Search pages' })).toBeTruthy();
+    expect(topBar().getByRole('button', { name: 'Notifications' })).toBeTruthy();
+    expect(topBar().getByRole('link', { name: 'Settings' }).getAttribute('href')).toBe('/settings');
+  });
+
+  it('marks Settings as current on the settings page', () => {
+    mount('/settings');
+    expect(topBar().getByRole('link', { name: 'Settings' }).getAttribute('aria-current')).toBe('page');
+  });
+
+  it('carries the one status line, so a page header does not draw a second', async () => {
+    mount('/orders', <PageHeader title="Orders" description="All orders." />);
+    expect(screen.getAllByLabelText('Status')).toHaveLength(1);
+    await waitFor(() => expect(topBar().getByText('Main Branch')).toBeTruthy());
+    expect(topBar().getByLabelText('Status')).toBeTruthy();
+  });
+
+  it('still shows the workspace tabs under the title', () => {
+    mount('/orders', <PageHeader title="Orders" />);
+    expect(screen.getAllByRole('navigation', { name: 'Pages in this workspace' })).toHaveLength(1);
+  });
+
+  it('has no top bar on small screens', () => {
+    setWide(false);
+    mount();
+    expect(screen.queryByRole('banner')).toBeNull();
   });
 });
 

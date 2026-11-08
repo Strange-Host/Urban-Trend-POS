@@ -8,5 +8,5 @@ export default function WorkspaceTabs({ pages, path, inline = false }) {
   if (!pages || pages.length < 2) return null;
   const items = pages.map((p) => ({ key: p.to, label: p.label, to: p.to }));
   const active = pages.find((p) => coversPath(path, p.to))?.to;
-  return <Tabs items={items} active={active} label="Pages in this workspace" className={inline ? '' : 'px-4 lg:px-6'} />;
+  return <Tabs items={items} active={active} label="Pages in this workspace" className={inline ? '' : 'px-4 lg:px-6 lg:pt-3'} />;
 }
