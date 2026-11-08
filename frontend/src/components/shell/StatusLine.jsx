@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { Clock, Store } from 'lucide-react';
 import { cashSessionsApi, storesApi } from '../../api/endpoints';
 import { useAuth } from '../../context/AuthContext';
 import ConnectionDot from '../ConnectionDot';
@@ -13,7 +14,8 @@ const clock = (iso) => new Date(iso).toLocaleTimeString([], { hour: '2-digit', m
 // `inline` drops the outer padding, for when a page's header draws it under the title; otherwise the shell draws it
 // above pages that have no header of their own (the till).
 // Both lookups are best-effort: if either fails, that part is simply left out, never an error on every page.
-export default function StatusLine({ inline = false }) {
+// `chips` draws each part as a small pill instead of dotted text (the top bar on large screens).
+export default function StatusLine({ inline = false, chips = false }) {
   const { user } = useAuth();
 
   const { data: stores } = useQuery({
@@ -32,6 +34,29 @@ export default function StatusLine({ inline = false }) {
 
   const branch = Array.isArray(stores) ? stores.find((b) => b.is_current)?.name : null;
   const shift = !shiftKnown ? null : session ? `Shift open since ${clock(session.opened_at)}` : 'No shift open';
+  const shiftOpen = Boolean(session);
+  const pill = 'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium';
+
+  if (chips) {
+    return (
+      <div aria-label="Status" className="flex flex-wrap items-center gap-2 text-text">
+        {branch && (
+          <span className={`${pill} border-line bg-paper`}>
+            <Store size={13} strokeWidth={1.75} className="text-text-muted" aria-hidden="true" />
+            {branch}
+          </span>
+        )}
+        <span className={`${pill} border-line bg-paper`}><ConnectionDot withLabel /></span>
+        {shift && (
+          <span className={`${pill} ${shiftOpen ? 'border-accent/50 bg-accent/10' : 'border-line bg-paper text-text-muted'}`}>
+            <Clock size={13} strokeWidth={1.75} className={shiftOpen ? '' : 'text-text-muted'} aria-hidden="true" />
+            {shift}
+          </span>
+        )}
+      </div>
+    );
+  }
+
   const parts = [
     branch && <span key="branch">{branch}</span>,
     <ConnectionDot key="conn" withLabel />,

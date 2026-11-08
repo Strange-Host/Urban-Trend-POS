@@ -1,21 +1,43 @@
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Search } from 'lucide-react';
+import { useAuth } from '../../context/AuthContext';
 import NotificationBell from '../NotificationBell';
 import StatusLine from './StatusLine';
 
 const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || '');
 
+const greetingFor = (hour) => (hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening');
+
+// "Sunday 8 November" over "Good afternoon, Ann"; the time of day and the date are re-read every minute.
+function Greeting() {
+  const { user } = useAuth();
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 60_000);
+    return () => clearInterval(id);
+  }, []);
+  const first = (user?.name || '').trim().split(/\s+/)[0];
+  return (
+    <div className="shrink-0 leading-tight">
+      <div className="text-xs text-text-muted">{now.toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long' })}</div>
+      <div className="font-display text-base font-bold tracking-tight">{greetingFor(now.getHours())}{first ? `, ${first}` : ''}</div>
+    </div>
+  );
+}
+
 // The bar across the top of the page area (large screens only; phones keep the bottom bar and its More panel).
-// Left: the status line (branch · connection · shift). Right: Search, Alerts and Settings, which used to crowd the
-// bottom of the rail. The Search pill opens the same "go to…" palette as Ctrl/Cmd+K.
+// Left: a greeting with the date, then the status as pills (branch, connection, shift). Right: Search, Alerts and Settings,
+// which used to crowd the bottom of the rail. The Search pill opens the same "go to…" palette as Ctrl/Cmd+K.
 export default function TopBar({ settings, activeId, onSearch }) {
   const SettingsIcon = settings?.icon;
   const settingsActive = activeId === 'settings';
 
   return (
-    <header className="flex h-14 shrink-0 items-center gap-4 border-b border-line bg-surface px-6">
-      <div className="min-w-0 flex-1 max-h-9 overflow-hidden">
-        <StatusLine inline />
+    <header className="flex h-16 shrink-0 items-center gap-4 border-b border-line bg-surface px-6">
+      <Greeting />
+      <div className="min-w-0 max-h-9 flex-1 overflow-hidden border-l border-line pl-3">
+        <StatusLine inline chips />
       </div>
 
       <div role="toolbar" aria-label="Quick actions" className="flex shrink-0 items-center gap-1.5">
@@ -31,7 +53,7 @@ export default function TopBar({ settings, activeId, onSearch }) {
           <kbd className="rounded border border-line bg-surface px-1.5 py-px font-mono text-[10px] leading-4">{isMac ? '⌘ K' : 'Ctrl K'}</kbd>
         </button>
 
-        <NotificationBell anchor="topbar" tone="light" />
+        <NotificationBell anchor="shellbar" tone="light" />
 
         {settings && (
           <Link

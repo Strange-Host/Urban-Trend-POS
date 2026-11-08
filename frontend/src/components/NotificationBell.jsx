@@ -50,6 +50,8 @@ const PANEL_POSITION = {
   sidebar: 'top-[calc(3.5rem+env(safe-area-inset-top)+0.5rem)] inset-x-3 lg:inset-x-auto lg:top-4 lg:left-[15.5rem] lg:w-96',
   rail: 'top-[calc(3.5rem+env(safe-area-inset-top)+0.5rem)] inset-x-3 lg:inset-x-auto lg:top-4 lg:left-[4.5rem] lg:w-96',
   topbar: 'top-[calc(3.5rem+env(safe-area-inset-top)+0.5rem)] inset-x-3 sm:inset-x-auto sm:right-3 sm:w-96',
+  // The redesigned shell's top bar (64px tall, large screens): just below it, at the right.
+  shellbar: 'top-[4.5rem] right-4 w-96',
   // The redesigned shell: beside the 76px rail on large screens, a top-anchored card on phones (the bell sits in the More panel there).
   shell: 'top-[calc(env(safe-area-inset-top)+0.75rem)] inset-x-3 lg:inset-x-auto lg:top-4 lg:left-[5rem] lg:w-96',
 };

@@ -173,6 +173,12 @@ describe('top bar (large screens)', () => {
     expect(topBar().getByRole('link', { name: 'Settings' }).getAttribute('href')).toBe('/settings');
   });
 
+  it('greets the person by first name, with the date', () => {
+    mount();
+    expect(topBar().getByText(/^Good (morning|afternoon|evening), Ann$/)).toBeTruthy();
+    expect(topBar().getByText(new Date().toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long' }))).toBeTruthy();
+  });
+
   it('marks Settings as current on the settings page', () => {
     mount('/settings');
     expect(topBar().getByRole('link', { name: 'Settings' }).getAttribute('aria-current')).toBe('page');
