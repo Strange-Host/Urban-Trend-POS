@@ -1,11 +1,15 @@
 import Constants, { ExecutionEnvironment } from "expo-constants";
+import { requireOptionalNativeModule } from "expo-modules-core";
 
 // Push is FCM-direct (the backend sends through FCM), so we register the native device token.
 // It needs a development/production build with google-services.json; Expo Go cannot receive it.
 const inExpoGo = Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
+// expo-notifications needs native parts that exist only in a development or release build. Where they are missing (Expo Go,
+// some emulators) it is never loaded, so there is no error, just no push.
+const pushUnavailable = () => inExpoGo || requireOptionalNativeModule("ExpoApplication") === null;
 
 export async function registerForPush(): Promise<string | null> {
-  if (inExpoGo) return null;
+  if (pushUnavailable()) return null;
   try {
     const N = await import("expo-notifications");
     N.setNotificationHandler({
@@ -32,7 +36,7 @@ export async function registerForPush(): Promise<string | null> {
 
 /** Calls onLink(deepLink) when a notification is tapped, including the one that cold-started the app. */
 export async function listenForNotificationTaps(onLink: (deepLink: string) => void): Promise<() => void> {
-  if (inExpoGo) return () => {};
+  if (pushUnavailable()) return () => {};
   try {
     const N = await import("expo-notifications");
     const pick = (r: { notification: { request: { content: { data?: unknown } } } } | null) => {
