@@ -1,448 +1,317 @@
-# Urban Trends POS — System Documentation
+# Urban Trends POS: system documentation
 
-A full-stack point-of-sale system for a retail business: register checkout,
-inventory, multi-channel sales (in-store + Shopify + WooCommerce), a small
-CRM, requisitions, expenses, payments, staff management, and audit logging.
+What the system does and how it is built, as it stands today. For the rules the code is held to (and the tests that hold
+it there) see `ARCHITECTURE.md`. To get it running, see `SETUP.md`. For what changed and when, see `CHANGES.md`. For the new
+layout that is being rolled out behind a flag, see `docs/redesign/README.md`.
 
-This document describes what the system **does** and how it's **built**.
-See `AUDIT.md` for bugs found, risks, and recommended improvements.
+A point-of-sale and stock system for one retail shop that also sells online: a till, stock control across a main store and
+outlets, online and phone orders with delivery and courier settlement, money tracking (M-Pesa, cards, cash held by staff,
+expenses), a small CRM, and staff attendance and payroll.
 
 ---
 
-## 1. Tech stack
+## 1. Roles and permissions
 
-| Layer | Choice | Notes |
+Four roles. What a person may do is decided by permissions; each role starts with a default set, and an admin can change an
+individual's set (see "Optional modules" for the switch that allows that).
+
+| Role (`users.role`) | Is | Lands on |
 |---|---|---|
-| Backend runtime | Node.js + Express | REST API, no framework beyond Express |
-| Database | SQLite via `better-sqlite3` | WAL mode, synchronous driver, single file (`data/urban_trends.db`) |
-| Auth | JWT (`jsonwebtoken`) + `bcryptjs` | Bearer tokens, 8h expiry by default |
-| Frontend | React 18 + Vite | SPA, no SSR |
-| Routing | `react-router-dom` v6 | Client-side routing, one `ProtectedRoute` gate |
-| Server state | `@tanstack/react-query` | All API data fetching/caching |
-| Client state | `zustand` | Cart state only (`useCartStore`) |
-| Styling | Tailwind CSS | Custom design tokens (ink/paper/surface/accent/success/danger) |
-| Security middleware | `helmet`, `cors`, `express-rate-limit`, `compression` | Rate limiting scoped to `/api/auth` |
-| External integrations | Shopify Admin REST API, WooCommerce REST API | Both via `axios` |
+| `admin` | the owner | Dashboard |
+| `manager` | runs the shop day to day | Dashboard (with `reports.view`) |
+| `cashier` | works the till, orders and leads | the till (new layout: the Start screen) |
+| `store` | the storekeeper: receives and counts stock, no till | Catalog |
 
-No ORM — all queries are raw SQL through `better-sqlite3`'s prepared
-statements. No test suite exists (see `AUDIT.md`).
+Permissions are defined once, in `backend/src/config/permissions.js` (name, group, label, default roles), checked on the API
+by `requirePermission(...)` and in the app by `can(...)`. The same names gate menu items, tabs and tiles, so a screen never
+offers something the API would refuse.
+
+| Group | Permissions |
+|---|---|
+| Sales | `sales.void`, `sales.void_request`, `leads.intake_routes` |
+| Orders | `orders.pull_online`, `orders.inspect`, `orders.resolve_dispute`, `couriers.manage` |
+| Stock | `products.manage`, `products.propose`, `products.approve`, `products.view_cost`, `inventory.adjust`, `stock.receive`, `stock.transfer`, `stock.count`, `stock.review`, `shopify.sync` |
+| Money | `expenses.manage`, `expenses.approve`, `payments.manage`, `payments.refund`, `payments.refund_request`, `payments.reconcile`, `approvals.review`, `requisitions.approve`, `atrisk.view`, `cashsessions.view`, `couriers.settle`, `couriers.pay`, `custody.manage` |
+| Team | `payroll.view`, `staff.view`, `attendance.view`, `attendance.review` |
+| Reports | `reports.view`, `reports.forecast` |
+| Messaging | `sms.view` |
+
+Defaults worth knowing: cashiers may ask for a void (`sales.void_request`) and submit stock counts (`stock.count`); storekeepers
+may receive, transfer and count stock and propose new products; everything that decides, approves, reconciles or sees buying
+prices is admin and manager. Settings, Staff and the Activity log are admin only and cannot be delegated.
 
 ---
 
-## 2. Architecture
+## 2. Tech stack
 
-### 2.1 Backend layout
+| Layer | Choice |
+|---|---|
+| Runtime | Node.js 22 or newer (`engines` in the root `package.json`) |
+| API | Express 4, plain REST, `zod` 4 validation, `helmet`, `cors`, `express-rate-limit`, `compression` |
+| Database | SQLite through `better-sqlite3` (synchronous, WAL, one file, `data/urban_trends.db`); raw SQL, no ORM |
+| Auth | short-lived access token (JWT) plus a rotating, revocable refresh token; `bcryptjs` for passwords and PINs |
+| Frontend | React 19, Vite 8, `react-router-dom` 7, Tailwind CSS 4 |
+| Data in the app | `@tanstack/react-query` for server data; `zustand` for the cart, the offline sale queue and connection state |
+| Tests | `vitest` on both sides (`supertest` for the API, Testing Library for the app); `oxlint` for lint |
+| Types | JSDoc checked by `tsc` (a dev tool only) on the API layer and the hooks. Nothing is compiled from TypeScript. |
+| Integrations | Shopify and WooCommerce (catalog and orders), M-Pesa and KCB (payments), Zettatel (SMS), SMTP (email) |
+
+One deployable: `npm start` at the repository root runs migrations, optionally seeds, then starts the API, which also serves the
+built frontend (`frontend/dist`).
+
+---
+
+## 3. Backend
 
 ```
 backend/src/
-  app.js                 Express app: middleware, route mounting, 404, error handler
-  server.js               Boots app.js on PORT (default 4000)
-  config/
-    db.js                  better-sqlite3 connection, WAL + foreign_keys pragmas
-    shopify.js              Shopify Admin API client factory + fetch helpers
-    woocommerce.js           WooCommerce REST API client factory + fetch helpers
-  db/
-    schema.sql              Full DDL — every table, index, CHECK constraint
-    migrate.js               Applies schema.sql + backfills columns on existing DBs
-    seed.js                  Creates default store, admin user, sample catalog
-  middleware/
-    auth.js                  authenticate() (JWT verify) + requireRole(...roles)
-    errorHandler.js          Central error → { error: { code, message } } contract
-  controllers/               One per resource — thin, calls services or queries directly
-  services/                  Business logic with transactions (sales, requisitions, leads, sync)
-  routes/                    One per resource — auth/role gates live here
-  utils/
-    ApiError.js               Typed HTTP error class
-    asyncHandler.js            Wraps async route handlers → forwards to errorHandler
-    paginate.js                Shared page/limit/offset parsing (25 default, 100 max)
-    auditLog.js                logStaffAction() — writes to staff_logs on every mutation
-    phone.js                   Phone normalization for lead dedup
+  server.js          boots the app, starts the background jobs, handles shutdown
+  app.js             middleware, route mounting, static frontend, 404, error handler
+  config/            db, env, cors, limits, permissions, and one file per outside service
+  db/                baseline.js + schema.sql (migration 0001, frozen), migrations/NNNN_*.sql, migrator.js, migrate.js, seed.js
+  routes/            one file per resource: the guards (role, permission, module, rate limit) and nothing else
+  controllers/       parse the request, call a service, shape the response. Never touch the database
+  services/          the business rules and every SQL statement; transactions live here
+  validation/        zod schemas for request bodies
+  middleware/        auth, validate, requireModule, errorHandler, webhook auth, alertOnChange
+  utils/             money, ApiError, auditLog, paginate, storeTime (the shop clock), logger, passwordPolicy, ...
+  integrity/         the checks behind `npm run integrity` and the nightly job
+  ledger/            order reference numbers
+backend/scripts/     integrity-check, restore-backup, disable-2fa, import-delivery-areas
+backend/tests/       the API suite; tests/characterization/ pins the money paths and the rules in ARCHITECTURE.md
 ```
 
-Every controller follows the same shape: `asyncHandler(async (req, res) => {...})`,
-reads `req.user` (set by `authenticate`) for `id` / `role` / `storeId`, and
-returns `{ data: ... }` (or a paginated envelope — see §5). Errors are thrown
-as `ApiError(status, message, details?)` and caught centrally.
+**Request lifecycle.** `authenticate` verifies the access token and sets `req.user` (`id`, `role`, `storeId`, `name`);
+`requirePermission` / `requireRole` / `requireModule` decide whether the route is open to this person; `validate(schema)` checks
+the body; the controller calls a service; the service runs the transaction; the response is `{ data }` (lists add paging
+fields) and failures are `{ error: { code, message } }` from the single error handler. Almost every query is scoped to
+`req.user.storeId`.
 
-### 2.2 Frontend layout
+**Lists** take `?page=` and `?limit=` (default 25, never more than 100). **Rate limits** (`config/limits.js`): sign-in 20 per 15
+minutes (counted in the database, so a restart does not reset it), checkout 120 per 5 minutes, payment webhooks 300 per 5, manual
+sync 20 per 15, and a blanket 600 per 5 for everything else. The others count in memory.
+
+**Background jobs** (started in `server.js`; each one catches its own errors so a bad row cannot take the server down):
+
+| Job | Every | Does |
+|---|---|---|
+| Backups | 6 hours local, 24 hours off-site | verified copies; see "Backups" |
+| Nightly integrity | nightly | on-hand equals the ledger, order and payment totals agree; failures alert admins |
+| Unconfirmed order sweep | 15 minutes | cancels cash-on-delivery orders past their confirmation window |
+| Telesales rebalance | 15 minutes | moves leads and orders off people who are not clocked in (the "10:00 rule", unplanned absences) |
+| SMS outbox | 30 seconds | sends queued messages with retry and expiry |
+| Notification sweeps | 15 minutes | lead follow-ups due, products at their reorder level, expiring stock; prunes old notices |
+| Live sync | every minute | asks each connected Shopify or WooCommerce store what changed (webhooks are the fast path) |
+| Reconciliation check | 24 hours | logs inventory drift (the repair is manual) |
+
+---
+
+## 4. Data model
+
+SQLite, more than 80 tables, 31 triggers. Created by `db/schema.sql` (frozen as migration `0001`) and the numbered files in
+`db/migrations/`. Rules that hold everywhere:
+
+- **Money is whole cents** in `INTEGER` columns (comments say "smallest KES subunit, never float"). No `REAL` money.
+- **Timestamps are UTC.** Reports and "today" use the shop's calendar day (see "Dates and the shop clock").
+- **Stock is a ledger.** `inventory_movements` only ever gains rows (`stock.service` is the one writer, see `ARCHITECTURE.md`);
+  `inventory.quantity` is a cache that must equal the sum of the ledger, and `npm run integrity` and the nightly job check that.
+  Triggers also refuse a movement that would take stock below zero.
+- **Settled records are not edited.** Triggers refuse updates and deletes on locked payroll, courier statements and collections,
+  custody records, delivery fee receipts, costs and adjustments, and commissions; a mistake is fixed by a reversal row with its own
+  reason.
+- **Soft delete** (`is_active` or `deleted_at`) wherever history could point at the row.
+- **Every mutation is logged** to `staff_logs` through `utils/auditLog.js`.
+
+| Area | Tables |
+|---|---|
+| Core | `stores`, `users`, `user_permissions`, `settings`, `categories`, `products`, `suppliers` |
+| Stock | `inventory`, `inventory_movements`, `stock_receipts`, `stock_receipt_items`, `stock_receipt_drafts`, `stock_issues`, `stock_transfers`, `stock_transfer_items`, `stock_counts`, `stock_count_items`, `requisitions`, `requisition_items` |
+| Till and shifts | `sales`, `sale_items`, `payments`, `cash_sessions`, `shift_handovers`, `petty_cash_topups`, `approval_requests`, `customers` |
+| Orders and delivery | `orders`, `order_items`, `order_status_history`, `commissioned_orders`, `assignment_moves`, `couriers`, `package_fees`, `delivery_areas`, `delivery_settlements`, `delivery_fee_receipts`, `delivery_fee_verifications`, `delivery_costs`, `delivery_adjustments`, `courier_costs`, `courier_payouts`, `rider_payouts`, `rider_payout_items`, `payout_items`, `org_collections`, `org_statements`, `org_statement_lines`, `custody_records` |
+| Payments and integrations | `payment_records`, `payment_notifications`, `stk_push_requests`, `payment_gateway_credentials`, `income_sources`, `income_source_webhooks`, `webhook_events`, `shopify_staging_products`, `sms_credentials`, `sms_outbox` |
+| CRM | `leads`, `lead_activities`, `lead_status_history`, `lead_form_routes` |
+| Spending | `expenses`, `expense_categories` |
+| People and payroll | `staff_attendance`, `end_of_day_reviews`, `employee_agreements`, `employee_documents`, `payroll_runs`, `payroll_items`, `payroll_item_lines`, `payroll_adjustments` |
+| Security and system | `auth_sessions`, `refresh_tokens`, `otp_challenges`, `rate_limits`, `security_events`, `staff_logs`, `notifications`, `integrity_runs`, `sales_forecasts` |
+
+Two "payments" exist on purpose: `payments` are the tenders taken at the till for one sale (split payments supported), and
+`payment_records` are money movements recorded against orders and suppliers (layaway, refunds, outgoing payments). Both are
+integer cents.
+
+Schema changes are numbered migrations, never edits to `schema.sql`. See `ARCHITECTURE.md` and
+`backend/src/db/migrations/README.md`.
+
+---
+
+## 5. API
+
+Every route is under `/api`. The route file for each prefix holds its guards; `config/permissions.js` holds what each permission
+means. Public endpoints are the sign-in routes, the lead-intake form (secret-protected), and the signed webhooks and payment
+callbacks.
+
+| Prefix | What it covers |
+|---|---|
+| `/auth` | sign in (password, cashier PIN, SMS code), refresh, logout, unlock, change password, your sessions and "sign out others" |
+| `/products`, `/categories` | the catalog; staff propose new products and a manager approves them |
+| `/inventory` | stock levels, low stock, a product's movements, manual adjustment, drift check and repair |
+| `/stock` | receipts and their drafts (`/receipts/drafts`), costing of receipts, issues, batches and recalls, alerts, transfers, counts |
+| `/suppliers`, `/stores` | suppliers; branches |
+| `/sales` | till checkout, sales history, void, thermal receipts (`/:id/receipt.escpos`), `/discount-limit` |
+| `/approvals` | void and refund requests waiting for a decision |
+| `/orders`, `/customers` | online and phone orders: create, confirm, dispatch, returns and inspection, payments, disputes; a customer's order history |
+| `/couriers`, `/delivery`, `/delivery-areas` | couriers and what they are owed, each delivery's fee against its costs, delivery areas and rates |
+| `/custody` | shop cash held by staff until it is deposited |
+| `/payments`, `/payment-reconciliation` | recorded payments and refunds; matching unmatched M-Pesa to orders |
+| `/integrations/payments`, `/integrations/payments/callbacks`, `/settings/payment-gateways` | provider webhooks and callbacks (M-Pesa, KCB), gateway credentials |
+| `/expenses`, `/petty-cash` | spending and petty cash |
+| `/cash-sessions`, `/shift` | till shifts (open, close, summary); `/shift/handover` |
+| `/leads`, `/telesales`, `/integrations/leads` | the CRM, lead and order distribution (`/telesales/rebalance`), the website form |
+| `/requisitions`, `/attendance`, `/end-of-day`, `/payroll`, `/employees` | the HR and back-office module (off by default): internal requests, clock-in, the day's review, payroll, onboarding |
+| `/reports` | dashboard figures, reports, forecasts, profit and loss |
+| `/income-sources`, `/integrations/shopify`, `/integrations/webhooks` | connected Shopify and WooCommerce stores: connect, test, sync, review staged products, inbound webhooks |
+| `/sms`, `/notifications` | SMS delivery and retry; each person's in-app notices |
+| `/users` and `/staff` (same router), `/staff-logs` | staff accounts; the activity log |
+| `/settings`, `/system`, `/security`, `/modules`, `/backups` | business settings; server address and email; security rules and alerts; the optional-module switches; backups and restore |
+
+---
+
+## 6. Frontend
 
 ```
 frontend/src/
-  main.jsx                  ReactDOM root, wraps App in QueryClientProvider
-  App.jsx                    Router: all routes, wrapped in AuthProvider + Layout
-  context/AuthContext.jsx     login()/logout()/hasRole(), persists token+user in localStorage
-  components/
-    Layout.jsx                 Sidebar nav (role-filtered) + top bar + outlet
-    ProtectedRoute.jsx          Redirects to /login if unauthenticated; 403 page if wrong role
-  api/
-    client.js                  Axios instance, attaches Bearer token, 401 → redirect to /login
-    endpoints.js                One object per resource, thin wrappers over client calls
-  hooks/useCartStore.js        Zustand store for the POS terminal's in-progress sale
-  pages/                       One file per route (see §4 for the full list)
+  main.jsx, App.jsx     the router (every route below), providers
+  api/                  client.js (token, refresh, errors) and endpoints.js (one object per resource); typed
+  hooks/                stores and shared hooks: useCartStore, useOfflineQueue, useConnectionStatus, useAttentionQueue, ...; typed
+  context/              AuthContext (user, can, hasRole), UIContext (toast, dialogs), ...
+  components/           shared UI; shell/ and v2/ are the new layout; till/ is the till's pieces
+  pages/                one file per route; pages with several parts keep them in a folder beside them (orders/, stock/, settings/, ...)
+  utils/                small helpers, including the layout flag (uiVersion.js)
 ```
 
-State pattern: every page uses React Query for server data (`useQuery` /
-`useQueryClient().invalidateQueries`), local `useState` for form/UI state,
-and calls `endpoints.js` functions directly — there's no separate "service"
-layer on the frontend.
+**State.** Server data goes through React Query; forms and screen state are local; the cart, the offline queue and connection
+state are `zustand` stores (the cart and the queue are saved in the browser). Pages call `api/endpoints.js` directly; there is
+no frontend service layer.
 
-### 2.3 Request lifecycle
+**Two layouts.** The current layout (`Layout.jsx`, a sidebar) is what everyone sees. The new layout (side rail, top bar, page
+header, workspace tabs) is built and runs behind the `ut_ui=v2` flag. `ShellSwitch` picks one. Both render the same routes. How the
+flag works, what the new layout has, and what remains before it replaces the old one is in `docs/redesign/README.md`.
 
-1. Browser attaches `Authorization: Bearer <jwt>` (from `localStorage['ut_token']`) via an axios interceptor.
-2. `authenticate` middleware verifies the JWT, sets `req.user = { id, role, storeId, name }`.
-3. `requireRole(...)` (where present) checks `req.user.role`.
-4. Controller runs, using `req.user.storeId` to scope almost every query to the caller's store.
-5. Response is `{ data }` or a paginated envelope; errors are `{ error: { code, message } }`.
-6. A `401` anywhere clears local storage and hard-redirects to `/login` (see `client.js`).
+**Offline.** The till keeps working without a connection: products and categories are cached, a sale that cannot be sent is
+queued with its own id (so a retry can never double-post) and replayed when the connection returns; the till shows what is
+waiting and anything the server refused.
 
----
+**Routes** (`App.jsx`; a route also needs the permission shown, and some need an optional module):
 
-## 3. Data model
-
-18 tables, all SQLite with `CHECK` constraints standing in for enums (no
-Postgres-style native enum type). Soft-delete (`deleted_at` or `is_active`)
-is used everywhere sales history or audit trails could reference the row —
-nothing user-facing is ever hard-deleted except categories (which block
-deletion if in use) and leads/requisitions/expenses/payment_records
-(soft-deleted).
-
-| Table | Purpose | Key relationships |
+| Route | Page | Who |
 |---|---|---|
-| `stores` | Physical/POS locations, multi-location ready | referenced by nearly everything via `store_id` |
-| `users` | Staff accounts — also *is* the Staff module | `role` ∈ admin/manager/cashier |
-| `settings` | Key/value POS-wide config (business name, tax defaults, receipt footer) | — |
-| `income_sources` | Connected Shopify/WooCommerce stores | optionally maps to a `store` |
-| `categories` | Self-referencing product categories | — |
-| `products` | Catalog | optional Shopify linkage columns |
-| `inventory` | Cached qty per (product, store) | source of truth is `inventory_movements` |
-| `inventory_movements` | Append-only stock ledger | `reason` ∈ sale/restock/adjustment/return/void/requisition |
-| `customers` | Optional sale attribution, loyalty-ready | — |
-| `cash_sessions` | Cashier shift open/close reconciliation | *(schema exists; no controller/route uses it yet — see AUDIT.md)* |
-| `sales` | Sale header | `source_type` ∈ local/shopify/woocommerce |
-| `sale_items` | Line items | — |
-| `payments` | Per-sale checkout payments (supports split) | distinct from `payment_records` below |
-| `shopify_staging_products` | Review-before-publish staging for both Shopify and WooCommerce catalog pulls | — |
-| `staff_logs` | Write-only audit trail for every mutation across CRM/requisitions/expenses/payments/staff | — |
-| `leads` / `lead_activities` / `lead_status_history` | CRM | state machine enforced in `leads.service.js` |
-| `requisitions` / `requisition_items` | Internal stock requests | approval auto-adjusts inventory |
-| `expense_categories` / `expenses` | Outgoing spend tracking | amounts stored as integer subunits (cents) |
-| `payment_records` | Layaway/partial customer payments + outgoing supplier payments | **not** the same table as `payments` |
+| `/` | each role's home | everyone |
+| `/start`, `/terminal` | Start screen (new layout), the till | admin, manager, cashier |
+| `/dashboard`, `/reports` | Today / Dashboard, Reports | `reports.view` |
+| `/orders`, `/leads`, `/sales`, `/approvals` | Orders, Leads, Sales history, Approvals | orders and leads: admin, manager, cashier |
+| `/catalog`, `/stock`, `/shopify-sync` | Catalog, Stock control, Shopify sync | catalog: admin, manager, store; sync: `shopify.sync` |
+| `/finance`, `/money-at-risk`, `/reconciliation` | Finance (payments, expenses, cash sessions, couriers, delivery rates, custody), Money at risk, Reconciliation | admin, manager; the last two need `atrisk.view`, `payments.reconcile` |
+| `/requisitions`, `/attendance`, `/attendance/end-of-day`, `/payroll`, `/employees` | HR module pages | need the HR module; payroll `payroll.view`; employees admin |
+| `/staff`, `/staff-logs`, `/settings` | Staff, Activity log, Settings | admin |
+| `/security`, `/change-password`, `/login` | account pages | everyone |
 
-### 3.1 Two separate "payments" concepts (important)
-
-- **`payments`** — created automatically by checkout (`sales.service.js`), one row per tender in a sale. Amounts are `REAL` (whole currency units, e.g. `1044.00`).
-- **`payment_records`** — created explicitly via the Payments page/API, for layaway/partial payments against a sale or outgoing supplier payments. Amounts are `INTEGER` (subunits/cents, e.g. `104400`).
-
-These are intentionally different tables serving different purposes, but the
-**inconsistent currency representation** (float vs. integer-cents) between
-them is a real design wrinkle — see `AUDIT.md` §2.
-
-### 3.2 Migrations
-
-There is no numbered migration system. `schema.sql` is idempotent
-(`CREATE TABLE IF NOT EXISTS`), and `migrate.js` additionally backfills a
-short list of columns (`ADDITIVE_COLUMNS`) added after the original tables
-existed, via `ALTER TABLE ... ADD COLUMN`, so `npm run migrate` is safe to
-re-run against an existing database. New columns added in the future must be
-added to that list by hand, or `schema.sql`'s new indexes will fail against
-an old table shape.
+`/products`, `/categories`, `/inventory`, `/expenses` and `/payments` redirect to the page that now holds them.
 
 ---
 
-## 4. Frontend routes
+## 7. Main features, by area
 
-All routes below live under `<Layout>` and are wrapped in `<ProtectedRoute
-roles={[...]}>`; the sidebar (`Layout.jsx`) only shows links the current
-user's role can access.
+**Till and sales.** Checkout takes cash, M-Pesa, card or a split of them; prices include VAT and checkout adds no tax. A cashier
+can apply a sale-wide discount up to their cap (`max_discount_percent`, where 0 means no cap). Voids and refunds are requests that a
+manager approves (`/approvals`); large ones also alert the admins. Receipts print through the browser, or through the print bridge
+for paper cut and the cash drawer (`print-bridge/README.md`).
 
-| Route | Page | Roles | Purpose |
-|---|---|---|---|
-| `/login` | `Login.jsx` | public | Email+password sign-in |
-| `/` | `POSTerminal.jsx` | admin, manager, cashier | Register checkout — search/scan, cart, tender |
-| `/dashboard` | `Dashboard.jsx` | admin, manager | Analytics: revenue by channel, daily trend, payment mix, top products |
-| `/catalog` | `Catalog.jsx` (tabs: `Products.jsx`, `Categories.jsx`) | admin, manager | Product catalog CRUD, stock adjustments (folded in from the old Inventory page), and category CRUD, as tabs on one page |
-| `/sales-history` | `SalesHistory.jsx` | admin, manager, cashier | All transactions, filterable by channel |
-| `/shopify-sync` | `ShopifySync.jsx` | admin, manager | Shared Shopify/WooCommerce catalog review/approve queue — SKU and category are editable per row before approving; SKU auto-assigns (sequential) if left blank |
-| `/settings` | `Settings.jsx` | admin | Business config, income source (Shopify/WooCommerce) connections, and database backups |
-| `/leads` | `Leads.jsx` | admin, manager, cashier | CRM — cashiers see only their assigned leads |
-| `/requisitions` | `Requisitions.jsx` | admin, manager, cashier | Internal stock requests + approval queue |
-| `/finance` | `Finance.jsx` (tabs: `Payments.jsx`, `Expenses.jsx`) | admin, manager | Payment records and expense tracking, as tabs on one page |
-| `/staff` | `Staff.jsx` | admin | Staff accounts (create/edit/deactivate/reset password) |
-| `/staff-logs` | `StaffLogs.jsx` | admin | Audit trail viewer |
+**Stock.** Stock lives at the main store and at outlets; outlets are supplied by transfers. Receiving puts stock in through the
+ledger, with batch and expiry. A storekeeper's buying price is never stored or shown; a manager or admin costs the batch afterwards
+(`/stock/receipts/awaiting-cost`). A delivery can be saved as a draft first and finished later; a draft touches no stock until it is
+submitted. Transfers and counts need a reviewer's approval; every movement lands in the ledger with who and why.
 
----
+**Online and phone orders.** Orders are pulled from Shopify and WooCommerce or taken by phone, are confirmed, dispatched with a
+courier (asking whether the customer paid the delivery fee), delivered or returned, and a returned parcel is inspected (good back to
+stock, damaged written off). Each dispatched order has one delivery settlement: the fee actually collected against the courier's
+fee and approved extra costs. Couriers and courier organizations are paid from their payables.
 
-## 5. API reference
+**Money.** M-Pesa and KCB payments arrive by webhook or callback; one that matches no order waits in Reconciliation until someone
+matches it. "Money at risk" is the manager's daily list of where money or goods may be going missing. Shop cash held by staff is
+tracked until deposited. Expenses and petty cash need approval.
 
-Base path: `/api`. All routes except `/auth/*` and the Shopify OAuth
-start/callback pair require `Authorization: Bearer <jwt>`. Response shape is
-either `{ data }` or, for list endpoints using the shared paginator,
-`{ data, page, limit, total, totalPages }`.
+**CRM and distribution.** Leads (website form, phone, walk-in) move through a fixed set of states with a history; new leads and
+orders are shared among the cashiers who are clocked in, and moved off anyone who is not.
 
-### Auth — `/api/auth` (rate-limited: 20 req / 15 min)
-| Method | Path | Roles | Notes |
-|---|---|---|---|
-| POST | `/login` | public | `{ email, password }` → `{ token, user }` |
-| POST | `/pin-login` | public | `{ userId, pin }` — fast register login |
-| GET | `/me` | any | Current user |
+**People.** Attendance, the end-of-day review, payroll (draft, then locked runs; commission only on secure money), onboarding with
+documents and agreements. This is the HR module and is off until an admin switches it on.
 
-### Products — `/api/products`
-| Method | Path | Roles | Notes |
-|---|---|---|---|
-| GET | `/` | any | `?q=&category_id=&page=&pageSize=` |
-| GET | `/barcode/:code` | any | Scanner lookup |
-| GET | `/:id` | any | |
-| POST | `/` | admin, manager | Also seeds a 0-qty inventory row |
-| PUT | `/:id` | admin, manager | |
-| DELETE | `/:id` | admin, manager | Soft delete (`is_active = 0`) |
-
-### Categories — `/api/categories` — admin/manager write, any read
-Standard CRUD; delete blocked (409) if any active product references it.
-
-### Inventory — `/api/inventory`
-| Method | Path | Roles | Notes |
-|---|---|---|---|
-| GET | `/` | any | Per-store stock levels |
-| GET | `/low-stock` | any | `quantity <= reorder_level` |
-| GET | `/:productId/movements` | any | Ledger, newest first, paged (`page`, `limit`, `store_id` to look at another branch if you can review stock) |
-| GET | `/reconcile` | `inventory.adjust` | Rows where the cached quantity no longer matches the ledger; changes nothing |
-| POST | `/reconcile` | admin | Sets the cached quantity of every drifted row (all branches) back to the ledger sum |
-| POST | `/adjust` | admin, manager | `{ product_id, change_qty, reason }`, transactional |
-
-### Sales / POS — `/api/sales`
-| Method | Path | Roles | Notes |
-|---|---|---|---|
-| POST | `/` | any | Checkout — validates stock, tax, payment total; fully transactional |
-| GET | `/` | any | `?from&to&cashier_id&source_type&income_source_id&includeAllChannels=1` |
-| GET | `/:id` | any | Full sale + items + payments |
-| POST | `/:id/void` | admin, manager | Restocks — **blocked for non-local sales** (see AUDIT.md, fixed) |
-
-### Reports / Analytics — `/api/reports`
-| Method | Path | Notes |
-|---|---|---|
-| GET | `/sales-summary` | Totals for a date range, one store |
-| GET | `/top-products` | Best sellers, one store |
-| GET | `/inventory-value` | Cost/retail stock value, one store |
-| GET | `/sales-by-channel` | **All stores/channels** — revenue, tx count, avg basket per channel |
-| GET | `/sales-trend` | Daily revenue, split by channel, for charting |
-| GET | `/payment-methods` | Totals by tender method |
-| GET | `/top-products-by-channel` | Top sellers per channel |
-
-All admin/manager only.
-
-### Settings — `/api/settings` — admin/manager read, admin write
-`GET /` → key/value config (with defaults). `PUT /` → merge-update.
-
-### Income sources — `/api/income-sources`
-| Method | Path | Auth | Notes |
-|---|---|---|---|
-| GET `/:id/shopify/oauth/start` | outside Bearer auth | Browser redirect → Shopify authorize |
-| GET `/:id/shopify/oauth/callback` | outside Bearer auth | Exchanges code, redirects to frontend |
-| GET / POST / PATCH / DELETE `/` | admin, manager | CRUD (secrets never returned, only `has_*` booleans) |
-| POST `/:id/test` | admin, manager | Cheap read-only ping |
-| POST `/:id/sync-products` | admin, manager | Pulls catalog into `shopify_staging_products` |
-| POST `/:id/sync-sales` | admin, manager | Pulls orders into `sales` |
-
-### Legacy Shopify sync — `/api/integrations/shopify` — admin/manager
-Env-var-based single-store sync, predates income sources. `POST /sync`,
-`GET /staging`, `POST /staging/:id/approve|reject`, `POST /staging/approve-all`.
-
-### CRM — `/api/leads` — admin, manager, cashier (cashiers scoped to own leads)
-`GET /stats`, `GET /`, `POST /`, `GET /:id`, `PATCH /:id`, `DELETE /:id`,
-`POST /:id/activities`, `PATCH /:id/status` (enforces the state machine —
-new → contacted → rescheduled/converted/cancelled).
-
-### Requisitions — `/api/requisitions` — create/list: all 3 roles; approve/reject: admin/manager
-`GET /`, `POST /`, `GET /:id`, `PATCH /:id/approve`, `PATCH /:id/reject`.
-Approval is a single transaction: line items, inventory, and the movements
-ledger commit atomically.
-
-### Expenses — `/api/expenses` — admin, manager only
-`GET /categories`, `POST /categories`, `GET /summary`, `GET /`, `POST /`,
-`GET /:id`, `PATCH /:id`, `DELETE /:id` (soft).
-
-### Payments (layaway/supplier) — `/api/payments` — admin, manager only
-`GET /summary`, `GET /`, `POST /`, `POST /:id/refund`.
-
-### Staff — `/api/staff` (and `/api/users`, same controller)
-Read: admin, manager. Write (create/update/delete/reset-password): admin only.
-
-### Staff logs — `/api/staff-logs` — admin only
-`GET /stats`, `GET /` — read-only audit trail viewer.
+**Reports.** Dashboard and Today, sales by channel, trends, payment methods, top products, unpaid parcels, profit and loss,
+forecasts and budgets, and the inventory value.
 
 ---
 
-## 6. Feature walkthroughs
+## 8. Security and sessions
 
-### 6.1 Authentication & roles
-Two login paths: email+password (`Login.jsx`) and PIN (`pin-login`, for a
-shared register — not currently wired to a frontend page). A PIN is 4-6 digits,
-never an obvious one (1234, 0000, 1111, 2345...), and **only cashier accounts can sign in with it** -
-admins and managers always use email + password. Startup removes the old seeded `1234` PIN from admin accounts. Three roles:
-`admin` > `manager` > `cashier`, enforced per-route via `requireRole`, not a
-hierarchical check — each route lists its own allowed roles explicitly.
-
-### 6.2 POS Terminal (`/`)
-Product grid with search-as-you-type, a barcode-scan input (Enter-terminated
-fast keyboard input), and a running cart (`useCartStore`, Zustand). Checkout
-posts `{ items, payments }` to `POST /api/sales`; the backend independently
-recomputes subtotal/tax/total from current product prices and stock levels
-(never trusts client-computed totals except for the payment-amount match
-check) and rejects if insufficient stock or payment mismatch (>0.01
-tolerance). Each item decrements `inventory` and writes an
-`inventory_movements` row (`reason='sale'`) inside the same transaction.
-
-### 6.3 Inventory
-Per-store cached `quantity` in `inventory`, always changed alongside an
-`inventory_movements` row — the movements table is the real audit trail;
-`inventory.quantity` is a derived cache (never independently reconciled —
-see AUDIT.md). Manual adjustments require a reason (`restock` /
-`adjustment` / `return`); `sale`, `void`, and `requisition` reasons are only
-ever written by their respective flows, not exposed on the manual-adjust
-endpoint.
-
-### 6.4 Sales History & multi-channel tracking
-Every sale — local or online — lands in the same `sales` table, tagged by
-`source_type`. The list defaults to the cashier's own store (unchanged
-original behavior); `?includeAllChannels=1` (used by the Sales History page)
-shows everything, since online orders don't belong to a specific cashier's
-shift. Each sale shows a channel badge (Local / Shopify / WooCommerce) and,
-for online sales, which specific connected store it came from.
-
-### 6.5 Analytics Dashboard
-Pulls from the `/api/reports/*` endpoints described above: total revenue
-split local vs. online, a dependency-free daily stacked-bar trend chart
-(plain CSS/SVG, no charting library), revenue-by-channel table, payment
-method mix, and top products broken out per channel.
-
-### 6.6 Settings & Income Sources
-`Settings.jsx` has two sections:
-- **General** — business name/currency/phone/address/tax default/receipt
-  footer/low-stock default, stored in the `settings` key/value table.
-- **Income sources** — add any number of Shopify or WooCommerce stores.
-  Shopify: shop domain + API key/secret (from the Shopify Dev Dashboard,
-  required since Shopify retired direct-token custom apps on Jan 1, 2026) +
-  either OAuth connect or a pasted legacy token. WooCommerce: site URL +
-  REST API consumer key/secret. Each source can be tested, synced (products
-  and/or sales independently), and disconnected (soft — sales history
-  survives).
-
-Secrets (`api_secret`, `access_token`, `consumer_key`, `consumer_secret`)
-never round-trip to the browser — the API only ever reports boolean
-`has_access_token` / `has_consumer_key` flags.
-
-### 6.7 Shopify OAuth flow
-`shopifyOAuth.service.js` implements the standard authorization-code grant:
-`buildAuthorizeUrl` (with a stored CSRF `state`) → full browser redirect to
-Shopify → `exchangeCodeForToken` on callback → access token stored on the
-`income_sources` row. This is a real page navigation (`<a href>` in the UI),
-not a fetch call, because Shopify needs to redirect the actual browser tab.
-
-### 6.8 Product sync (Shopify + WooCommerce)
-Both platforms funnel into the same `shopify_staging_products` table
-(historical name; now generic), tagged by `platform` + `income_source_id`.
-Nothing reaches the live `products` table until a human approves a staged
-row (`shopify.service.js` / legacy path, generalized to also accept
-WooCommerce rows via `wooProducts.service.js`). Shopify variants and
-WooCommerce product variations are both flattened to one staging row each
-("Crew Tee — Blue / M" style naming). Matching against existing products is
-by `shopify_variant_id` first, then SKU.
-
-### 6.9 Sales sync (Shopify + WooCommerce)
-`salesSync.service.js` pulls orders (Shopify: `/orders.json`, WooCommerce:
-`/orders`) since the source's `last_sales_synced_at` (or a 30-day fallback
-on first sync), and inserts them directly into `sales`/`sale_items`/
-`payments` — no staging/review step, since these are historical facts, not
-catalog data to curate. Key rules:
-- **Inventory is never touched.** The originating platform already manages
-  its own stock; double-decrementing would be wrong.
-- **Unmatched SKUs auto-create a placeholder product** rather than dropping
-  the line item, so nothing vanishes from analytics.
-- **Deduplication** via a unique index on `(income_source_id,
-  external_order_id)` — re-running a sync is safe.
-- Each income source gets its own virtual `stores` row (reusing the
-  existing multi-location model) so `sales.store_id` stays meaningful.
-- The importing admin's user id is used as `cashier_id` (schema requires
-  `NOT NULL`; there's no real cashier for an online order).
-
-### 6.10 CRM (Leads)
-A small state machine (`new → contacted → rescheduled/converted/cancelled`,
-enforced in `leads.service.js`) with a duplicate-phone check on create
-(phone numbers normalized to their last 9 digits to absorb country-code
-formatting differences). Status changes auto-log both a
-`lead_status_history` row and a synthetic `status_change` activity — staff
-never manually log that. Cashiers are scoped to leads assigned to them at
-both the controller (list/get/update) and service (status change ownership
-check) layers.
-
-### 6.11 Requisitions
-Staff request stock (`POST /requisitions`); manager/admin approve
-(optionally adjusting per-line `quantity_approved` down from what was
-requested) or reject with a reason. Approval is one `better-sqlite3`
-transaction: requisition status, each line's approved quantity, the
-`inventory` row, and an `inventory_movements` entry (`reason='requisition'`)
-all commit together or not at all.
-
-### 6.12 Expenses & Payment Records
-Both use integer-subunit (cents) amounts and soft delete. Expenses are
-categorized (categories are a lookup table, not a hardcoded enum) and
-scoped to a date range distinct from `created_at`. Payment records track
-either an incoming payment against a sale (layaway/partial) or an outgoing
-supplier payment, with a `refund` action that flips status without deleting
-the original row (audit trail over net-zero convenience).
-
-### 6.13 Staff & Staff Logs
-Staff *is* `users` — no parallel table, since JWTs already carry a user id
-and a second identity table would risk drift. Deactivation is soft
-(`is_active = 0`); an admin cannot deactivate their own account. Password
-reset generates a random temporary password returned once, in-band (there's
-no email/SMS delivery — see AUDIT.md). Every mutation across CRM/
-requisitions/expenses/payments/staff writes a `staff_logs` row via
-`logStaffAction()`, storing a computed before/after diff (or a full
-snapshot on delete).
+- **Sessions.** Each sign-in is a session with a short-lived access token (15 minutes by default, `ACCESS_TOKEN_EXPIRES_IN`) and a
+  rotating refresh token that can be revoked (30 days, `REFRESH_TOKEN_EXPIRES_DAYS`). A copied
+  refresh token that is replayed ends the whole session and alerts the admins. People see their signed-in devices on the Security page
+  (`/security`) and can sign out all the others; an admin can sign someone out everywhere.
+- **Screen lock.** After an idle time (set per role by an admin on the Security page) the server refuses everything except unlocking, with the
+  password or, for cashiers, the PIN. "Keep me signed in on this device" lasts to the role's maximum; otherwise a session ends when
+  the browser closes and is capped at 12 hours.
+- **Confirm it's you.** Refunds, voids, stock adjustments, staff changes and changes to settings or integrations ask for the password
+  again if it has not been typed recently.
+- **Lockout.** Five wrong passwords or PINs in a row lock the account for 15 minutes (both are configurable; PIN and password are
+  counted separately). An admin can lift a lock from the staff menu.
+- **Passwords.** At least 12 characters for admins and managers, 8 (not only digits) for cashiers; common passwords, simple runs and
+  passwords containing the person's name are refused. Two-factor sign-in by SMS is available when the control extras module is on.
+- **Alerts to admins** (bell and the Security page; urgent ones also by email when email is set up): lockouts, replayed sign-ins,
+  refunds and voids over KES 3,000 (configurable), and similar.
+- **Secrets.** SMS and payment-gateway credentials are encrypted in the database with `ENCRYPTION_KEY`; keep that key with the data.
+- **Cross-origin.** With `CORS_ORIGIN` unset, the browser is accepted from this machine and the shop's own network; set it to lock
+  the API to specific addresses.
 
 ---
 
-## 7. Running the system
+## 9. Optional modules (Settings > Business > Optional modules)
 
-```bash
-# Backend
-cd backend
-cp .env.example .env        # edit JWT_SECRET at minimum
-npm install
-npm run migrate             # idempotent — safe on fresh or existing DB
-npm run seed                # creates default store + admin login
-npm run dev                 # API on :4000
+Two switches, both off on a new or upgraded install. Off hides the menu items and screens and closes the matching API (404
+`MODULE_DISABLED`); nothing is deleted.
 
-# Frontend
-cd frontend
-npm install
-npm run dev                 # Vite dev server on :5173
-```
+- **HR and back office:** attendance and clock-in, payroll, onboarding, requisitions. While it is off nobody clocks in, so new leads
+  and orders go to every active cashier and the 10:00 reassignment pauses. Staff and the Activity log stay available.
+- **Control extras:** per-person permission overrides, two-factor set-up, order disputes, and the "prepay only" and "watch" badges.
+  Overrides and two-factor that were set earlier keep being enforced while it is off; only changing them is closed. To remove
+  two-factor for someone while it is off, switch it on, change it, or run `npm run disable-2fa`.
 
-Default login after seeding: `admin@urbantrends.com` / `ChangeMe123!` (no PIN is created; PIN login is for cashiers only).
+Code: `services/modules.service.js`, `middleware/requireModule.js`, `routes/modules.routes.js`; in the app `hooks/useModules.js`.
 
-Key env vars (see `.env.example` for the full annotated list):
-`JWT_SECRET`, `DATABASE_PATH`, `CORS_ORIGIN`, `BACKEND_PUBLIC_URL` /
-`FRONTEND_PUBLIC_URL` (for the Shopify OAuth redirect), and the legacy
-`SHOPIFY_SHOP` / `SHOPIFY_ACCESS_TOKEN` / `SHOPIFY_API_VERSION` trio.
+---
 
+## 10. Dates and the shop clock
 
-### Dates, "today" and the shop clock
-The database stores every timestamp in UTC. Reports, the dashboard, attendance/late fees and follow-up dates
-all use the **shop's calendar day** (`backend/src/utils/storeTime.js`), default `Africa/Nairobi` (UTC+3), so a
-sale rung up at 1:30 am counts for today. Set `STORE_TIMEZONE` (an IANA name) only if the shop is elsewhere.
-Report `from`/`to` are inclusive whole days in `YYYY-MM-DD`; anything else is rejected with 400.
+The database stores every timestamp in UTC. Reports, the dashboard, attendance and late fees, and follow-up dates use the shop's
+calendar day (`backend/src/utils/storeTime.js`), default `Africa/Nairobi` (UTC+3), so a sale rung up at 1:30 am counts for today. Set
+`STORE_TIMEZONE` (an IANA name) only if the shop is elsewhere. Report `from` and `to` are inclusive whole days as `YYYY-MM-DD`;
+anything else is a 400.
 
+---
 
-### Optional modules (Settings > Business > Optional modules)
-Two switches, both **off** on a new or upgraded install; an admin turns on what the shop uses.
-Off hides the menu items and screens **and** closes the matching API (404 `MODULE_DISABLED`); nothing is deleted.
-- **HR & back office:** Attendance/clock-in, Payroll, Onboarding (employee documents/agreements), Requisitions.
-  While off nobody clocks in, so new leads and orders are shared out to every active cashier instead of only
-  those clocked in (and the "10:00 rule" reassignment pauses). Staff and the Activity log stay available.
-- **Control extras:** per-person permission overrides, two-factor sign-in set-up, order disputes, and the
-  "prepay only / watch" badges. Overrides and two-factor that were set earlier **keep being enforced** while
-  off - only changing them is closed. To remove 2FA for someone while this is off: switch it on, change it,
-  or use `npm run disable-2fa`.
-Code: `services/modules.service.js`, `middleware/requireModule.js`, `routes/modules.routes.js`; frontend `hooks/useModules.js`.
+## 11. Configuration, backups and operation
+
+**Configuration.** Nothing needs configuring to start: the first run writes `backend/.env` with its own random secrets. Server
+address, email and most other settings are set in the app (Settings > Server, Email, Business). `backend/.env.example` lists the
+environment variables that still exist and what each is for; the ones that matter most are `DATABASE_PATH`, `ENCRYPTION_KEY`,
+`BACKUP_PASSPHRASE`, `CORS_ORIGIN`, `APP_BASE_URL`, `TRUST_PROXY_HOPS`, `STORE_TIMEZONE` and `PORT`.
+
+**Backups.** A verified local copy every 6 hours (the last 28 kept, in `data/backups/`); an encrypted off-site copy by email every
+24 hours once email is set up and `BACKUP_PASSPHRASE` is set. The schedule is remembered in the database, so a restart or redeploy
+never skips one. A copy is also taken before any pending migration runs. Failures show in the bell and by email. Restore from Settings
+> Backups, or check a downloaded copy on your own machine with `backend/scripts/restore-backup.js` (see `SETUP.md`).
+
+**Integrity.** `npm run integrity` (and the nightly job) checks that on-hand equals the ledger for every product and store, and that
+order and payment totals agree.
+
+**Logs.** `data/logs/`, rotated (`LOG_MAX_MB`, `LOG_MAX_FILES`, `LOG_LEVEL`).
+
+**Running in production** (supervisor, restart behaviour, Cloudflare in front, deployment on Railway): `SETUP.md`.

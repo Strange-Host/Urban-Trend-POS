@@ -1,3 +1,56 @@
+# Documentation brought up to date
+
+**Rewritten:** `README.md` (it was two lines), `DOCUMENTATION.md` (it still described an 18-table system with no tests, React 18 and 8-hour tokens) and `SETUP.md`
+(Node 22 or newer; the first-login and migration steps; the Cloudflare and trial-restore guides it had been missing). **New:** `ARCHITECTURE.md` (the rules the code is
+held to, the test that enforces each, and how to change things safely) and `docs/redesign/README.md` (the new layout: the flag, what is built, what is left).
+
+**Removed:** `AUDIT.md` (a point-in-time review from 15 October; each finding it left open was checked against the code, and the five still true are under "Known limits" in `ARCHITECTURE.md`), `UPDATE_NOTES.md` (a
+one-off release note whose lasting parts moved into `SETUP.md`), `frontend/README.md` and `mobile/.expo/README.md` (generator boilerplate), the stage notes `R0_BASELINE.md` to
+`R6_NOTES.md` and the per-phase notes in `docs/redesign/` (their rules went into `ARCHITECTURE.md`, their status and checklists into `docs/redesign/README.md`). All of it remains in git
+history. `backend/src/db/migrations/README.md` and `print-bridge/README.md` were checked and left as they are.
+
+# New layout behind `ut_ui=v2`: side rail, Start screen, Today, draft receipts (redesign phases 0 to 6)
+
+**A new frontend shell and new screens, off unless switched on.** `?ut_ui=v2` on any address (or an admin's account-menu item) turns it on for that browser; `?ut_ui=v1` turns it off. With it off
+the app is as it was, apart from small spacing differences where pages now share one header (listed in `docs/redesign/README.md`). It brings: a 64px side rail and a top bar (greeting and date, branch, connection and shift pills, Search, Alerts, Settings) on large
+screens, and a bottom bar below 1024px (replacing the sidebar and the old top bar); five workspaces (Today, Sell, Stock, Money, Team) whose pages are a tab strip over their existing routes; one page header and one tab style; a self-hosted
+typeface (Schibsted Grotesk).
+
+**Cashier:** a Start screen (`/start`) of permission-gated tiles (New sale, Online orders with how many await dispatch, Receive stock, Count stock, Void or refund, End shift) with the shift's state;
+the account menu can open on the till instead. The till is restyled (category column, product grid, a dark ticket) and gains a sale-wide discount, whole cents and never above the subtotal. The
+cap comes from `GET /api/sales/discount-limit` (`max_discount_percent`; **0 means no limit, which is the default, so set it in Settings before cashiers use the new till**; managers and admins are not
+held to it) and `POST /api/sales` still enforces it. `GET /api/cash-sessions/current` also returns `sales_count` and `sales_total`. The perforated receipt edge was dropped.
+
+**Manager:** the Dashboard is Today, with Overview (as before) and Attention: damaged returns, void and refund requests, unmatched M-Pesa, counts to review, transfers to approve and courier balances,
+worst first, each linking to where it is done, each asked only of people allowed to see it. Built in the browser from existing endpoints; nothing new on the server. Stock control and Finance open on `?tab=`.
+
+**Storekeeper: draft receipts.** A delivery can be saved half-entered and finished later: `GET|POST /api/stock/receipts/drafts`, `GET|PUT|DELETE .../drafts/:id`, `POST .../drafts/:id/submit`
+(all `stock.receive`). A draft is a saved request body in its own table (new migration `0002_draft_receipts`), so it cannot touch stock, batches, costing or reports; submitting runs the ordinary receive and deletes
+the draft in one transaction, so it cannot post twice. A storekeeper's buying price is never stored in a draft. The Receive form is on the page (not a sheet), with Item, Quantity, Selling price (read only for
+an existing item) and Buying price ("Set by admin" unless the person may set it), Save draft, Save shipment, and the drafts and recent shipments beside it. The button is not renamed "Submit for approval":
+stock goes on the shelf when the shipment is saved, and buying prices are costed afterwards as before.
+
+**To deploy:** this changes the database. Back up the live database; on a copy run `npm run migrate -- --status`, `npm run migrate`, `npm run integrity`; then update at a quiet time of day. The migration runner takes
+its own backup first. **Browser-checked:** the Receive form (Chrome, a seeded copy, 390px and 1920px, results checked against the database). **Not yet checked:** the other screens; the walk-through checklist is in `docs/redesign/README.md`. Cutover (removing the flag and the old layout) is the one step that
+cannot be undone by switching the flag off.
+
+# Architecture restructure (R0 to R6): one stock writer, thin controllers, numbered migrations, integer money, a typed API layer
+
+**No change to what a cashier, storekeeper or manager sees.** The code was reorganised so that the rules which keep stock and money right are enforced by tests instead of habit; every step was a pure move checked
+against a characterization suite that pins the money and stock paths (sale, void, adjust, receipt, issue, transfer, count, requisition, order create, dispatch, cancel, returns, order payments and refunds, courier settlement).
+
+- **Stock has one writer.** `stock.service.applyMovement` is the only code that inserts into `inventory_movements` or changes `inventory`; receipts, issues, transfers, counts, requisitions, orders and the till go through it. A source-scan
+  test fails if any other file writes those tables, and the integrity check (`npm run integrity`, nightly) asserts that on-hand equals the sum of the ledger for every product and store.
+- **Controllers are thin.** Every controller parses input, calls a service and shapes the response; all SQL lives in services. A test fails on any database use in `controllers/`.
+- **Versioned migrations.** `schema.sql` and `baseline.js` are frozen as migration `0001`; later changes are numbered files in `backend/src/db/migrations/`, each run once in a transaction and recorded in `schema_migrations` with a
+  checksum. The runner refuses an edited or missing file, takes a backup before applying anything to a database that holds data, and `npm run migrate -- --status` lists what is pending. The startup script still runs migrate first.
+- **Money is integers, with one helper.** `utils/money.js` parses, formats, takes percentages and splits amounts in whole cents; there is one error type, `ApiError`. The remaining `toFixed` and `parseFloat` calls in the backend are display strings and settings
+  parsed into integer basis points, not money arithmetic.
+- **A typed API layer on the frontend**, as JSDoc checked by `tsc` (a dev tool; nothing is compiled or shipped): `npm run typecheck` covers `src/api`, `src/hooks` and two utilities and runs in CI.
+- **Pages stay under 400 lines.** Stock control, Settings, Orders and every other long page were split into the page and its pieces, with no visual change, and `pageStructure.test.js` fails when a page grows past the limit.
+
+**To deploy:** `npm run migrate` (or just start the server) applies the numbered migrations; the first run on an existing database writes a `pre-migration` backup. The rules and how to follow them are in `ARCHITECTURE.md`.
+
 # Delivery settlement: every delivery's fee against its costs; item edits and merges
 
 **Dispatch now asks about the delivery fee.** Customers pay the fee on top of the goods total, and some refuse. `POST /api/orders/:id/dispatch`
@@ -2352,7 +2405,7 @@ the checkout charge was the specific ask.
 
 ## Security hardening round
 
-Five changes, addressing items flagged in `AUDIT.md` §2 (architecture-level
+Five changes, addressing items flagged in §2 of the October 2026 audit (the old `AUDIT.md`, now only in git history) (architecture-level
 risks) and §3 (recommended additions):
 
 1. **Connected-store secrets encrypted at rest** (`utils/crypto.js`,
@@ -2398,7 +2451,7 @@ risks) and §3 (recommended additions):
    income sources and every other read endpoint is unaffected — they don't
    call out to a third party, so they're left as-is.
 
-**Not changed in this round** (still open, see `AUDIT.md` for the full
+**Not changed in this round** (still open, see the October 2026 audit (the old `AUDIT.md`, now only in git history) for the full
 list): no automated tests, no inventory reconciliation job, currency
 representation still split between `REAL`/`INTEGER`, no refresh-token flow
 (this round closes the *revocation* gap but access tokens are still
@@ -2409,7 +2462,7 @@ long-lived), `cash_sessions` still unfinished.
 ## Update: Shopify connection simplified to Client ID + Secret only
 
 
-Five changes, addressing items flagged in `AUDIT.md` §2 (architecture-level
+Five changes, addressing items flagged in §2 of the October 2026 audit (the old `AUDIT.md`, now only in git history) (architecture-level
 risks) and §3 (recommended additions):
 
 1. **Connected-store secrets encrypted at rest** (`utils/crypto.js`,
@@ -2455,7 +2508,7 @@ risks) and §3 (recommended additions):
    income sources and every other read endpoint is unaffected — they don't
    call out to a third party, so they're left as-is.
 
-**Not changed in this round** (still open, see `AUDIT.md` for the full
+**Not changed in this round** (still open, see the October 2026 audit (the old `AUDIT.md`, now only in git history) for the full
 list): no automated tests, no inventory reconciliation job, currency
 representation still split between `REAL`/`INTEGER`, no refresh-token flow
 (this round closes the *revocation* gap but access tokens are still

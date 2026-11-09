@@ -6,9 +6,10 @@ this document is just "how do I turn it on."
 
 ## 1. Prerequisites
 
-- **Node.js 20 or 22.** Node 24.19+ has a known issue with `better-sqlite3` (a crash on database
-  writes) — this project already pins a version of `better-sqlite3` that avoids it, but if you're
-  free to choose, 20 or 22 is the safer bet.
+- **Node.js 22 or newer** (the `engines` field in `package.json`; CI runs on 22). Very new Node
+  versions (24.19+) have crashed older `better-sqlite3` builds on database writes — this project
+  pins a version that avoids it, but if you're free to choose, 22 is the safe bet. See "Common
+  problems" if you hit it.
 - **npm** (comes with Node).
 
 Check what you have:
@@ -46,10 +47,8 @@ npm run seed
 **Order matters** — `migrate` creates the tables, `seed` fills them in. Running `seed` before
 `migrate` will fail with `no such table`.
 
-Seeding prints the login you'll use:
-```
-Created admin user: admin@urbantrends.com / ChangeMe123!
-```
+Seeding prints the admin login you'll use (see "First login" below — the password is random and
+shown once).
 
 Start the API:
 ```bash
@@ -89,8 +88,8 @@ Created admin user — SAVE THIS PASSWORD, it is shown once:
 ```
 
 Log in with that email/password. You'll be dropped straight into a forced "set a new
-password" screen before you can do anything else — that's expected, not a bug (see Phase 2.1
-in CHANGES.md). Pick a real password there; nothing else in the app is reachable until you do.
+password" screen before you can do anything else — that's expected, not a bug. Pick a real
+password there (12+ characters for an admin); nothing else in the app is reachable until you do.
 
 If you're running the test suite (`NODE_ENV=test`), seeding uses a fixed
 `admin@urbantrends.com` / `ChangeMe123!` instead, with no forced change — every test file logs
@@ -99,9 +98,11 @@ than make the test database any safer.
 
 ## 5. What "working" looks like
 
-- The terminal (`/`) loads with sample products you can add to a cart.
-- Catalog → Products shows the seeded product list.
-- Settings is visible in the sidebar (admin-only).
+- As admin you land on the Dashboard. The till (Terminal, under Sell) loads with sample products you
+  can add to a cart.
+- Catalog shows the seeded product list.
+- Settings is in the menu (admin-only): the sidebar, or the Settings item at the bottom of the rail
+  if you have switched on the new layout (`?ut_ui=v2`, see `docs/redesign/README.md`).
 
 If any of that doesn't load, check both terminal windows for errors before anything else —
 almost every setup problem shows up as a clear error message in one of them.
@@ -155,14 +156,32 @@ Not required for first-time setup — the POS works fully standalone. If you wan
 products from Shopify or WooCommerce later: Settings → Income sources → add a connection, then use
 the Shopify sync page to review and approve what comes in. See `DOCUMENTATION.md` for details.
 
-## Optional: running the test suite
+## Updating to new code (migrations)
+
+Schema changes are numbered files in `backend/src/db/migrations/`. After pulling new code, run
+`npm run migrate` in `backend/` (`npm start` at the repository root does it for you before the
+server starts). `npm run migrate -- --status` lists what has run and what is pending without
+changing anything.
+
+Before anything pending runs on a database that already holds data, a copy is written to
+`data/backups/pre-migration-<time>-to-<version>.db`; if a migration fails, nothing of it is kept and
+the error names that copy. To go back, restore it (Settings → Backups lists it). On a shop that is
+already running, try the migration on a copy of the live database first, then run `npm run integrity`,
+and update at a quiet time of day.
+
+## Optional: running the tests
 
 ```bash
-cd backend
-npm test
+cd backend  && npm test                                  # the API suite, including the rules in ARCHITECTURE.md
+cd frontend && npm run lint && npm run typecheck && npm test
 ```
 
-Runs against a throwaway temporary database — never touches `data/urban_trends.db`. Useful after pulling new code, or before trusting a change to anything checkout/inventory/money-related.
+Each backend test file runs against its own throwaway database — never `data/urban_trends.db`.
+Useful after pulling new code, or before trusting a change to checkout, stock or money.
+
+`npm run integrity` (in `backend/`) checks a real database: that on-hand stock equals the ledger for
+every product and store, and that order and payment totals agree. It also runs nightly inside the
+server and raises an alert if it ever fails.
 
 ## Optional: backups
 
@@ -202,11 +221,11 @@ automatically afterward. Two ready-made options are included in `backend/`, pick
 Both restart the process automatically if it exits, with crash-loop protection (they stop
 retrying if it keeps failing immediately rather than restarting forever).
 
-**The rate limiter's counters reset on every restart.** `express-rate-limit` (see
-`backend/src/config/limits.js`) uses its default in-memory store — request counts live in the
-process's own memory, not the database or Redis. That means every limiter (login attempts,
-checkout, webhook delivery, the general API ceiling) resets to zero the moment the process
-restarts. In practice this is a minor, acceptable gap for a single-instance deployment: it just
+**Most rate limiters' counters reset on every restart.** Sign-in attempts are counted in the database
+(so a restart does not hand an attacker a fresh allowance), but the others — checkout, webhook
+delivery, manual sync, the general API ceiling (see `backend/src/config/limits.js`) — use
+`express-rate-limit`'s default in-memory store: request counts live in the process's own memory, not
+the database or Redis. Those reset to zero the moment the process restarts. In practice this is a minor, acceptable gap for a single-instance deployment: it just
 means a restart (deploy, crash-and-recover, manual bounce) gives whoever's mid-rate-limit a clean
 slate, rather than an actual security hole. Worth knowing given the point above — an auto-
 restarting supervisor makes restarts more frequent than they'd otherwise be, which makes this
@@ -214,3 +233,52 @@ reset happen more often too. If you ever run more than one instance of this back
 load balancer, the in-memory store stops working correctly regardless (each instance counts
 independently) — that would need a shared store (e.g. `rate-limit-redis`) at that point, not
 before.
+
+## Production: on Railway
+
+The repository root's `npm run build` installs and builds the frontend and installs the backend;
+`npm start` runs the migrations (and the seed once, if `RUN_SEED=true`), then the API, which also
+serves the built app. Put the database on a persistent volume (`DATABASE_PATH`) and set these
+variables:
+
+- `ENCRYPTION_KEY` and `BACKUP_PASSPHRASE` (see "Optional: backups"; keep both somewhere safe).
+- `APP_BASE_URL` and `CORS_ORIGIN`: the public address of the app (`CORS_ORIGIN` only matters if the
+  frontend is served from a different address than the API).
+- `TRUST_PROXY_HOPS`: how many proxies sit in front (see the Cloudflare section); leave it unset with none.
+
+Switch on GitHub's Dependabot alerts and security updates for the repository (Settings → Code
+security): free, and it is how a vulnerable dependency gets noticed.
+
+## Optional: Cloudflare in front (recommended; needs your own domain)
+
+1. In Cloudflare, **Add a site** (the free plan) for your domain, and change the **nameservers** at your
+   registrar to the two Cloudflare gives you. Wait until Cloudflare says Active.
+2. Railway → your service → **Settings → Networking → Custom Domain**: add `pos.yourdomain.com`. Railway
+   shows a CNAME target; add it in Cloudflare **DNS** (`pos` → the target). Leave the cloud **grey (DNS
+   only)** until Railway shows the domain verified, then switch it to **orange (Proxied)**.
+3. Cloudflare → **SSL/TLS** → mode **Full (strict)**.
+4. Railway variables: `TRUST_PROXY_HOPS=2`, `CORS_ORIGIN=https://pos.yourdomain.com`,
+   `APP_BASE_URL=https://pos.yourdomain.com`. In the app, **Settings → Server → Public web address** is
+   the same.
+5. Cloudflare → **Security → WAF → Rate limiting rules**: a rule for the paths `/api/auth/login` and
+   `/api/auth/pin-login`, for example 10 requests per minute per IP, then Block for 10 minutes. Turn on
+   **Bot Fight Mode**.
+6. Update the webhook addresses in Shopify, M-Pesa and WordPress to the new domain; keep the old Railway
+   address working until everything has moved.
+
+The exact Cloudflare and Railway screen names change; Railway's "custom domain" documentation
+describes the Cloudflare steps.
+
+## Optional: trial restore of an emailed backup
+
+On your own computer (Node 22+), in the project's `backend` folder, after `npm ci`:
+
+```bash
+BACKUP_PASSPHRASE="your passphrase" node scripts/restore-backup.js path/to/urban_trends-....db.gz.enc
+```
+
+If you never set `BACKUP_PASSPHRASE`, the server's `ENCRYPTION_KEY` is used instead (set it the same way).
+The script decrypts to a separate file, checks the database is intact, prints row counts and ends with
+**TRIAL RESTORE PASSED** or **FAILED**. It never touches the live database. Do this once now and again
+every few months. To actually restore, stop the app and replace the live database file with the
+decrypted copy (or use Settings → Backups for a local copy).
