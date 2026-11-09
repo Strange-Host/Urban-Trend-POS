@@ -44,25 +44,20 @@ function timeAgo(sqliteUtc) {
 // Polls a tiny indexed count every 30s (the older system's SSE channel never
 // connected, and EventSource can't send an Authorization header anyway). The
 // full list is only fetched while the panel is open.
-// Where the panel opens: next to the wide sidebar, next to the icon rail, under the top bar (also the redesigned shell's top
-// bar on large screens), or beside the new shell's rail.
+// Where the panel opens: 'shellbar' just under the top bar (64px tall, large screens), at the right; 'shell' beside the 76px rail
+// on large screens, or a top-anchored card on phones (the bell sits in the More panel there).
 const PANEL_POSITION = {
-  sidebar: 'top-[calc(3.5rem+env(safe-area-inset-top)+0.5rem)] inset-x-3 lg:inset-x-auto lg:top-4 lg:left-[15.5rem] lg:w-96',
-  rail: 'top-[calc(3.5rem+env(safe-area-inset-top)+0.5rem)] inset-x-3 lg:inset-x-auto lg:top-4 lg:left-[4.5rem] lg:w-96',
-  topbar: 'top-[calc(3.5rem+env(safe-area-inset-top)+0.5rem)] inset-x-3 sm:inset-x-auto sm:right-3 sm:w-96',
-  // The redesigned shell's top bar (64px tall, large screens): just below it, at the right.
   shellbar: 'top-[4.5rem] right-4 w-96',
-  // The redesigned shell: beside the 76px rail on large screens, a top-anchored card on phones (the bell sits in the More panel there).
   shell: 'top-[calc(env(safe-area-inset-top)+0.75rem)] inset-x-3 lg:inset-x-auto lg:top-4 lg:left-[5rem] lg:w-96',
 };
 
-// tone: 'dark' (default) is for the dark rail and bars; 'light' is for the light top bar of the redesigned shell.
+// tone: 'dark' (default) is for the dark rail and bars; 'light' is for the light top bar.
 const BUTTON_TONE = {
   dark: 'text-white/70 hover:text-white hover:bg-white/10',
   light: 'text-text-muted hover:text-text hover:bg-paper',
 };
 
-export default function NotificationBell({ className = '', anchor = 'sidebar', tone = 'dark' }) {
+export default function NotificationBell({ className = '', anchor = 'shell', tone = 'dark' }) {
   const navigate = useNavigate();
   const toast = useToast();
   const queryClient = useQueryClient();
@@ -150,7 +145,7 @@ export default function NotificationBell({ className = '', anchor = 'sidebar', t
           ref={panelRef}
           role="dialog"
           aria-label="Notifications"
-          className={`fixed z-[80] ${PANEL_POSITION[anchor] || PANEL_POSITION.sidebar} max-h-[calc(100dvh-6rem)] flex flex-col bg-surface text-text border border-line rounded-xl shadow-xl`}
+          className={`fixed z-[80] ${PANEL_POSITION[anchor] || PANEL_POSITION.shell} max-h-[calc(100dvh-6rem)] flex flex-col bg-surface text-text border border-line rounded-xl shadow-xl`}
         >
           <div className="flex items-center justify-between px-4 py-3 border-b border-line">
             <div className="font-medium text-sm">Notifications</div>

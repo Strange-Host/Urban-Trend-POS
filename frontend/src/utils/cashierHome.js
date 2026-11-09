@@ -1,11 +1,8 @@
-// Where a cashier lands at "/" under the new layout (ut_ui=v2): the Start screen, or straight on the till.
+// Where a cashier lands at "/": the Start screen, or straight on the till.
 //
 // Default is the Start screen. A cashier who only ever sells can switch to the till from the account menu; that choice
 // lives in localStorage under `ut_cashier_home` (same `ut_` prefix as the other saved preferences). 'start' removes the
-// key rather than storing it, so "default" and "never set" are the same state. Has no effect on the current layout,
-// where "/" is the till for cashiers as it always was.
-//
-// Removing the flag is part of redesign Phase 7; this preference stays, since the Start screen does.
+// key rather than storing it, so "default" and "never set" are the same state.
 
 export const CASHIER_HOME_KEY = 'ut_cashier_home';
 export const DEFAULT_CASHIER_HOME = 'start';

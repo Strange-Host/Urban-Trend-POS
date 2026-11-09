@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { ALL_ITEMS } from '../components/navItems';
 
-// The pages this person opened most recently, newest first. Feeds the "Recent" shortcuts in the sidebar
-// and the Ctrl+K palette. Only pages that are in the navigation count (not /security or a login screen),
+// The pages this person opened most recently, newest first. Feeds the "Recent" shortcuts in
+// the Ctrl+K palette. Only pages that are in the navigation count (not /security or a login screen),
 // and it is kept per browser, so a shared till doesn't leak one cashier's habits to another account:
 // the list holds nothing but route paths, and anything the person may not open is filtered out when shown.
 const KEY = 'ut_recent_pages';

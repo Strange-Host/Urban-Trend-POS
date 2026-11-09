@@ -32,7 +32,6 @@ const OWN_H1 = {
   'components/SessionGuard.jsx': 'the lock screen: not a page inside the shell',
   'pages/Login.jsx': 'no shell around it',
   'pages/ChangePassword.jsx': 'no shell around it',
-  'pages/Dashboard.jsx': 'greeting header until redesign Phase 4 turns it into Today',
 };
 
 // Files allowed to draw their own tab strip (role="tablist").
@@ -51,11 +50,16 @@ describe('page structure', () => {
     expect(offenders((f) => f.text.includes('role="tablist"') && !(f.path in OWN_TABLIST))).toEqual([]);
   });
 
-  it('TabBar is only used for filters', () => {
-    const bad = files.filter((f) => !f.path.startsWith('components/shell/') && f.path !== 'components/TabBar.jsx')
-      .filter((f) => (f.text.match(/<TabBar[\s\S]*?\/>/g) || []).some((use) => !use.includes('variant="filter"')))
-      .map((f) => f.path);
-    expect(bad).toEqual([]);
+  it('TabBar only draws filter chips: no caller still asks it for a page variant', () => {
+    // TabBar lost its page variant at cutover. A page that wants tabs uses Tabs (or PageHeader's `tabs`).
+    expect(offenders((f) => (f.text.match(/<TabBar[\s\S]*?\/>/g) || []).some((use) => /\bvariant=/.test(use)))).toEqual([]);
+  });
+
+  it('the redesign flag and the old layout stay gone (redesign Phase 7)', () => {
+    // The flag and the three sidebar modes were removed at cutover. Only legacyStorage.js may still name their saved keys,
+    // to clear them from browsers that used them.
+    const retired = /ut_ui\b|useUiVersion|getUiVersion|setUiVersion|\bisV2\b|ShellSwitch|LayoutV2|v2Only|data-ui|ut_sidebar_mode|ut_nav_collapsed|ut_sidebar_hidden/;
+    expect(offenders((f) => retired.test(f.text) && f.path !== 'utils/legacyStorage.js')).toEqual([]);
   });
 
   it('the exceptions are still needed (remove them from the lists when they stop being true)', () => {

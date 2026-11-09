@@ -5,7 +5,6 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import Dashboard from './Dashboard';
 import { approvalsApi, couriersApi, ordersApi, paymentReconciliationApi, reportsApi, stockApi } from '../api/endpoints';
-import { setUiVersion } from '../utils/uiVersion';
 
 vi.mock('../api/endpoints', () => ({
   reportsApi: {
@@ -51,21 +50,7 @@ beforeEach(() => {
   ordersApi.pendingOwnerDecision.mockReturnValue(res({ total: 0, data: [] }));
 });
 
-describe('Dashboard with the current layout', () => {
-  it('is unchanged: no Today tabs, and none of the queue sources are asked', async () => {
-    setUiVersion('v1');
-    mount();
-    expect(await screen.findByText('Revenue')).toBeInTheDocument();
-    expect(screen.queryByRole('tab', { name: /Attention/ })).toBeNull();
-    expect(approvalsApi.list).not.toHaveBeenCalled();
-    expect(stockApi.transfers).not.toHaveBeenCalled();
-    expect(ordersApi.pendingOwnerDecision).not.toHaveBeenCalled();
-  });
-});
-
-describe('Dashboard as Today (new layout)', () => {
-  beforeEach(() => setUiVersion('v2'));
-
+describe('Dashboard as Today', () => {
   it('has Overview and Attention tabs, with the number waiting on the Attention tab', async () => {
     mount();
     expect(screen.getByRole('heading', { name: 'Today' })).toBeInTheDocument();

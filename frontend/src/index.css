@@ -260,7 +260,7 @@ main pre { white-space: pre-wrap; }
 
 /* ---------------------------------------------------------------------
    Sliding pill (hooks/useSlidingPill.js): the highlight behind the active
-   sidebar item / range button. It stretches like a drop while it moves -
+   range button on the dashboard. It stretches like a drop while it moves -
    the edge it is heading towards runs ahead fast, the trailing edge
    follows slower. Position is set inline by the hook; only timing is here.
    --------------------------------------------------------------------- */

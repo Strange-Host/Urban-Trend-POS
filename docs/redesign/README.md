@@ -1,46 +1,18 @@
-# The new layout (side-rail redesign): status, how it works, what is left
+# The side-rail layout: what it is, and what is still to be checked
 
-A new frontend shell (side rail, one page header, workspace tabs) and new screens for the cashier, the manager and the storekeeper,
-built behind a flag. Colours and the permission model are unchanged; the backend gained two small endpoints and one migration.
-This is the one document for it: it replaces the per-phase notes, which described work as it was done.
+The frontend shell (side rail, one page header, workspace tabs) and the screens built with it for the cashier, the manager and the
+storekeeper. Colours and the permission model are unchanged; the backend gained two small endpoints and one migration. This is the
+one document for it.
 
 ## Status
 
-| Phase | What | State |
-|---|---|---|
-| 0 | the `ut_ui` flag, baseline | done |
-| 1 | the shell: side rail, top bar, bottom bar below 1024px, status line | done (the rail and top bar were reworked afterwards) |
-| 2 | one `PageHeader` and one `Tabs` for every page | done |
-| 3 | cashier: the Start screen and the till | done |
-| 4 | manager: Today, with an Attention queue | done |
-| 5 | stock: draft receipts, and the Receive form on the page | done |
-| 6 | workspace tab strips for Sell, Money, Team | done (already built by phases 1 and 2; a walk-through test now proves it) |
-| 7 | **cutover**: remove the flag and the old layout, final passes | **not started** |
+All seven phases are built, and **the layout is the only layout**: cutover (Phase 7) removed the `ut_ui` flag, the old sidebar and
+everything only they used (see "Cutover" below). The Receive form has been checked in a browser (see "Still to check"); no other
+screen has a recorded browser check, and that is the main open item.
 
-Built and tested. The Receive form has been checked in a browser (see "Before it is rolled out"); no other screen has a recorded
-browser check, and that is the main thing between this and cutover.
+## What the layout is
 
-## The flag
-
-The new layout is off unless someone turns it on.
-
-| To do this | Do this |
-|---|---|
-| Turn it on in this browser | open any page with `?ut_ui=v2` on the end of the address |
-| Turn it off again | `?ut_ui=v1` |
-| Switch from inside the app (admins) | the account menu: "Try new layout" / "Use current layout" |
-
-The choice is saved in `localStorage` under `ut_ui` (`v1` removes the key, so "off" and "never set" are the same). The address
-parameter is read once, saved, then removed from the address bar, so a shared link cannot switch someone else's browser. Anything
-other than `v1` or `v2`, or blocked storage, falls back to the current layout. `<html data-ui="v1|v2">` mirrors it for CSS. With the
-flag off the app is as it was.
-
-Files: `utils/uiVersion.js`, `hooks/useUiVersion.js`, `components/ShellSwitch.jsx` (picks the shell), `components/v2/LayoutV2.jsx`
-(the new shell, its own chunk), `components/UserMenu.jsx` (the admin switch).
-
-## What the new layout is
-
-**Shell** (`components/shell/`, `components/v2/LayoutV2.jsx`). From 1024px wide (`useMediaQuery`): a 64px ink **rail** on the left
+**Shell** (`components/shell/`, `components/Layout.jsx`). From 1024px wide (`useMediaQuery`): a 64px ink **rail** on the left
 (the UT mark, then the workspaces, then the account menu) and a 64px **top bar** across the page (a greeting with the date, the
 status as pills for branch, connection and shift, then Search, Alerts and Settings). Below 1024px (phones and small tablets): a
 **bottom bar** (four destinations and a More panel holding the rest) and no top bar, so the status line sits under the page title.
@@ -53,7 +25,7 @@ storekeeper) gets a **flat rail**, one item per page; admins and managers get th
 workspace's pages are a tab strip over each page.
 
 **Where the old layout's top bar functions went:** on large screens the new top bar carries Alerts, Search and Settings and the
-connection, branch and shift pills; the account menu (theme, lock, security, sign out, the flag) is at the bottom of the rail. On a
+connection, branch and shift pills; the account menu (theme, lock, security, sign out) is at the bottom of the rail. On a
 phone, the More panel holds Alerts, Search and the account menu, and the status line sits under the page title. The Search pill and
 Ctrl/Cmd+K open the same "go to" palette.
 
@@ -65,7 +37,7 @@ one (the till) gets them from the shell. Embedded pages never draw a second copy
 
 **Landing.** `components/Home.jsx` asks `homeRouteFor` (in `navItems.js`) where each role starts, so the landing page and the rail's
 logo cannot disagree: storekeeper to Catalog; admin and manager with `reports.view` to the Dashboard (Today); a cashier to the
-till, or on the new layout to the Start screen.
+till, or to the Start screen.
 
 ## The cashier: Start and the till
 
@@ -90,10 +62,10 @@ till, or on the new layout to the Start screen.
 
 ## The manager: Today
 
-On the new layout the Dashboard is **Today**, with Overview (the existing KPIs, chart and stock-alert tiles, unchanged) and
+The Dashboard is **Today**, with Overview (the existing KPIs, chart and stock-alert tiles, unchanged) and
 **Attention**, with a count badge: one row per kind of thing waiting on a decision, worst first, each linking to where it is done.
 `hooks/useAttentionQueue.js` combines six existing endpoints in the browser (a single backend endpoint could replace it without
-touching the screen); each is asked for a count only, only by people the API would let see it, and not at all on the current layout.
+touching the screen); each is asked for a count only, and only by people the API would let see it.
 
 | Row | Needs | Opens |
 |---|---|---|
@@ -115,7 +87,7 @@ Stock control and Finance open on `?tab=` when given; with no parameter they beh
   store, an impossible or future date, a missing supplier, over 200 lines, over 256 KB); every other rule is checked at submit. A
   buying price is dropped before saving for anyone who may not set one. A new supplier or product named in a draft is created only at
   submit. All routes need `stock.receive`, and a draft you may not open is "not found".
-- **The form** (new layout, main store; `ReceiveTab` owns the state and checks, `ReceiveForm`, `ReceiveLineRow`, `ReceiveActivity` and
+- **The form** (main store; `ReceiveTab` owns the state and checks, `ReceiveForm`, `ReceiveLineRow`, `ReceiveActivity` and
   `ReceiveHistory` are the pieces): the form is on the page, not a sheet. Lines are table rows: Item,
   Quantity, Selling price, Buying price. The layout follows the width of the form panel, not the screen (container queries): one row
   under column headings when the panel is at least 42rem wide, the item on a row of its own above the three figures at laptop
@@ -143,17 +115,20 @@ Stock control and Finance open on `?tab=` when given; with no parameter they beh
 
 ## Where it departs from the plan
 
-- **The old layout and its saved sidebar keys stay until cutover.** The plan says Phase 1 removes them; the flag has to keep the old
-  layout available, and removing the keys earlier would reset the sidebar for anyone who switches back.
+- **`useSlidingPill` was kept.** The plan lists it as retired, but the Dashboard's date-range switch (7 days, 30 days, 90 days, All
+  time) still uses it. Removing it would change how that control moves, which cutover is not meant to do. Only the sidebar's use of
+  it went. It can go whenever someone decides the range switch should not glide.
 - **The till changed `useCartStore` and `PaymentPanel`**, which the plan said to leave alone: the cart gained the sale-wide discount
   and the payment panel a dark look. The cart, the offline queue and the till's offline and rejected-sale paths are covered by tests.
-- **Phase 6 needed no new code.** The strips come from the shell and `PageHeader`; `components/v2/WorkspaceStrips.test.jsx` walks every
+- **Phase 6 needed no new code.** The strips come from the shell and `PageHeader`; `components/WorkspaceStrips.test.jsx` walks every
   Sell, Money and Team page for admin and manager and every flat-rail page for cashier and storekeeper.
 - **Pages with their own tabs show two rows** (the workspace strip, then the page's tabs, for example Sell > Orders).
+- **`navItems.js` still has the old `PINNED_TOP`, `GROUPS` and `PINNED_BOTTOM` lists** that fed the sidebar's headings. Only
+  `ALL_ITEMS` and the `workspace` field are used by the shell now; reshaping the file is left for a separate change.
 
-## Before it is rolled out
+## Still to check
 
-**Checked in a browser: the Receive form.** Run in Chrome with Playwright against a seeded copy, the flag on, with a storekeeper, a
+**Checked in a browser: the Receive form.** Run in Chrome with Playwright against a seeded copy, with a storekeeper, a
 second storekeeper, a manager and a cashier, and checked against the database after each step, not only on screen:
 
 - An existing item shows its catalog price read only and sends nothing price-related.
@@ -185,27 +160,37 @@ and dark:
   close form once; Exit till returns to Start; sell online and offline; print a receipt; apply a discount above and below the limit.
 - **Manager:** Today loads on Overview; the Attention badge equals the sum of the rows; each row opens the right page or tab; a manager
   without a permission sees no such row.
-- **With the flag off:** the old layout looks as it did. Pages that wrote their own title row now use the shared header, so spacing
-  under the title, the action button's position and the title's letter-spacing differ slightly, and Stock control's tab strip is a
-  few pixels taller. If any of that matters for "flag off means nothing changed", the header can reproduce a page's old spacing.
-- **Baseline screenshots:** take the per-role set (desktop, tablet, phone) with the flag **off**, as the before-picture.
+- **Print:** receipts, waybills and invoices print as before, with the shell's chrome hidden.
+- **Pages that used to write their own title row** now use the shared header, so spacing under the title, the action button's
+  position and the title's letter-spacing differ slightly from the old sidebar layout, and Stock control's tab strip is a few pixels
+  taller. Look at each once, in light and dark.
 
 **Deploying it changes the database** (migration `0002`): back up the live database; on a copy run `npm run migrate -- --status`, then
 `npm run migrate`, then `npm run integrity`; then roll out at a quiet time. Set `max_discount_percent` before cashiers see the till.
 
-**Rollout order:** admins first with the flag, then managers and storekeepers, then cashiers at a quiet time of day. Rollback is
-switching the flag off, until cutover removes it.
+**Rollback:** there is no flag any more. Rolling back means redeploying the previous build (the commit before cutover). That build still
+contains migration `0002`, so it starts normally. A build older than `0002` would refuse to start on a database that has it applied
+(the runner stops when an applied migration is missing from the code), so do not roll back past it. Roll out at a quiet time of day, and have
+each role do its daily tasks once (a sale, a receive, a count, an approval) before the shop opens.
 
-## Cutover (Phase 7), when the walk-throughs are done
+## Cutover (Phase 7): done
 
-1. Remove the flag: `utils/uiVersion.js`, `hooks/useUiVersion.js`, `components/ShellSwitch.jsx`, the `v2Only` marker on nav items,
-   the account menu's switch and `html[data-ui]`; make `LayoutV2` the layout.
-2. Delete the old layout and what only it used: `Layout.jsx` (and its test), `useSlidingPill`, the sidebar's three display modes and
-   group collapse, their saved `localStorage` keys (clean them up on start), the `TabBar` page variant (keep the filter chips), and
-   the old layout's own top bar (not the new `TopBar`).
-3. Update `README.md`, `DOCUMENTATION.md` (sections 6 and 7) and `CHANGES.md`; delete this file or cut it to what is still true.
-4. Final passes: dark theme, accessibility (focus visibility, 44px touch targets, contrast, the old Receive sheet's unlinked labels
-   go with the old layout), and print output for receipts, waybills and invoices.
+Removed: the flag (`utils/uiVersion.js`, `hooks/useUiVersion.js`, `components/ShellSwitch.jsx`, the `v2Only` marker, the account
+menu's switch, `html[data-ui]`, and the "UI v2 preview" tester marker); the old layout (`Layout.jsx` and its test, the sidebar's
+three display modes, group collapse, the old top bar, and the notification panel's sidebar anchors); the old Receive sheet (the
+`+ Receive shipment` button and its unlinked labels); the `TabBar` page variant (it keeps the filter chips); the `titleless` and
+`appearance` options of `PageHeader` and `Tabs`. `LayoutV2` became `components/Layout.jsx`.
+
+Added: `utils/legacyStorage.js`, run once at start-up, which clears `ut_ui`, `ut_nav_collapsed`, `ut_sidebar_mode` and
+`ut_sidebar_hidden` from each browser (delete it after a few months), and a test in `frontend/src/pageStructure.test.js` that fails
+if the flag, `ShellSwitch`, `LayoutV2` or the sidebar keys reappear in the source.
+
+Changed for everyone on deploy: every role gets the new layout at once; cashiers land on the Start screen unless they chose the till
+in the account menu; the Dashboard is Today with its Attention tab for admins and managers, and its Attention sources are requested
+for anyone with those permissions (before, only with the flag on).
+
+Not done in the cutover change: the accessibility and dark-theme passes and the print check in "Still to check" need a browser and a
+printer, and have not been done.
 
 ## The mobile app
 

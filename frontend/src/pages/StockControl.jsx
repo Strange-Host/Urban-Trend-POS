@@ -58,7 +58,7 @@ export default function StockControl() {
               options={stores.map((s) => ({ value: String(s.id), label: s.name + (s.is_main ? ' (main)' : '') }))} />
           </div>
         ) : null}
-        tabs={{ items: tabs.map((t) => ({ key: t.id, label: t.label })), active: tab, onChange: setTab, appearance: 'underline' }}
+        tabs={{ items: tabs.map((t) => ({ key: t.id, label: t.label })), active: tab, onChange: setTab }}
       />
 
       {tab === 'receive' && <ReceiveTab storeParams={storeParams} isMainStore={Boolean(viewing?.is_main) && isOwnStore} />}

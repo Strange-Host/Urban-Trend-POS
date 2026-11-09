@@ -40,7 +40,7 @@ export default function CourierSheet({ courier, tabs, initialTab, onClose }) {
         </div>
         <button type="button" onClick={onClose} className="text-sm text-text-muted hover:text-text shrink-0">Close</button>
       </div>
-      <TabBar tabs={tabs} active={tab} onChange={setTab} variant="filter" className="mb-4" />
+      <TabBar tabs={tabs} active={tab} onChange={setTab} className="mb-4" />
       {Pane && <Pane courier={courier} />}
     </Sheet>
   );

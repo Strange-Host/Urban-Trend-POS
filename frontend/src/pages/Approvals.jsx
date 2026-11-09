@@ -126,7 +126,7 @@ export default function Approvals() {
           : 'Your void and refund requests. A manager approves or rejects each one; you are told when they do.'}
       />
 
-      <TabBar tabs={tabs} active={tab} onChange={(k) => { setTab(k); pager.reset(); }} variant="filter" className="mb-6" />
+      <TabBar tabs={tabs} active={tab} onChange={(k) => { setTab(k); pager.reset(); }} className="mb-6" />
 
       <div className="bg-surface border border-line rounded-xl overflow-hidden">
         <div className="scroll-x">

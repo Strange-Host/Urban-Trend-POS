@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider } from './context/AuthContext';
 import { ToastProvider, DialogProvider } from './context/UIContext';
 import ProtectedRoute from './components/ProtectedRoute';
-import ShellSwitch from './components/ShellSwitch';
+import Layout from './components/Layout';
 import Home from './components/Home';
 import { PageSkeleton } from './components/Skeleton';
 import Login from './pages/Login';
@@ -20,7 +20,7 @@ import POSTerminal from './pages/POSTerminal';
 // path through the app.
 const ChangePassword = lazy(() => import('./pages/ChangePassword'));
 const Security = lazy(() => import('./pages/Security'));
-// The cashier's Start screen: only people on the new layout reach it.
+// The cashier's Start screen: where a cashier lands, unless they chose to open on the till.
 const Start = lazy(() => import('./pages/Start'));
 const Orders = lazy(() => import('./pages/Orders'));
 const PaymentReconciliation = lazy(() => import('./pages/PaymentReconciliation'));
@@ -62,14 +62,14 @@ export default function App() {
           <Suspense fallback={<RouteFallback />}>
             <Routes>
               <Route path="/login" element={<Login />} />
-              {/* No Layout/sidebar here, same as /login — this page must be
+              {/* No Layout (rail) here, same as /login — this page must be
                   reachable while must_change_password blocks every other
                   authenticated route (see ProtectedRoute and middleware/auth.js). */}
               <Route path="/change-password" element={<ProtectedRoute><ChangePassword /></ProtectedRoute>} />
               <Route
                 element={
                   <ProtectedRoute>
-                    <ShellSwitch />
+                    <Layout />
                   </ProtectedRoute>
                 }
               >

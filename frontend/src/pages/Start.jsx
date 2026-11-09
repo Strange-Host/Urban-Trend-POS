@@ -7,7 +7,7 @@ import { CLOSE_SHIFT_TO } from '../components/shell/railModel';
 import { useAuth } from '../context/AuthContext';
 import useOfflineQueue from '../hooks/useOfflineQueue';
 
-// The cashier's home under the new layout (ut_ui=v2): what a shift usually starts with, one tap each, and how the shift
+// The cashier's home: what a shift usually starts with, one tap each, and how the shift
 // stands. Each tile appears only when this person may do that thing, so the screen never offers a dead end. "New sale"
 // takes focus on arrival, so Enter goes straight to the till. It decides nothing and changes nothing: every tile is a link
 // to a page or state that already exists. "End shift" opens the till with the close-shift form showing.

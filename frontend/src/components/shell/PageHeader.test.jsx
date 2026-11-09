@@ -1,9 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import PageHeader from './PageHeader';
 import PageSection from './PageSection';
 import { ShellChromeContext } from './pageChromeContext';
-import { setUiVersion } from '../../utils/uiVersion';
 
 const tabs = { items: [{ key: 'a', label: 'Alpha' }, { key: 'b', label: 'Beta' }], active: 'a', onChange: () => {} };
 
@@ -12,9 +11,7 @@ function withShell(ui, claim = vi.fn(() => vi.fn())) {
   return { claim, ...render(<ShellChromeContext.Provider value={shell}>{ui}</ShellChromeContext.Provider>) };
 }
 
-beforeEach(() => { localStorage.clear(); setUiVersion('v1'); });
-
-describe('PageHeader with the flag off (the old layout)', () => {
+describe('PageHeader', () => {
   it('shows title, description, eyebrow, meta and actions', () => {
     render(<PageHeader eyebrow="Open" title="Orders" description="All orders." meta="3 orders" actions={<button>New</button>} />);
     expect(screen.getByRole('heading', { level: 1, name: 'Orders' })).toBeTruthy();
@@ -23,28 +20,6 @@ describe('PageHeader with the flag off (the old layout)', () => {
     expect(screen.getByText('3 orders')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'New' })).toBeTruthy();
   });
-
-  it('draws tabs under the title', () => {
-    render(<PageHeader title="Reports" tabs={tabs} />);
-    expect(screen.getByRole('tab', { name: 'Alpha' }).getAttribute('aria-selected')).toBe('true');
-  });
-
-  it('shows no title for a titleless page that only fronts tabs, as before', () => {
-    render(<PageHeader title="Finance" titleless padding="px-4" tabs={tabs} />);
-    expect(screen.queryByRole('heading')).toBeNull();
-    expect(screen.getByRole('tab', { name: 'Beta' })).toBeTruthy();
-  });
-
-  it('never draws or claims the shell chrome', () => {
-    // The context only exists inside the v2 shell; even if it were present, the old layout ignores it.
-    const { claim } = withShell(<PageHeader title="Orders" />);
-    expect(screen.queryByTestId('status-line')).toBeNull();
-    expect(claim).not.toHaveBeenCalled();
-  });
-});
-
-describe('PageHeader with the flag on (the new pattern)', () => {
-  beforeEach(() => setUiVersion('v2'));
 
   it('puts the status line and workspace tabs under the title, then in-page tabs', () => {
     withShell(<PageHeader title="Orders" description="All orders." tabs={tabs} />);
@@ -71,14 +46,16 @@ describe('PageHeader with the flag on (the new pattern)', () => {
     expect(release).toHaveBeenCalledTimes(1);
   });
 
-  it('still shows the title of a titleless page that fronts tabs', () => {
-    withShell(<PageHeader title="Finance" titleless tabs={tabs} />);
+  it('shows the title of a page that only fronts embedded tabs, such as Finance', () => {
+    withShell(<PageHeader title="Finance" tabs={tabs} />);
     expect(screen.getByRole('heading', { level: 1, name: 'Finance' })).toBeTruthy();
+    expect(screen.getByRole('tab', { name: 'Beta' })).toBeTruthy();
   });
 
   it('works without a shell (no chrome, no claim)', () => {
-    render(<PageHeader title="Orders" />);
+    render(<PageHeader title="Orders" tabs={tabs} />);
     expect(screen.getByRole('heading', { level: 1, name: 'Orders' })).toBeTruthy();
+    expect(screen.getByRole('tab', { name: 'Alpha' }).getAttribute('aria-selected')).toBe('true');
     expect(screen.queryByTestId('status-line')).toBeNull();
   });
 });
@@ -90,13 +67,7 @@ describe('PageHeader inside a PageSection (an embedded page)', () => {
     </PageSection>
   );
 
-  it('keeps its title in the old layout', () => {
-    render(embedded);
-    expect(screen.getByRole('heading', { level: 1, name: 'Payments' })).toBeTruthy();
-  });
-
-  it('drops the page title in the new one, keeping description and actions, and does not claim the chrome', () => {
-    setUiVersion('v2');
+  it('drops the page title, keeping description and actions, and does not claim the chrome', () => {
     const { claim } = withShell(embedded);
     expect(screen.queryByRole('heading', { level: 1 })).toBeNull();
     expect(screen.getByRole('heading', { level: 2, name: 'Payments' }).className).toContain('sr-only');

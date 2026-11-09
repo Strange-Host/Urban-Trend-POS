@@ -19,7 +19,7 @@ function useSource(key, enabled, fn) {
   return useQuery({ queryKey: ['attention', key], queryFn: fn, enabled, retry: false, staleTime: 30_000, refetchInterval: 60_000 });
 }
 
-// What is waiting on a decision, from the places that already hold each one (no new endpoint: Phase 4 combines them here,
+// What is waiting on a decision, from the places that already hold each one (no new endpoint: this combines them,
 // and a single backend endpoint can replace this hook later without touching the screen). Each source is asked for a count
 // only (limit 1), and only by people the API would let see it.
 //
@@ -28,8 +28,7 @@ function useSource(key, enabled, fn) {
 //   count      how many things are waiting in total (the Attention tab's badge)
 //   isLoading  true until every source this person can see has answered once
 //
-// { enabled: false } asks nothing and returns an empty queue: the Dashboard calls this on every render, but only the new
-// layout (ut_ui=v2) shows it, so people on the current layout make no extra requests.
+// { enabled: false } asks nothing and returns an empty queue.
 /** @param {{ enabled?: boolean }} [options] */
 export default function useAttentionQueue({ enabled = true } = {}) {
   // AuthContext is not typed yet (R6 types it with the rest of context/); this is the part of it used here.

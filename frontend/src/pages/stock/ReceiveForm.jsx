@@ -4,7 +4,7 @@ import Picker from '../../components/Picker';
 import ReceiveLineRow, { LINE_COLUMNS } from './ReceiveLineRow';
 import { inputCls, labelCls } from './helpers';
 
-// The new layout's "New delivery" panel: supplier and delivery note, then the lines as a table, then Save draft and Save
+// The "New delivery" panel: supplier and delivery note, then the lines as a table, then Save draft and Save
 // shipment. It holds no data of its own: Stock > Receive owns the form state and what the buttons do, so this and the old
 // sheet go through the same checks and the same calls.
 export default function ReceiveForm({

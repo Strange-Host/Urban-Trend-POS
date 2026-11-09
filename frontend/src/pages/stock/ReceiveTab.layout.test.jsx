@@ -4,7 +4,6 @@ import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import ReceiveTab from './ReceiveTab';
 import { stockApi, productsApi } from '../../api/endpoints';
-import { setUiVersion } from '../../utils/uiVersion';
 
 vi.mock('../../api/endpoints', () => ({
   stockApi: {
@@ -33,7 +32,6 @@ function mount(props = {}) {
 beforeEach(() => {
   localStorage.clear();
   vi.clearAllMocks();
-  setUiVersion('v2');
   auth.perms = ['stock.receive'];
   stockApi.receipts.mockResolvedValue({ data: { data: [receipt()], total: 1 } });
   stockApi.receiptDrafts.mockResolvedValue({ data: { data: [] } });
@@ -183,13 +181,10 @@ describe('Receive, new layout: recent activity and history', () => {
   });
 });
 
-describe('Receive, current layout is untouched', () => {
-  it('still opens the form from the button, in a sheet', async () => {
-    setUiVersion('v1');
-    const user = mount();
-    await user.click(await screen.findByRole('button', { name: '+ Receive shipment' }));
-    expect(screen.getByRole('button', { name: 'Save shipment' })).toBeInTheDocument();
-    expect(screen.queryByRole('heading', { name: 'New delivery' })).toBeNull();
-    expect(screen.queryByRole('heading', { name: 'Recent activity' })).toBeNull();
+describe('Receive, the old sheet is gone', () => {
+  it('has no "+ Receive shipment" button: the form is on the page', async () => {
+    mount();
+    expect(await screen.findByRole('heading', { name: 'New delivery' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '+ Receive shipment' })).toBeNull();
   });
 });

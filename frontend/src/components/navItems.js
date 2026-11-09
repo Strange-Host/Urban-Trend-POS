@@ -1,7 +1,6 @@
 // The navigation map: every page a person can go to, who may see it, and how it is grouped.
-// Shared by the sidebar (Layout.jsx), the redesigned shell (shell/, behind the ut_ui=v2 flag) and the Ctrl+K palette
-// (CommandPalette.jsx). `workspace` places each page in one of the redesign's five workspaces (or Settings); the old
-// sidebar ignores it and keeps its own groups until cutover.
+// Shared by the shell (Layout.jsx, shell/) and the Ctrl+K palette (CommandPalette.jsx). `workspace` places each page in one of
+// the five workspaces (or Settings).
 import {
   Banknote, ChartColumn, ClipboardCheck, Clock, GitCompareArrows, History, House, LayoutDashboard, Package, ReceiptText,
   RefreshCw, ScrollText, Settings, ShoppingCart, Tags, TriangleAlert, UserCog, UserPlus, Users, Wallet, Warehouse,
@@ -18,9 +17,8 @@ import {
 // triangle to save two lines would be a bad trade.
 export const PINNED_TOP = [
   // The cashier's Start screen (pages/Start.jsx). `uncounted`: a landing page rather than another destination, so it does not
-  // count toward FLAT_BELOW and a cashier keeps the flat rail. `v2Only`: part of the redesign, so the old layout (flag off)
-  // does not list it.
-  { to: '/start', workspace: 'sell', label: 'Start', icon: House, keywords: 'home start shift tiles what are you doing', roles: ['cashier'], uncounted: true, v2Only: true },
+  // count toward FLAT_BELOW and a cashier keeps the flat rail.
+  { to: '/start', workspace: 'sell', label: 'Start', icon: House, keywords: 'home start shift tiles what are you doing', roles: ['cashier'], uncounted: true },
   { to: '/terminal', workspace: 'sell', label: 'Terminal', icon: ShoppingCart, keywords: 'till pos checkout register sell sale cashier', roles: ['admin', 'manager', 'cashier'] },
   { to: '/dashboard', workspace: 'today', label: 'Dashboard', icon: LayoutDashboard, keywords: 'home overview kpi', roles: ['admin', 'manager'], perm: 'reports.view' },
   { to: '/reports', workspace: 'money', label: 'Reports', icon: ChartColumn, keywords: 'report profit loss p&l vat discount export', roles: ['admin', 'manager'], perm: 'reports.view' },
@@ -82,7 +80,7 @@ export const ALL_ITEMS = [
 
 /**
  * The items this person may see: an optional module must be switched on, and the item's permission (or, without one,
- * its role list) must allow them. One place so the sidebar and the Ctrl+K palette can never disagree.
+ * its role list) must allow them. One place so the rail and the Ctrl+K palette can never disagree.
  */
 export function filterVisible(items, { hasRole, can, modules }) {
   return items
@@ -90,7 +88,7 @@ export function filterVisible(items, { hasRole, can, modules }) {
     .filter((i) => (i.perm ? (Array.isArray(i.perm) ? i.perm.some((p) => can(p)) : can(i.perm)) : hasRole(...i.roles)));
 }
 
-/* ---------------------- Workspaces (redesigned shell) ---------------------- */
+/* ---------------------- Workspaces ---------------------- */
 
 // Roles with fewer destinations than this get a flat rail (one item per page) instead of the workspace rail.
 export const FLAT_BELOW = 8;

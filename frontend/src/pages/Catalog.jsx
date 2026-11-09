@@ -35,7 +35,7 @@ export default function Catalog() {
     <div>
       {canManage ? (
         <>
-          <PageHeader title="Catalog" titleless padding="px-4 md:px-8 pt-4 md:pt-6" tabs={{ items: TABS, active: tab, onChange: setTab }} />
+          <PageHeader title="Catalog" padding="px-4 md:px-8 pt-4 md:pt-6" tabs={{ items: TABS, active: tab, onChange: setTab }} />
           <PageSection>{body}</PageSection>
         </>
       ) : body}

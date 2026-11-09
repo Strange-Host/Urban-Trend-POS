@@ -6,10 +6,10 @@ import '@fontsource/schibsted-grotesk/latin-600.css'
 import '@fontsource/schibsted-grotesk/latin-700.css'
 import './index.css'
 import App from './App.jsx'
-import { applyUiFlagFromUrl } from './utils/uiVersion'
+import { clearRetiredPreferences } from './utils/legacyStorage'
 
-// Read ?ut_ui=v1|v2 before anything renders, so the first paint already uses the right shell.
-applyUiFlagFromUrl()
+// The old sidebar and the layout flag are gone; forget what they saved in this browser.
+clearRetiredPreferences()
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>

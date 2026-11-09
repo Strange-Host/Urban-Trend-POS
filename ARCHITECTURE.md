@@ -20,7 +20,7 @@ a convention **and a test**, so the structure cannot drift back without someone 
 | 4 | **Money is integer cents, parsed and split by `utils/money.js`.** No `REAL` money, no `Math.round(x * 100)`, no float arithmetic on amounts. | `tests/characterization/moneyAndErrors.test.js`, `tests/money.test.js` |
 | 5 | **One error type.** Anything a request can reach throws `ApiError`; the single error handler understands only that. | `moneyAndErrors.test.js` (no new `Error` subclass, no hand-built status errors) |
 | 6 | **On-hand equals the ledger.** `inventory.quantity` always equals the sum of `inventory_movements` for the product and store. | `npm run integrity`, the nightly job, `tests/integrity.test.js`, and the characterization tests that assert it after every stock path |
-| 7 | **Pages stay under 400 lines**, with one `PageHeader` and one `Tabs` style. A page with several parts keeps them in a folder beside it. | `frontend/src/pageStructure.test.js` (an exception must be listed with a reason and a ceiling, and must be removed when no longer needed) |
+| 7 | **Pages stay under 400 lines**, with one `PageHeader` and one `Tabs` style, in one shell (`components/Layout.jsx`). A page with several parts keeps them in a folder beside it. There is no layout flag and no second layout. | `frontend/src/pageStructure.test.js` (an exception must be listed with a reason and a ceiling, and must be removed when no longer needed; it also fails if the old flag or sidebar code comes back) |
 | 8 | **The API layer and the hooks are typed.** | `npm run typecheck` in CI (see "Frontend") |
 
 The tests and the type check run in CI (`.github/workflows/ci.yml`: the whole backend suite; the frontend's lint, type check, tests
@@ -102,15 +102,19 @@ what one of those paths does, it shows up as a diff there; if you do not, a fail
   object per resource). Pages call `endpoints.js`; they do not call `axios` themselves.
 - **Types are JSDoc, checked by `tsc` as a dev tool.** No file is converted to TypeScript, there is no build step and nothing runs in
   production. `frontend/jsconfig.json` turns on `checkJs`; `npm run typecheck` (`scripts/typecheck.mjs`) fails only on errors inside
-  the typed folders: `src/api/`, `src/hooks/`, `src/utils/uiVersion.js`, `src/utils/cashierHome.js`. `tsc` follows imports, so it also
+  the typed folders: `src/api/`, `src/hooks/`, `src/utils/cashierHome.js`. `tsc` follows imports, so it also
   reports errors in untyped files they import; the script ignores those. To type another folder, fix its errors, then add it to `SCOPE`
   in the script and to `include` in `jsconfig.json`. Request bodies are `Record<string, any>` on purpose: the backend's zod schemas own
   the field shapes.
 - **Pages** compose shared pieces (`PageHeader`, `Tabs`, `Sheet`, `Skeleton`, `EmptyState`, `Pager`, `Picker`, `StatCard`) and keep
   their data and handlers; a piece they split off takes props and holds no data of its own.
 - **Colours and type** are tokens in `index.css`; components do not hard-code hex values (the print layouts use plain black and white).
-- **The layout flag.** `ShellSwitch` renders the current layout or the new one from `ut_ui`; both render the same routes. Removing the
-  flag, `ShellSwitch`, `Layout.jsx` and `useSlidingPill` together is the last step of the redesign (`docs/redesign/README.md`).
+- **One shell.** `components/Layout.jsx` is the only layout: a rail and top bar on large screens, a bottom bar below 1024px, the page
+  in an `<Outlet />`. `components/navItems.js` says what each role sees and which workspace each page belongs to; `components/shell/`
+  holds the pieces and `railModel.js` the rules, as plain tested functions. There is no layout flag: the redesign's `ut_ui` flag and
+  the old sidebar were removed at cutover, and `utils/legacyStorage.js` clears the keys they saved. A change to the shell ships to
+  everyone at once, so it is checked per role (`components/Layout.test.jsx`, `WorkspaceStrips.test.jsx`) and in a browser first.
+- **`useSlidingPill`** survives, used only by the Dashboard's date-range switch. It is not shell code.
 
 ---
 

@@ -1,3 +1,13 @@
+# Cutover: the side-rail layout is the only layout (redesign Phase 7, restructure R7)
+
+**Everyone gets the new layout on deploy; there is no flag to switch it off.** Removed: the `ut_ui` flag and `ShellSwitch`, the old sidebar layout (`Layout.jsx`, its three display modes, group collapse, the old top bar), the account menu's
+"Try new layout" switch, the "UI v2 preview" marker, the old Receive sheet, the `TabBar` page variant, and the old layout's notification-panel anchors. `LayoutV2` is now `components/Layout.jsx`. Browsers forget the saved sidebar and flag keys the next time the app starts
+(`utils/legacyStorage.js`). Three tests were added or changed to hold the line: `pageStructure.test.js` fails if the flag, `ShellSwitch`, `LayoutV2` or the sidebar keys come back; `legacyStorage.test.js`; and the layout, home, header, tabs, Today and Receive tests no longer
+describe a "flag off" state. `useSlidingPill` stays because the Dashboard's date-range switch uses it. `ARCHITECTURE.md`, `README.md`, `DOCUMENTATION.md`, `SETUP.md` and `docs/redesign/README.md` describe one layout.
+
+**Checked:** frontend lint (no warnings in any file changed), type check, 75 test files and the production build; backend suite unchanged and passing (the backend was not touched). **Not checked:** any screen other than the Receive form in a browser, dark theme, accessibility and printing; the walk-through list is in
+`docs/redesign/README.md` ("Still to check"). **To roll back**, redeploy the previous build (it still contains migration `0002`, so it starts); there is no flag.
+
 # Documentation brought up to date
 
 **Rewritten:** `README.md` (it was two lines), `DOCUMENTATION.md` (it still described an 18-table system with no tests, React 18 and 8-hour tokens) and `SETUP.md`

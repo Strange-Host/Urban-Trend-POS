@@ -16,7 +16,7 @@
 import { LoadingBlock } from './Skeleton';
 import EmptyState from './EmptyState';
 
-// The page header now lives in shell/PageHeader.jsx (it also draws the redesign's chrome); re-exported so existing imports keep working.
+// The page header now lives in shell/PageHeader.jsx (it also draws the status line and workspace tabs); re-exported so existing imports keep working.
 export { default as PageHeader } from './shell/PageHeader';
 
 /* ------------------------------ Dense table ------------------------------ */

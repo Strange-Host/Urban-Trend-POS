@@ -1,15 +1,12 @@
 // Filter chips: the SalesHistory channel-filter style (small text, bordered), used for narrowing a list rather than
-// switching pages. Page tabs are Tabs (components/shell/Tabs.jsx); a call without variant="filter" is drawn by it, so there
-// is one tab style in the app. Same interaction model either way: a controlled `active` key and an onChange callback.
+// switching pages. Page tabs are Tabs (components/shell/Tabs.jsx). Same interaction model: a controlled `active` key and an
+// onChange callback.
 import { useRef } from 'react';
-import Tabs from './shell/Tabs';
 import useScrollSelectedIntoView from '../hooks/useScrollSelectedIntoView';
 
-export default function TabBar({ tabs, active, onChange, variant = 'page', className = '' }) {
+export default function TabBar({ tabs, active, onChange, className = '' }) {
   const stripRef = useRef(null);
   useScrollSelectedIntoView(stripRef, active);
-
-  if (variant !== 'filter') return <Tabs items={tabs} active={active} onChange={onChange} className={className} />;
 
   return (
     // flex-nowrap + overflow: on a phone a long list scrolls sideways instead of pushing the page wider than the screen.

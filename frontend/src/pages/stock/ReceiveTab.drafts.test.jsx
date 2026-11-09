@@ -4,7 +4,6 @@ import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import ReceiveTab from './ReceiveTab';
 import { stockApi } from '../../api/endpoints';
-import { setUiVersion } from '../../utils/uiVersion';
 
 vi.mock('../../api/endpoints', () => ({
   stockApi: {
@@ -44,21 +43,7 @@ beforeEach(() => {
   dialog.confirm.mockResolvedValue(true);
 });
 
-describe('Receive form with the current layout', () => {
-  it('is as it was: no Save draft, no drafts list, and the drafts are never requested', async () => {
-    setUiVersion('v1');
-    const user = mount();
-    await user.click(await screen.findByRole('button', { name: '+ Receive shipment' }));
-    expect(screen.queryByRole('button', { name: 'Save draft' })).toBeNull();
-    expect(screen.queryByText(/Drafts \(/)).toBeNull();
-    expect(screen.queryByText(/set by a manager or admin/)).toBeNull();
-    expect(stockApi.receiptDrafts).not.toHaveBeenCalled();
-  });
-});
-
-describe('Receive form with the new layout', () => {
-  beforeEach(() => setUiVersion('v2'));
-
+describe('Receive form', () => {
   it('lists the drafts, with who started them', async () => {
     mount();
     expect(await screen.findByText('Drafts (1)')).toBeInTheDocument();

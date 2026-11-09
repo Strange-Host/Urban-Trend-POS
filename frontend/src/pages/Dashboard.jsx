@@ -4,7 +4,6 @@ import Panel from '../components/Panel';
 import RevenueChart from '../components/RevenueChart';
 import useSlidingPill from '../hooks/useSlidingPill';
 import useAttentionQueue from '../hooks/useAttentionQueue';
-import useUiVersion from '../hooks/useUiVersion';
 import PageHeader from '../components/shell/PageHeader';
 import AttentionQueue from './today/AttentionQueue';
 import { useAuth } from '../context/AuthContext';
@@ -234,10 +233,9 @@ function AttentionSection({ alerts }) {
 export default function Dashboard() {
   const { user } = useAuth();
   const [range, setRange] = useState('30');
-  // The new layout (ut_ui=v2) shows this page as "Today" with two tabs; the current layout is unchanged.
-  const { isV2 } = useUiVersion();
+  // This page is "Today", with two tabs: Overview and Attention.
   const [tab, setTab] = useState('overview');
-  const queue = useAttentionQueue({ enabled: isV2 });
+  const queue = useAttentionQueue();
   // The reports API takes date-only values (YYYY-MM-DD) and answers 400 to a full timestamp, which left the cards below loading.
   const daysAgo = (n) => new Date(Date.now() - n * 86400000).toISOString().slice(0, 10);
   const from = range === 'all' ? '1970-01-01' : daysAgo(Number(range));
@@ -298,22 +296,13 @@ export default function Dashboard() {
       tabs={{ items: [{ key: 'overview', label: 'Overview' }, { key: 'attention', label: 'Attention', badge: queue.count }], active: tab, onChange: setTab }}
     />
   );
-  if (isV2 && tab === 'attention') {
+  if (tab === 'attention') {
     return <div className="p-4 md:p-8 max-w-6xl">{todayHeader}<AttentionQueue queue={queue} /></div>;
   }
 
   return (
     <div className="p-4 md:p-8 max-w-6xl">
-      {isV2 ? todayHeader : (
-      <div className="flex items-end justify-between flex-wrap gap-4 mb-6">
-        <div>
-          <div className="inline-flex items-center text-xs text-text-muted font-mono bg-surface border border-line rounded-full px-2.5 py-1 mb-3">{today}</div>
-          <h1 className="font-display font-700 text-3xl tracking-tight">{firstName ? `${greeting()}, ${firstName}` : 'Dashboard'}</h1>
-          <p className="text-text-muted text-sm mt-1">Across every store and channel — local register plus connected Shopify/WooCommerce sources.</p>
-        </div>
-        <RangeToggle value={range} onChange={setRange} />
-      </div>
-      )}
+      {todayHeader}
 
       {overviewLoading || stockAlertsLoading
         ? <SkeletonCards count={3} className="md:grid-cols-3 mb-6" />

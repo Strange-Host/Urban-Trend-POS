@@ -21,7 +21,7 @@ export default function Payroll() {
   const [tab, setTab] = useState('runs');
   return (
     <div>
-      <PageHeader title="Payroll" titleless padding="px-4 md:px-6 pt-4 md:pt-6" tabs={{ items: user?.role === 'admin' ? ADMIN_TABS : TABS, active: tab, onChange: setTab }} />
+      <PageHeader title="Payroll" padding="px-4 md:px-6 pt-4 md:pt-6" tabs={{ items: user?.role === 'admin' ? ADMIN_TABS : TABS, active: tab, onChange: setTab }} />
       <PageSection>
         {tab === 'runs' && <PayrollRuns />}
         {tab === 'live' && <PayrollSummary />}

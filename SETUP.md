@@ -101,8 +101,7 @@ than make the test database any safer.
 - As admin you land on the Dashboard. The till (Terminal, under Sell) loads with sample products you
   can add to a cart.
 - Catalog shows the seeded product list.
-- Settings is in the menu (admin-only): the sidebar, or the Settings item at the bottom of the rail
-  if you have switched on the new layout (`?ut_ui=v2`, see `docs/redesign/README.md`).
+- Settings is admin-only: the Settings button in the top bar on a large screen, or under More on a phone.
 
 If any of that doesn't load, check both terminal windows for errors before anything else —
 almost every setup problem shows up as a clear error message in one of them.

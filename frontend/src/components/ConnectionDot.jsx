@@ -2,7 +2,7 @@ import useConnectionState from '../hooks/useConnectionState';
 
 // Small coloured dot for the navigation: green when the API answers, amber while
 // sales rung up offline are waiting to be sent, red when the app can't reach the server.
-// `withLabel` adds the words next to it (used in the wide sidebar).
+// `withLabel` adds the words next to it (used in the status line and the phone More panel).
 export default function ConnectionDot({ withLabel = false, className = '' }) {
   const { tone, label, short } = useConnectionState();
   return (

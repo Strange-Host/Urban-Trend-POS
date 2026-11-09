@@ -33,7 +33,7 @@ export default function Finance() {
 
   return (
     <div>
-      <PageHeader title="Finance" titleless padding="px-4 md:px-8 pt-4 md:pt-6" tabs={{ items: tabs, active: tab, onChange: setTab }} />
+      <PageHeader title="Finance" padding="px-4 md:px-8 pt-4 md:pt-6" tabs={{ items: tabs, active: tab, onChange: setTab }} />
       <PageSection>
         {tab === 'payments' && <Payments />}
         {tab === 'expenses' && <Expenses />}

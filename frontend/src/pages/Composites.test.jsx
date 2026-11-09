@@ -5,7 +5,6 @@ import { MemoryRouter } from 'react-router-dom';
 import Finance from './Finance';
 import Catalog from './Catalog';
 import Payroll from './Payroll';
-import { setUiVersion } from '../utils/uiVersion';
 
 // Finance, Catalog and Payroll are "mini pages": a tab strip in front of full pages that each have their own header.
 // The embedded pages are stand-ins that draw a PageHeader like the real ones do.
@@ -41,28 +40,20 @@ const tabNames = () => screen.getAllByRole('tab').map((t) => t.textContent);
 const h1s = () => screen.queryAllByRole('heading', { level: 1 }).map((h) => h.textContent);
 
 beforeEach(() => {
-  localStorage.clear(); setUiVersion('v1');
+  localStorage.clear();
   auth.role = 'admin'; auth.perms = new Set(['custody.manage', 'products.manage']);
 });
 
 describe('Finance', () => {
-  it('old layout: the tab strip, then the embedded page with its own title (as before)', async () => {
-    render(<MemoryRouter><Finance /></MemoryRouter>); // Finance reads ?tab=, so it lives inside a router, as in the app
-    expect(tabNames()).toEqual(['Payments', 'Expenses', 'Cash sessions', 'Couriers', 'Custody', 'Delivery rates']);
-    expect(h1s()).toEqual(['Payments']);
-    await userEvent.click(screen.getByRole('tab', { name: 'Expenses' }));
-    expect(h1s()).toEqual(['Expenses']);
-  });
-
   it('hides Custody from people without that permission', () => {
     auth.perms = new Set();
     render(<MemoryRouter><Finance /></MemoryRouter>); // Finance reads ?tab=, so it lives inside a router, as in the app
     expect(tabNames()).not.toContain('Custody');
   });
 
-  it('new layout: one page title (Finance), the embedded page only as a section', async () => {
-    setUiVersion('v2');
+  it('shows the tab strip and one page title (Finance), with the embedded page only as a section', async () => {
     render(<MemoryRouter><Finance /></MemoryRouter>); // Finance reads ?tab=, so it lives inside a router, as in the app
+    expect(tabNames()).toEqual(['Payments', 'Expenses', 'Cash sessions', 'Couriers', 'Custody', 'Delivery rates']);
     expect(h1s()).toEqual(['Finance']);
     expect(screen.getByText('Payments page')).toBeTruthy();
     await userEvent.click(screen.getByRole('tab', { name: 'Couriers' }));
@@ -76,23 +67,18 @@ describe('Catalog', () => {
     render(<Catalog />);
     expect(tabNames()).toEqual(['Products', 'Online products', 'Categories']);
     await userEvent.click(screen.getByRole('tab', { name: 'Categories' }));
-    expect(h1s()).toEqual(['Categories']);
+    expect(h1s()).toEqual(['Catalog']);
+    expect(screen.getByText('Categories page')).toBeTruthy();
   });
 
-  it('a storekeeper gets Products alone, with no tabs, in both layouts', () => {
+  it('a storekeeper gets Products alone, with no tabs', () => {
     auth.perms = new Set();
-    const { unmount } = render(<Catalog />);
-    expect(screen.queryAllByRole('tab')).toHaveLength(0);
-    expect(h1s()).toEqual(['Products']);
-    unmount();
-    setUiVersion('v2');
     render(<Catalog />);
     expect(screen.queryAllByRole('tab')).toHaveLength(0);
     expect(h1s()).toEqual(['Products']); // nothing wraps it, so it keeps its own title
   });
 
-  it('new layout, manager: Catalog is the title and Products is a section', () => {
-    setUiVersion('v2');
+  it('manager: Catalog is the title and Products is a section', () => {
     render(<Catalog />);
     expect(h1s()).toEqual(['Catalog']);
   });
@@ -108,8 +94,7 @@ describe('Payroll', () => {
     expect(tabNames()).toEqual(['Pay runs', 'Live summary']);
   });
 
-  it('new layout: Payroll is the title and the embedded page a section', () => {
-    setUiVersion('v2');
+  it('Payroll is the title and the embedded page a section', () => {
     render(<Payroll />);
     expect(h1s()).toEqual(['Payroll']);
     expect(screen.getByText('Pay runs page')).toBeTruthy();

@@ -7,7 +7,7 @@ const OPTIONS = [
   { value: 'dark', label: 'Dark', icon: Moon },
 ];
 
-// Three-way theme picker. Styled for the dark account menu in the sidebar, where it lives.
+// Three-way theme picker. Styled for the dark account menu in the rail, where it lives.
 export default function ThemeSwitch() {
   const { preference, setPreference } = useTheme();
   return (

@@ -1,8 +1,8 @@
 # Urban Trends POS: system documentation
 
 What the system does and how it is built, as it stands today. For the rules the code is held to (and the tests that hold
-it there) see `ARCHITECTURE.md`. To get it running, see `SETUP.md`. For what changed and when, see `CHANGES.md`. For the new
-layout that is being rolled out behind a flag, see `docs/redesign/README.md`.
+it there) see `ARCHITECTURE.md`. To get it running, see `SETUP.md`. For what changed and when, see `CHANGES.md`. For the
+side-rail layout and the screens built with it, see `docs/redesign/README.md`.
 
 A point-of-sale and stock system for one retail shop that also sells online: a till, stock control across a main store and
 outlets, online and phone orders with delivery and courier settlement, money tracking (M-Pesa, cards, cash held by staff,
@@ -19,7 +19,7 @@ individual's set (see "Optional modules" for the switch that allows that).
 |---|---|---|
 | `admin` | the owner | Dashboard |
 | `manager` | runs the shop day to day | Dashboard (with `reports.view`) |
-| `cashier` | works the till, orders and leads | the till (new layout: the Start screen) |
+| `cashier` | works the till, orders and leads | the Start screen (or the till, if they chose that in the account menu) |
 | `store` | the storekeeper: receives and counts stock, no till | Catalog |
 
 Permissions are defined once, in `backend/src/config/permissions.js` (name, group, label, default roles), checked on the API
@@ -183,18 +183,18 @@ frontend/src/
   api/                  client.js (token, refresh, errors) and endpoints.js (one object per resource); typed
   hooks/                stores and shared hooks: useCartStore, useOfflineQueue, useConnectionStatus, useAttentionQueue, ...; typed
   context/              AuthContext (user, can, hasRole), UIContext (toast, dialogs), ...
-  components/           shared UI; shell/ and v2/ are the new layout; till/ is the till's pieces
+  components/           shared UI; Layout.jsx and shell/ are the app shell; till/ is the till's pieces
   pages/                one file per route; pages with several parts keep them in a folder beside them (orders/, stock/, settings/, ...)
-  utils/                small helpers, including the layout flag (uiVersion.js)
+  utils/                small helpers, including the cashier's choice of home (cashierHome.js)
 ```
 
 **State.** Server data goes through React Query; forms and screen state are local; the cart, the offline queue and connection
 state are `zustand` stores (the cart and the queue are saved in the browser). Pages call `api/endpoints.js` directly; there is
 no frontend service layer.
 
-**Two layouts.** The current layout (`Layout.jsx`, a sidebar) is what everyone sees. The new layout (side rail, top bar, page
-header, workspace tabs) is built and runs behind the `ut_ui=v2` flag. `ShellSwitch` picks one. Both render the same routes. How the
-flag works, what the new layout has, and what remains before it replaces the old one is in `docs/redesign/README.md`.
+**One layout.** `Layout.jsx` is the app shell: a rail and top bar from 1024px wide, a bottom bar below it, workspace tabs over each
+page, and the page itself in an `<Outlet />`. `navItems.js` decides what each role sees. What the layout has, and what is still to be
+checked in a browser, is in `docs/redesign/README.md`.
 
 **Offline.** The till keeps working without a connection: products and categories are cached, a sale that cannot be sent is
 queued with its own id (so a retry can never double-post) and replayed when the connection returns; the till shows what is
@@ -205,7 +205,7 @@ waiting and anything the server refused.
 | Route | Page | Who |
 |---|---|---|
 | `/` | each role's home | everyone |
-| `/start`, `/terminal` | Start screen (new layout), the till | admin, manager, cashier |
+| `/start`, `/terminal` | Start screen, the till | admin, manager, cashier |
 | `/dashboard`, `/reports` | Today / Dashboard, Reports | `reports.view` |
 | `/orders`, `/leads`, `/sales`, `/approvals` | Orders, Leads, Sales history, Approvals | orders and leads: admin, manager, cashier |
 | `/catalog`, `/stock`, `/shopify-sync` | Catalog, Stock control, Shopify sync | catalog: admin, manager, store; sync: `shopify.sync` |

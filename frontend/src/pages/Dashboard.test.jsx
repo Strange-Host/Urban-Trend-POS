@@ -11,7 +11,8 @@ vi.mock('../api/endpoints', () => ({
     paymentMethods: vi.fn(), topProductsByChannel: vi.fn(), dashboardOverview: vi.fn(),
   },
 }));
-vi.mock('../context/AuthContext', () => ({ useAuth: () => ({ user: { name: 'Ann Admin', role: 'admin' } }) }));
+// No queue permissions, so the Attention queue asks for nothing and this file stays about the Overview tiles (Dashboard.today.test.jsx covers the queue).
+vi.mock('../context/AuthContext', () => ({ useAuth: () => ({ user: { name: 'Ann Admin', role: 'admin' }, can: () => false, hasRole: () => false }) }));
 vi.mock('../components/RevenueChart', () => ({ default: () => null }));
 vi.mock('../hooks/useSlidingPill', () => ({ default: () => ({ rootRef: { current: null }, pillProps: {} }) }));
 

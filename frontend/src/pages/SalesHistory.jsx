@@ -65,7 +65,7 @@ export default function SalesHistory() {
         description={<>{data?.total ?? '—'} transactions across every store and channel — local register plus any connected Shopify or WooCommerce sources.</>}
       />
 
-      <TabBar tabs={CHANNELS} active={channel} onChange={(k) => { setChannel(k); pager.reset(); }} variant="filter" className="mb-6" />
+      <TabBar tabs={CHANNELS} active={channel} onChange={(k) => { setChannel(k); pager.reset(); }} className="mb-6" />
 
       <div className="bg-surface border border-line rounded-xl overflow-hidden">
         <div className="scroll-x">

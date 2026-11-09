@@ -1,15 +1,12 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import Tabs from './Tabs';
 import TabBar from '../TabBar';
-import { setUiVersion } from '../../utils/uiVersion';
 
 const items = [{ key: 'a', label: 'Alpha' }, { key: 'b', label: 'Beta' }];
 const classOf = (name) => screen.getByRole('tab', { name }).className;
-
-beforeEach(() => { localStorage.clear(); setUiVersion('v1'); });
 
 describe('Tabs (button tabs)', () => {
   it('marks the active tab and reports a change', async () => {
@@ -21,24 +18,12 @@ describe('Tabs (button tabs)', () => {
     expect(onChange).toHaveBeenCalledWith('b');
   });
 
-  it('keeps today\'s pill style while the flag is off', () => {
-    render(<Tabs items={items} active="a" onChange={() => {}} />);
-    expect(classOf('Alpha')).toContain('bg-ink');
-    expect(classOf('Alpha')).not.toContain('border-b-2');
-  });
-
-  it('switches to the underline style when the flag is on', () => {
-    setUiVersion('v2');
+  it('draws the underline style: the active tab has the dark underline, the others a clear one', () => {
     render(<Tabs items={items} active="a" onChange={() => {}} />);
     expect(classOf('Alpha')).toContain('border-b-2');
     expect(classOf('Alpha')).toContain('border-text');
     expect(classOf('Beta')).toContain('border-transparent');
     expect(classOf('Alpha')).not.toContain('bg-ink');
-  });
-
-  it('can force the underline in the old layout too (Stock control already was one)', () => {
-    render(<Tabs items={items} active="a" onChange={() => {}} appearance="underline" />);
-    expect(classOf('Alpha')).toContain('border-b-2');
   });
 });
 
@@ -55,22 +40,19 @@ describe('Tabs (link tabs)', () => {
   });
 });
 
-describe('TabBar', () => {
-  it('draws a page-variant call with Tabs, so there is one tab style', () => {
-    setUiVersion('v2');
+describe('TabBar (filter chips)', () => {
+  it('draws small bordered chips, not a tab underline', () => {
     render(<TabBar tabs={items} active="a" onChange={() => {}} />);
-    expect(classOf('Alpha')).toContain('border-b-2');
+    expect(classOf('Alpha')).toContain('text-xs');
+    expect(classOf('Alpha')).toContain('bg-ink');
+    expect(classOf('Alpha')).not.toContain('border-b-2');
   });
 
-  it('keeps the filter variant as filter chips in both layouts', () => {
-    for (const v of ['v1', 'v2']) {
-      setUiVersion(v);
-      const { unmount } = render(<TabBar tabs={items} active="a" onChange={() => {}} variant="filter" />);
-      expect(classOf('Alpha')).toContain('text-xs');
-      expect(classOf('Alpha')).toContain('bg-ink');
-      expect(classOf('Alpha')).not.toContain('border-b-2');
-      unmount();
-    }
+  it('reports a change', async () => {
+    const onChange = vi.fn();
+    render(<TabBar tabs={items} active="a" onChange={onChange} />);
+    await userEvent.click(screen.getByRole('tab', { name: 'Beta' }));
+    expect(onChange).toHaveBeenCalledWith('b');
   });
 });
 

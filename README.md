@@ -42,7 +42,7 @@ backend/    the API: routes -> controllers -> services -> SQLite (src/), tests/,
 frontend/   the React app: pages, components, api/, hooks/
 print-bridge/   the optional local service that prints receipts and opens the drawer
 mobile/     reserved for the Android app (see docs/redesign/README.md)
-docs/       the redesign's status and how to finish it
+docs/       what the side-rail layout is, and what is still to be checked in a browser
 ```
 
 ## The documentation
@@ -52,13 +52,13 @@ docs/       the redesign's status and how to finish it
 | `SETUP.md` | installing, running, production, backups, restoring |
 | `DOCUMENTATION.md` | what the system does and how it is built: roles, data model, API, pages, security, operation |
 | `ARCHITECTURE.md` | the rules the code is held to, the tests that hold it, and how to change things safely |
-| `docs/redesign/README.md` | the new layout: how to turn it on, what is built, what has to happen before it replaces the old one |
+| `docs/redesign/README.md` | the side-rail layout: what it is, how the cashier, manager and storekeeper screens work, and what is still to be checked in a browser |
 | `CHANGES.md` | what changed, newest first |
 | `backend/src/db/migrations/README.md` | how to write a migration |
 | `print-bridge/README.md` | setting up receipt printing |
 
 ## Status
 
-The current layout is what everyone sees. A new layout (side rail, new cashier, manager and storekeeper screens) is built and
-tested and is switched on per browser with `?ut_ui=v2`; it replaces the old one at cutover, the last step of
-`docs/redesign/README.md`.
+The side-rail layout (rail, top bar, workspace tabs, the cashier's Start screen, Today, draft receipts) is the only layout: the
+`ut_ui` flag and the old sidebar were removed at cutover. Per-role browser walk-throughs, other than the Receive form, are still to
+be done; the checklist is in `docs/redesign/README.md`.
