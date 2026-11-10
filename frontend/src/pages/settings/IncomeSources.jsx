@@ -130,6 +130,7 @@ function IncomeSourceRow({ source, onEdit }) {
   const dialog = useDialog();
   const [busy, setBusy] = useState('');
   const [message, setMessage] = useState(null);
+  const [showScopes, setShowScopes] = useState(false);
 
   async function run(action, fn) {
     setBusy(action);
@@ -194,7 +195,19 @@ function IncomeSourceRow({ source, onEdit }) {
             <div className="text-xs mt-1 break-words">
               <span className="text-text-muted">Granted scopes: </span>
               {source.oauth_scopes ? (
-                <span className="font-mono">{source.oauth_scopes.split(',').map((x) => x.trim()).filter(Boolean).join(', ')}</span>
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setShowScopes((v) => !v)}
+                    aria-expanded={showScopes}
+                    className="underline text-text-muted hover:text-ink"
+                  >
+                    {showScopes ? 'Hide' : `Show (${source.oauth_scopes.split(',').filter((x) => x.trim()).length})`}
+                  </button>
+                  {showScopes && (
+                    <div className="font-mono mt-1">{source.oauth_scopes.split(',').map((x) => x.trim()).filter(Boolean).join(', ')}</div>
+                  )}
+                </>
               ) : (
                 <span className="text-danger">none — check the app's Admin API access scopes in the Dev Dashboard, then reconnect.</span>
               )}
