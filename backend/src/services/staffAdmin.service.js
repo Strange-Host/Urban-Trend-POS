@@ -3,6 +3,7 @@ const ApiError = require('../utils/ApiError');
 const { parsePagination, paginatedResponse } = require('../utils/paginate');
 const usersService = require('./users.service');
 const securityAlerts = require('./securityAlerts.service');
+const modules = require('./modules.service');
 
 const actorOf = (user) => ({ id: user.id, name: user.name });
 
@@ -10,7 +11,7 @@ const actorOf = (user) => ({ id: user.id, name: user.name });
 // Editing or removing outlet staff is still done from that branch's own admin account.
 function targetStoreId({ user }, source) {
   const wanted = source && source.store_id;
-  if (!wanted || Number(wanted) === user.storeId) return user.storeId;
+  if (!wanted || Number(wanted) === user.storeId || !modules.isEnabled('branches')) return user.storeId;
   if (user.role !== 'admin') throw new ApiError(403, 'You can only manage staff in your own branch.');
   const store = db.prepare('SELECT id, is_active FROM stores WHERE id = ?').get(Number(wanted));
   if (!store || !store.is_active) throw new ApiError(400, 'That branch does not exist (or is switched off).');

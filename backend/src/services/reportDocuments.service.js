@@ -3,6 +3,7 @@ const settingsService = require('./settings.service');
 const pnl = require('./reportsPnl.service');
 const extra = require('./reportsExtra.service');
 const money = require('../utils/money');
+const modules = require('./modules.service');
 
 // Builds the printable/exportable form of each report (see utils/reportExport.js for the shape).
 // The JSON endpoints and the Excel/PDF exports both come from the same service calls, so a
@@ -43,7 +44,8 @@ function pnlDocument({ user, from, to }) {
         rows: cat.rows,
         totals: { category: 'Total', ...cat.total, margin_percent: cat.total.revenue > 0 ? Math.round((cat.total.margin / cat.total.revenue) * 1000) / 10 : null },
       },
-      {
+      // Only in multi-branch mode; a single-branch shop's summary above already is its one branch.
+      modules.isEnabled('branches') && {
         heading: 'Branch comparison',
         columns: [T('branch', 'Branch'), M('revenue', 'Revenue'), M('costOfGoodsSold', 'Cost of goods'), M('deliveryFees', 'Delivery'), M('laborCost', 'Telesales pay'), M('businessExpenses', 'Expenses'), M('netProfit', 'Net profit'), P('margin_percent', 'Net margin %')],
         rows: branches.rows,
@@ -57,7 +59,7 @@ function pnlDocument({ user, from, to }) {
         rows: fc.rows,
         totals: { month: 'Total (months with a forecast)', ...fc.total },
       },
-    ],
+    ].filter(Boolean),
   };
 }
 
@@ -126,6 +128,7 @@ const BUILDERS = { pnl: pnlDocument, discounts: discountsDocument, vat: vatDocum
 
 function build(report, ctx) {
   const builder = BUILDERS[report];
+  if (report === 'branches' && !modules.isEnabled('branches')) throw new ApiError(404, 'Multi-branch mode is turned off. An admin can turn it on under Settings > Business > Optional modules.', null, 'MODULE_DISABLED');
   if (!builder) throw new ApiError(404, `Unknown report "${report}". Choose one of: ${Object.keys(BUILDERS).join(', ')}.`);
   const settings = settingsService.getAll();
   const doc = builder(ctx);

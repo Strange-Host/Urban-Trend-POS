@@ -1,6 +1,7 @@
 const db = require('../config/db');
 const ApiError = require('../utils/ApiError');
 const payrollService = require('./payroll.service');
+const modules = require('./modules.service');
 const { monthSegments } = require('../utils/payCycle');
 const { dateOf, localDate } = require('../utils/storeTime');
 
@@ -120,7 +121,7 @@ function byCategory({ storeId, from, to }) {
 
 // Which stores the caller may compare: an admin sees every active branch; anyone else only their own.
 function branchesFor(user) {
-  if (user.role === 'admin') return db.prepare('SELECT id, name FROM stores WHERE is_active = 1 ORDER BY name').all();
+  if (user.role === 'admin' && modules.isEnabled('branches')) return db.prepare('SELECT id, name FROM stores WHERE is_active = 1 ORDER BY name').all();
   return db.prepare('SELECT id, name FROM stores WHERE id = ?').all(user.storeId);
 }
 

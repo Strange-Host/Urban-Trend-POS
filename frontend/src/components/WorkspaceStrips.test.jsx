@@ -19,7 +19,7 @@ vi.mock('../context/AuthContext', () => ({
     hasRole: hasRoleFor(auth.role), can: canFor(auth.role),
   }),
 }));
-vi.mock('../hooks/useModules', () => ({ default: () => ({ hr: true, control: true, loaded: true }) }));
+vi.mock('../hooks/useModules', () => ({ default: () => ({ hr: true, control: true, branches: true, loaded: true }) }));
 vi.mock('./NotificationBell', () => ({ default: () => <button type="button" aria-label="Notifications" /> }));
 vi.mock('./useStackedTableLabels', () => ({ default: () => {} }));
 vi.mock('../api/endpoints', () => ({ storesApi: { list: vi.fn() }, cashSessionsApi: { current: vi.fn() } }));

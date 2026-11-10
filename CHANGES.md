@@ -1,3 +1,9 @@
+# Multi-branch mode is optional
+
+New switch **Multi-branch mode** under Settings > Business > Optional modules (`module_branches_enabled`, `modules.branches`). Unset, it is on when more than one active branch exists and off for a one-branch shop, so an upgrade never hides a working multi-branch setup. **Off:** adding/editing branches, stock transfers, the branch comparison report and its export are closed (404 `MODULE_DISABLED`); a `store_id` in a request is ignored (stock lists, staff list/create, inventory valuation), so everyone stays in their own branch; the P&L export drops its branch table. `GET /api/stores` stays open. Frontend: Transfers tab, Attention "Transfers to approve", branch pickers (Stock control, Staff), Reports Branches tab and P&L branch panel, and the status-line branch pill are hidden; the Settings tab shows only suppliers. Nothing is deleted; switching back on restores it all.
+
+Tests: `backend/tests/multiBranchOptional.test.js`; four existing tests that add a branch via the API now switch the mode on first. **Not changed:** online-store channels still accept `store_id` (defaults to own branch); the Reconcile tab keeps its Branch column; the Staff branch picker has no component test.
+
 # Cutover: the side-rail layout is the only layout (redesign Phase 7, restructure R7)
 
 **Everyone gets the new layout on deploy; there is no flag to switch it off.** Removed: the `ut_ui` flag and `ShellSwitch`, the old sidebar layout (`Layout.jsx`, its three display modes, group collapse, the old top bar), the account menu's

@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { approvalsApi, couriersApi, paymentReconciliationApi, stockApi } from '../api/endpoints';
 import { useAuth } from '../context/AuthContext';
 import usePendingDecisionCount from './usePendingDecisionCount';
+import useModules from './useModules';
 
 /** @typedef {'danger' | 'warning' | 'accent'} AttentionTone */
 /** @typedef {{ id: string, label: string, count: number, detail: string, to: string, tone: AttentionTone }} AttentionItem */
@@ -33,12 +34,13 @@ function useSource(key, enabled, fn) {
 export default function useAttentionQueue({ enabled = true } = {}) {
   // AuthContext is not typed yet (R6 types it with the rest of context/); this is the part of it used here.
   const { can, hasRole } = /** @type {{ can: (permission: string) => boolean, hasRole: (...roles: string[]) => boolean }} */ (useAuth());
+  const modules = useModules();
   const manager = enabled && Boolean(hasRole('admin', 'manager'));
 
   const mayReview = enabled && Boolean(can('approvals.review'));
   const mayReconcile = enabled && Boolean(can('payments.reconcile'));
   const mayReviewCounts = enabled && Boolean(can('stock.review') && can('stock.count'));
-  const mayReviewTransfers = enabled && Boolean(can('stock.review') && can('stock.transfer'));
+  const mayReviewTransfers = enabled && modules.branches && Boolean(can('stock.review') && can('stock.transfer'));
   const mayPayCouriers = enabled && Boolean(can('couriers.pay'));
 
   const approvals = useSource('approvals', mayReview, () => approvalsApi.list({ status: 'pending', limit: 1 }).then((r) => Number(r.data.pending) || 0));

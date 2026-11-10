@@ -32,6 +32,7 @@ function seedMovements(productId, storeId, n, reason = 'restock') {
 beforeAll(async () => {
   adminToken = await loginAsAdmin();
   mainId = db.prepare('SELECT id FROM stores WHERE is_main = 1').get().id;
+  expect((await request(app).put('/api/modules').set(auth(adminToken)).send({ branches: true })).status).toBe(200);
   outletId = (await request(app).post('/api/stores').set(auth(adminToken)).send({ name: 'Movements Outlet', address: 'Westlands' })).body.data.id;
   manager = await makeUser('manager', 'mv-manager@urbantrends.com', mainId);
   cashier = await makeUser('cashier', 'mv-cashier@urbantrends.com', mainId);

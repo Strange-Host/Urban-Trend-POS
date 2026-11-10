@@ -32,6 +32,8 @@ const movements = (reason) => db.prepare('SELECT * FROM inventory_movements WHER
 
 beforeAll(async () => {
   adminToken = await loginAsAdmin();
+  // Adding a branch is part of multi-branch mode, which a one-branch database starts without.
+  expect((await request(app).put('/api/modules').set(auth(adminToken)).send({ branches: true })).status).toBe(200);
   mainId = db.prepare('SELECT id FROM stores WHERE is_main = 1').get().id;
   const created = await request(app).post('/api/stores').set(auth(adminToken)).send({ name: 'Westlands Outlet', address: 'Westlands' });
   outletId = created.body.data.id;

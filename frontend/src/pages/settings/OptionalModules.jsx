@@ -5,7 +5,7 @@ import { SectionCard } from '../../components/SettingsUI';
 import { modulesApi } from '../../api/endpoints';
 import { LoadingBlock } from '../../components/Skeleton';
 
-// Optional parts of the system. Both ship OFF; switching one off hides its screens and closes its API,
+// Optional parts of the system. HR and Control ship OFF (Multi-branch mode starts ON only if there is already more than one branch); switching one off hides its screens and closes its API,
 // but never deletes anything - switch it back on and it is all there.
 const MODULE_CHOICES = [
   {
@@ -19,6 +19,12 @@ const MODULE_CHOICES = [
     title: 'Control extras',
     detail: 'Per-person permission overrides, two-factor sign-in set-up, order disputes, and the "prepay only / watch" customer badges.',
     offNote: 'While off, permission overrides and two-factor sign-in that were already set keep being enforced; you just cannot change them.',
+  },
+  {
+    key: 'branches',
+    title: 'Multi-branch mode',
+    detail: 'Adding branches, stock transfers between branches, the branch pickers on Stock control and Staff, and the branch comparison reports.',
+    offNote: 'While off, everything works as one shop: each person sees only their own branch. Branches and transfers already recorded are kept.',
   },
 ];
 

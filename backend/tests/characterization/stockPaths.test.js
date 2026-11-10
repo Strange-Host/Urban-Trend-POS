@@ -8,6 +8,7 @@ let A; // { token, userId, mainId }
 let outletId;
 beforeAll(async () => {
   A = await admin();
+  expect((await request(app).put('/api/modules').set(auth(A.token)).send({ branches: true })).status).toBe(200);
   outletId = (await request(app).post('/api/stores').set(auth(A.token)).send({ name: 'Characterization Outlet', address: 'Karen' })).body.data.id;
 });
 

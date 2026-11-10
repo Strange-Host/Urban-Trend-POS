@@ -2,6 +2,7 @@ const router = require('express').Router();
 const ctrl = require('../controllers/reports.controller');
 const extra = require('../controllers/reportsExtra.controller');
 const { authenticate, requirePermission } = require('../middleware/auth');
+const requireModule = require('../middleware/requireModule');
 const validate = require('../middleware/validate');
 const { forecastSchema } = require('../validation/reports.schema');
 
@@ -25,7 +26,7 @@ router.get('/top-staff-by-profit', ctrl.topStaffByProfit);
 router.get('/pnl', extra.fullPnl);
 router.get('/discounts', extra.discounts);
 router.get('/vat', extra.vat);
-router.get('/branch-comparison', extra.branchComparison);
+router.get('/branch-comparison', requireModule('branches'), extra.branchComparison);
 router.get('/agent-performance', extra.agents);
 router.get('/forecasts', extra.listForecasts);
 router.put('/forecasts/:month', requirePermission('reports.forecast'), validate(forecastSchema), extra.setForecast);

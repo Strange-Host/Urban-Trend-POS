@@ -3,6 +3,7 @@ import { CustomerPaymentDetails, SmsSection, WebFormLeadsSection } from './Setti
 import { BranchesSection, SuppliersSection } from './SettingsBranches';
 import { ServerAddressSection, EmailSection, KcbAdvancedSection } from './SettingsSystem';
 import { useSearchParams } from 'react-router-dom';
+import useModules from '../hooks/useModules';
 import GeneralSettings from './settings/General';
 import BackupsSection from './settings/Backups';
 import OptionalModulesSection from './settings/OptionalModules';
@@ -25,8 +26,11 @@ export default function Settings() {
   // The open tab lives in the address (?tab=stores) so a refresh, the back button
   // and links from other pages (e.g. "turn on live sync") land on the right one.
   const [searchParams, setSearchParams] = useSearchParams();
+  const modules = useModules();
+  // Without multi-branch mode this tab is only about suppliers, so it is named for that.
+  const tabs = SETTINGS_TABS.map((t) => (t.key === 'branches' && !modules.branches ? { ...t, label: 'Suppliers' } : t));
   const requested = searchParams.get('tab');
-  const tab = SETTINGS_TABS.some((t) => t.key === requested) ? requested : 'business';
+  const tab = tabs.some((t) => t.key === requested) ? requested : 'business';
   function selectTab(key) {
     setSearchParams(key === 'business' ? {} : { tab: key }, { replace: true });
   }
@@ -36,7 +40,7 @@ export default function Settings() {
       <PageHeader
         title="Settings"
         description="Business details, payments, messaging, your online stores, and the server."
-        tabs={{ items: SETTINGS_TABS, active: tab, onChange: selectTab, className: '-mx-4 px-4 md:mx-0 md:px-0' }}
+        tabs={{ items: tabs, active: tab, onChange: selectTab, className: '-mx-4 px-4 md:mx-0 md:px-0' }}
       />
 
       {tab === 'business' && (
@@ -63,7 +67,7 @@ export default function Settings() {
 
       {tab === 'branches' && (
         <>
-          <BranchesSection />
+          {modules.branches && <BranchesSection />}
           <SuppliersSection />
         </>
       )}

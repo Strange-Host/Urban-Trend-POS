@@ -38,7 +38,9 @@ export default function Staff() {
   // Another branch (an outlet) can be chosen to see its staff and add people to it. Editing them is done from that
   // branch's own admin account, so the row buttons are hidden while another branch is shown.
   const [branchId, setBranchId] = useState('');
-  const { data: stores = [] } = useQuery({ queryKey: ['stores'], queryFn: () => storesApi.list().then((r) => r.data.data) });
+  const { data: allStores = [] } = useQuery({ queryKey: ['stores'], queryFn: () => storesApi.list().then((r) => r.data.data) });
+  // Another branch's staff only exist as a choice in multi-branch mode.
+  const stores = modules.branches ? allStores : [];
   const otherBranch = Boolean(branchId) && stores.some((b) => String(b.id) === branchId && !b.is_current);
   const queryClient = useQueryClient();
 

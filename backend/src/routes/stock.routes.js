@@ -5,6 +5,7 @@ const transfers = require('../controllers/stockTransfers.controller');
 const counts = require('../controllers/stockCounts.controller');
 const batches = require('../controllers/stockBatches.controller');
 const { authenticate, requirePermission } = require('../middleware/auth');
+const requireModule = require('../middleware/requireModule');
 
 router.use(authenticate);
 
@@ -32,12 +33,12 @@ router.get('/alerts', requirePermission('stock.receive'), batches.getAlerts);
 router.get('/damaged', requirePermission('stock.receive'), batches.listDamaged);
 
 // Inter-branch transfers
-router.get('/transfers', requirePermission('stock.transfer'), transfers.list);
-router.get('/transfers/:id', requirePermission('stock.transfer'), transfers.getOne);
-router.post('/transfers', requirePermission('stock.transfer'), transfers.create);
-router.post('/transfers/:id/approve', requirePermission('stock.review'), transfers.approve);
-router.post('/transfers/:id/reject', requirePermission('stock.review'), transfers.reject);
-router.post('/transfers/:id/cancel', requirePermission('stock.transfer'), transfers.cancel);
+router.get('/transfers', requireModule('branches'), requirePermission('stock.transfer'), transfers.list);
+router.get('/transfers/:id', requireModule('branches'), requirePermission('stock.transfer'), transfers.getOne);
+router.post('/transfers', requireModule('branches'), requirePermission('stock.transfer'), transfers.create);
+router.post('/transfers/:id/approve', requireModule('branches'), requirePermission('stock.review'), transfers.approve);
+router.post('/transfers/:id/reject', requireModule('branches'), requirePermission('stock.review'), transfers.reject);
+router.post('/transfers/:id/cancel', requireModule('branches'), requirePermission('stock.transfer'), transfers.cancel);
 
 // Outlet opening / closing counts. 'day-summary' is declared before '/:id' so it is not read as an id.
 router.get('/counts/day-summary', requirePermission('stock.count'), counts.daySummary);

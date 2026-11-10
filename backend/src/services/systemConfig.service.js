@@ -22,7 +22,7 @@ const KEYS = [
 const SECRET_KEY = 'smtp_pass_enc';
 const SECRET_KEYS = [SECRET_KEY];
 // Keys the generic PUT /api/settings must not write: they have their own validated path above.
-const MANAGED_KEYS = new Set([...KEYS, ...SECRET_KEYS, 'module_hr_enabled', 'module_control_enabled']);
+const MANAGED_KEYS = new Set([...KEYS, ...SECRET_KEYS, 'module_hr_enabled', 'module_control_enabled', 'module_branches_enabled']);
 
 function raw(key) {
   const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);

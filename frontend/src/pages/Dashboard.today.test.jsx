@@ -20,6 +20,7 @@ vi.mock('../api/endpoints', () => ({
 vi.mock('../context/AuthContext', () => ({
   useAuth: () => ({ user: { name: 'Ann Admin', role: 'admin' }, can: () => true, hasRole: () => true }),
 }));
+vi.mock('../hooks/useModules', () => ({ default: () => ({ hr: true, control: true, branches: true, loaded: true }) }));
 vi.mock('../components/RevenueChart', () => ({ default: () => null }));
 vi.mock('../hooks/useSlidingPill', () => ({ default: () => ({ rootRef: { current: null }, pillProps: {} }) }));
 

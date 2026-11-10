@@ -5,6 +5,7 @@ import { storesApi } from '../api/endpoints';
 import Picker from '../components/Picker';
 import PageHeader from '../components/shell/PageHeader';
 import { useAuth } from '../context/AuthContext';
+import useModules from '../hooks/useModules';
 import ReceiveTab from './stock/ReceiveTab';
 import IssueTab from './stock/IssueTab';
 import TransfersTab from './stock/TransfersTab';
@@ -24,6 +25,10 @@ export { ReconcileTab };
 
 export default function StockControl() {
   const { can } = useAuth();
+  const modules = useModules();
+  // Transfers and the branch picker belong to multi-branch mode. Until the answer arrives they are kept, so a link to
+  // /stock?tab=transfers still lands on the right tab.
+  const multiBranch = !modules.loaded || modules.branches;
   const [viewStore, setViewStore] = useState('');
   const { data: stores = [] } = useQuery({ queryKey: ['stores'], queryFn: () => storesApi.list().then((r) => r.data.data) });
 
@@ -32,7 +37,7 @@ export default function StockControl() {
     can('stock.receive') && { id: 'issue', label: 'Issue out' },
     can('stock.receive') && { id: 'batches', label: 'Batches & alerts' },
     can('products.view_cost') && can('stock.review') && { id: 'costing', label: 'Costing' },
-    can('stock.transfer') && { id: 'transfers', label: 'Transfers' },
+    multiBranch && can('stock.transfer') && { id: 'transfers', label: 'Transfers' },
     can('stock.count') && { id: 'counts', label: 'Counts' },
     can('inventory.adjust') && { id: 'reconcile', label: 'Reconcile' },
     can('stock.review') && { id: 'activity', label: 'Who did what' },
@@ -45,7 +50,7 @@ export default function StockControl() {
   const viewing = viewStore ? stores.find((s) => String(s.id) === String(viewStore)) : current;
   const isOwnStore = !viewStore || String(viewStore) === String(current?.id);
   const storeParams = isOwnStore ? {} : { store_id: viewStore };
-  const canPickStore = can('stock.review') && stores.length > 1;
+  const canPickStore = modules.branches && can('stock.review') && stores.length > 1;
 
   return (
     <div className="p-4 md:p-8 max-w-5xl">

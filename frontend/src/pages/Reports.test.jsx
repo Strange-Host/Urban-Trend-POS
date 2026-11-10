@@ -8,6 +8,8 @@ import { downloadFile } from '../api/client';
 vi.mock('../api/endpoints', () => ({
   reportsApi: { pnl: vi.fn(), discounts: vi.fn(), vat: vi.fn(), branchComparison: vi.fn(), agentPerformance: vi.fn(), setForecast: vi.fn(), unpaidParcels: vi.fn(), topProductsByProfit: vi.fn(), topStaffByProfit: vi.fn() },
 }));
+const modulesState = { branches: true };
+vi.mock('../hooks/useModules', () => ({ default: () => ({ hr: false, control: false, loaded: true, ...modulesState }) }));
 vi.mock('../api/client', () => ({ downloadFile: vi.fn(), getErrorMessage: (e, f) => e?.response?.data?.error?.message || f || 'error' }));
 let canForecast = true;
 vi.mock('../context/AuthContext', () => ({ useAuth: () => ({ can: () => canForecast }) }));
@@ -33,6 +35,7 @@ function mount() {
 
 beforeEach(() => {
   canForecast = true;
+  modulesState.branches = true;
   Object.values(reportsApi).forEach((f) => f.mockReset());
   downloadFile.mockReset().mockResolvedValue();
   toast.success.mockReset(); toast.error.mockReset();
@@ -46,6 +49,15 @@ describe('Reports page', () => {
     expect(screen.getAllByText('5,361.00').length).toBeGreaterThan(0);   // 536100 cents
     expect(screen.getByText('Apparel')).toBeInTheDocument();
     expect(screen.getByText('Main Branch')).toBeInTheDocument();
+  });
+
+  it('leaves out the Branches tab and the branch comparison when multi-branch mode is off', async () => {
+    modulesState.branches = false;
+    mount();
+    await screen.findByText('Apparel');
+    expect(screen.queryByText('Branch comparison')).toBeNull();
+    expect(screen.queryByRole('tab', { name: 'Branches' })).toBeNull();
+    expect(screen.queryByText('Branches')).toBeNull();
   });
 
   it('exports the current tab and date range as Excel or PDF', async () => {

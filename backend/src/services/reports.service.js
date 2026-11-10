@@ -3,6 +3,7 @@ const costing = require('./costing.service');
 const stockAlerts = require('./stockAlerts.service');
 const ApiError = require('../utils/ApiError');
 const permissionsService = require('./permissions.service');
+const modules = require('./modules.service');
 const { PAGINATION } = require('../config/limits');
 const { dateOf, localDate, dateParam } = require('../utils/storeTime');
 
@@ -55,7 +56,7 @@ function inventoryValue({ user }) {
 function inventoryValuation({ user, query }) {
   if (!permissionsService.can(user, 'products.view_cost')) throw new ApiError(403, 'You do not have permission to see buying prices.', null, 'FORBIDDEN');
   let storeId = user.storeId;
-  if (query.store_id && Number(query.store_id) !== storeId) {
+  if (query.store_id && Number(query.store_id) !== storeId && modules.isEnabled('branches')) {
     if (user.role !== 'admin') throw new ApiError(403, 'You can only look at your own branch.');
     if (!db.prepare('SELECT 1 FROM stores WHERE id = ?').get(Number(query.store_id))) throw new ApiError(404, 'Branch not found.');
     storeId = Number(query.store_id);

@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { Clock, Store } from 'lucide-react';
 import { cashSessionsApi, storesApi } from '../../api/endpoints';
+import useModules from '../../hooks/useModules';
 import { useAuth } from '../../context/AuthContext';
 import ConnectionDot from '../ConnectionDot';
 
@@ -17,6 +18,7 @@ const clock = (iso) => new Date(iso).toLocaleTimeString([], { hour: '2-digit', m
 // `chips` draws each part as a small pill instead of dotted text (the top bar on large screens).
 export default function StatusLine({ inline = false, chips = false }) {
   const { user } = useAuth();
+  const modules = useModules();
 
   const { data: stores } = useQuery({
     queryKey: ['stores'],
@@ -32,7 +34,8 @@ export default function StatusLine({ inline = false, chips = false }) {
     retry: false,
   });
 
-  const branch = Array.isArray(stores) ? stores.find((b) => b.is_current)?.name : null;
+  // The branch name is only worth showing when there is more than one to tell apart.
+  const branch = modules.branches && Array.isArray(stores) ? stores.find((b) => b.is_current)?.name : null;
   const shift = !shiftKnown ? null : session ? `Shift open since ${clock(session.opened_at)}` : 'No shift open';
   const shiftOpen = Boolean(session);
   const pill = 'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium';

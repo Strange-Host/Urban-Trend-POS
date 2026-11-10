@@ -10,19 +10,26 @@ const { logStaffAction } = require('../utils/auditLog');
 //           agreements), requisitions.
 //   control extras: per-user permission overrides, SMS two-factor set-up, order disputes
 //           and the customer "risk" badges.
+//   branches Multi-branch mode: adding branches, moving stock between them, looking at or adding staff in
+//           another branch, and the branch comparison reports. With it off the system behaves as one shop:
+//           every request is scoped to the signed-in person's own branch whatever the request says.
 //
-// Both are OFF unless an admin switches them on (a missing setting counts as off).
-const KEYS = { hr: 'module_hr_enabled', control: 'module_control_enabled' };
+// hr and control are OFF unless an admin switches them on (a missing setting counts as off). branches is
+// the exception: until someone chooses, it is ON when more than one active branch already exists (so an
+// upgrade never hides a working multi-branch setup) and OFF for a single-branch shop.
+const KEYS = { hr: 'module_hr_enabled', control: 'module_control_enabled', branches: 'module_branches_enabled' };
 
 function isEnabled(name) {
   const key = KEYS[name];
   if (!key) throw new Error(`Unknown module "${name}"`);
   const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
-  return !!row && row.value === '1';
+  if (row) return row.value === '1';
+  if (name === 'branches') return db.prepare('SELECT COUNT(*) AS c FROM stores WHERE is_active = 1').get().c > 1;
+  return false;
 }
 
 function getAll() {
-  return { hr: isEnabled('hr'), control: isEnabled('control') };
+  return { hr: isEnabled('hr'), control: isEnabled('control'), branches: isEnabled('branches') };
 }
 
 function setMany(updates, actorId) {
@@ -33,7 +40,7 @@ function setMany(updates, actorId) {
   }
   if (Object.keys(toWrite).length) settingsService.setMany(toWrite, actorId);
   const after = getAll();
-  if (before.hr !== after.hr || before.control !== after.control) {
+  if (Object.keys(KEYS).some((name) => before[name] !== after[name])) {
     logStaffAction({ staffId: actorId, action: 'update', entityType: 'modules', entityId: 0, before, after });
   }
   return after;

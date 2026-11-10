@@ -4,6 +4,7 @@ import { reportsApi } from '../api/endpoints';
 import { downloadFile, getErrorMessage } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/UIContext';
+import useModules from '../hooks/useModules';
 import StatCard from '../components/StatCard';
 import PageHeader from '../components/shell/PageHeader';
 import Panel from '../components/Panel';
@@ -117,6 +118,7 @@ function ForecastEditor({ months, onSaved }) {
 
 function PnlTab({ params }) {
   const { can } = useAuth();
+  const modules = useModules();
   const queryClient = useQueryClient();
   const { data, isLoading, error } = useQuery({ queryKey: ['reports', 'pnl', params], queryFn: () => reportsApi.pnl(params).then((r) => r.data.data) });
   if (isLoading) return <LoadingBlock />;
@@ -141,10 +143,12 @@ function PnlTab({ params }) {
         <Table columns={[T('category', 'Category'), I('units', 'Units'), M('revenue', 'Revenue'), M('cost', 'Cost'), M('margin', 'Margin'), P('margin_percent', 'Margin %')]} rows={byCategory.rows}
           totals={{ category: 'Total', ...byCategory.total, margin_percent: byCategory.total.revenue > 0 ? Math.round((byCategory.total.margin / byCategory.total.revenue) * 1000) / 10 : null }} />
       </Panel>
-      <Panel title="Branch comparison" className="mb-4">
-        <Table columns={[T('branch', 'Branch'), M('revenue', 'Revenue'), M('costOfGoodsSold', 'Cost of goods'), M('deliveryFees', 'Delivery'), M('laborCost', 'Telesales pay'), M('businessExpenses', 'Expenses'), M('netProfit', 'Net profit'), P('margin_percent', 'Net margin %')]}
-          rows={byBranch.rows} totals={byBranch.rows.length > 1 ? { branch: 'All branches', ...byBranch.total } : undefined} />
-      </Panel>
+      {modules.branches && (
+        <Panel title="Branch comparison" className="mb-4">
+          <Table columns={[T('branch', 'Branch'), M('revenue', 'Revenue'), M('costOfGoodsSold', 'Cost of goods'), M('deliveryFees', 'Delivery'), M('laborCost', 'Telesales pay'), M('businessExpenses', 'Expenses'), M('netProfit', 'Net profit'), P('margin_percent', 'Net margin %')]}
+            rows={byBranch.rows} totals={byBranch.rows.length > 1 ? { branch: 'All branches', ...byBranch.total } : undefined} />
+        </Panel>
+      )}
       <Panel title="Forecast vs actual" description="Operating expenses = delivery + telesales pay + business expenses (everything except cost of goods). The current month is month-to-date.">
         <Table columns={[T('month', 'Month'), M('revenue_target', 'Revenue target'), M('revenue_actual', 'Revenue actual'), M('revenue_variance', 'Variance'), P('revenue_attainment_percent', 'Attained'), P('on_pace_percent', 'On pace'),
           M('expense_budget', 'Expense budget'), M('operating_expenses_actual', 'Expenses actual'), M('expense_variance', 'Over(+) / under(−)'), M('net_profit_actual', 'Net profit')]}
@@ -292,6 +296,9 @@ function ProfitLeadersTab({ params }) {
 
 export default function Reports() {
   const toast = useToast();
+  const modules = useModules();
+  // The Branches report only exists in multi-branch mode.
+  const tabs = TABS.filter((t) => t.key !== 'branches' || modules.branches);
   const [tab, setTab] = useState('pnl');
   const [from, setFrom] = useState(daysAgo(29));
   const [to, setTo] = useState(daysAgo(0));
@@ -312,7 +319,7 @@ export default function Reports() {
 
   return (
     <div className="p-4 md:p-8">
-      <PageHeader title="Reports" tabs={{ items: TABS, active: tab, onChange: setTab }} />
+      <PageHeader title="Reports" tabs={{ items: tabs, active: tab, onChange: setTab }} />
       <div className="flex flex-wrap items-end gap-3 mb-4">
         {!NO_DATE_RANGE.has(tab) && (<>
           <label className="text-xs font-medium text-text-muted">From

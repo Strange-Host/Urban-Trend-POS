@@ -8,6 +8,8 @@ const auth = { perms: [], roles: ['manager'] };
 vi.mock('../context/AuthContext', () => ({
   useAuth: () => ({ can: (p) => auth.perms.includes(p), hasRole: (...r) => r.some((x) => auth.roles.includes(x)) }),
 }));
+const modulesState = { branches: true };
+vi.mock('./useModules', () => ({ default: () => ({ hr: false, control: false, loaded: true, ...modulesState }) }));
 vi.mock('../api/endpoints', () => ({
   approvalsApi: { list: vi.fn() },
   couriersApi: { payables: vi.fn() },
@@ -27,6 +29,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   auth.perms = ALL;
   auth.roles = ['manager'];
+  modulesState.branches = true;
   approvalsApi.list.mockReturnValue(res({ pending: 2, total: 2, data: [] }));
   paymentReconciliationApi.unmatched.mockReturnValue(res({ total: 3, data: [] }));
   stockApi.counts.mockReturnValue(res({ total: 1, data: [] }));
@@ -68,6 +71,14 @@ describe('useAttentionQueue', () => {
     expect(paymentReconciliationApi.unmatched).not.toHaveBeenCalled();
     expect(stockApi.counts).not.toHaveBeenCalled();
     expect(stockApi.transfers).not.toHaveBeenCalled();
+  });
+
+  it('leaves transfers out, and never asks for them, when multi-branch mode is off', async () => {
+    modulesState.branches = false;
+    const { result } = run();
+    await waitFor(() => expect(result.current.items.map((i) => i.id)).toEqual(['damaged', 'unmatched', 'couriers', 'approvals', 'counts']));
+    expect(stockApi.transfers).not.toHaveBeenCalled();
+    expect(result.current.quiet).toEqual([]);
   });
 
   it('needs both review and the stock permission for counts and transfers', async () => {

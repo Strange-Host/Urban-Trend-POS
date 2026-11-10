@@ -27,15 +27,17 @@ beforeAll(async () => {
 
 describe('the switches', () => {
   it('are OFF when nothing has been saved', () => {
-    db.prepare(`DELETE FROM settings WHERE key IN ('module_hr_enabled', 'module_control_enabled')`).run();
-    expect(modules.getAll()).toEqual({ hr: false, control: false });
+    db.prepare(`DELETE FROM settings WHERE key IN ('module_hr_enabled', 'module_control_enabled', 'module_branches_enabled')`).run();
+    // branches is derived while unset: off for a one-branch shop (this test database has one).
+    expect(db.prepare('SELECT COUNT(*) c FROM stores WHERE is_active = 1').get().c).toBe(1);
+    expect(modules.getAll()).toEqual({ hr: false, control: false, branches: false });
   });
 
   it('any signed-in user can read them; only an admin can change them', async () => {
     expect((await request(app).get('/api/modules')).status).toBe(401);
     const asCashier = await request(app).get('/api/modules').set(auth(cashierToken));
     expect(asCashier.status).toBe(200);
-    expect(asCashier.body.data).toEqual({ hr: false, control: false });
+    expect(asCashier.body.data).toEqual({ hr: false, control: false, branches: false });
     expect((await request(app).put('/api/modules').set(auth(managerToken)).send({ hr: true })).status).toBe(403);
     expect((await request(app).put('/api/modules').set(auth(cashierToken)).send({ hr: true })).status).toBe(403);
   });
@@ -52,10 +54,10 @@ describe('the switches', () => {
   it('can be set one at a time, and the change is audit-logged', async () => {
     const res = await setModules({ hr: true });
     expect(res.status).toBe(200);
-    expect(res.body.data).toEqual({ hr: true, control: false });
+    expect(res.body.data).toEqual({ hr: true, control: false, branches: false });
     const log = db.prepare(`SELECT COUNT(*) c FROM staff_logs WHERE entity_type = 'modules'`).get().c;
     expect(log).toBeGreaterThan(0);
-    expect((await setModules({ hr: false })).body.data).toEqual({ hr: false, control: false });
+    expect((await setModules({ hr: false })).body.data).toEqual({ hr: false, control: false, branches: false });
   });
 });
 

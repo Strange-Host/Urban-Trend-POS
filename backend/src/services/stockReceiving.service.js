@@ -6,6 +6,7 @@ const { dateParam } = require('../utils/storeTime');
 const permissionsService = require('./permissions.service');
 const notifications = require('./notifications.service');
 const stock = require('./stock.service');
+const modules = require('./modules.service');
 const costing = require('./costing.service');
 const { nextAutoSku } = require('../utils/autoSku');
 const { createSupplier } = require('./suppliers.service');
@@ -13,7 +14,8 @@ const { createSupplier } = require('./suppliers.service');
 // Which branch's records the caller is looking at: their own, unless they can review stock and name another.
 function scopeStore(user, query) {
   const wanted = query.store_id;
-  if (wanted && Number(wanted) !== user.storeId) {
+  // Multi-branch mode off: there is no "another branch" to look at, so a store_id in the request is ignored.
+  if (wanted && modules.isEnabled('branches') && Number(wanted) !== user.storeId) {
     if (!permissionsService.can(user, 'stock.review')) throw new ApiError(403, 'You can only look at your own branch.');
     if (!stock.getStore(Number(wanted))) throw new ApiError(404, 'Branch not found.');
     return Number(wanted);
