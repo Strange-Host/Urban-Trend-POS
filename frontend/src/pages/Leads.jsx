@@ -154,22 +154,24 @@ export default function Leads() {
         )}
       />
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-6">
-        <StatCard label="Total" value={stats?.total ?? '—'} />
-        <StatCard label="New" value={stats?.new ?? '—'} />
-        <StatCard label="Contacted" value={stats?.contacted ?? '—'} />
-        <StatCard label="Converted" value={stats?.converted ?? '—'} />
-        <StatCard label="Lost" value={stats?.cancelled ?? '—'} />
+      {/* Tiles double as the status filter: click one to filter the list, click it again (or Total) to clear. */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
+        {[
+          { key: '', label: 'Total', count: stats?.total },
+          { key: 'new', label: STATUS_LABELS.new, count: stats?.new },
+          { key: 'contacted', label: STATUS_LABELS.contacted, count: stats?.contacted },
+          { key: 'rescheduled', label: STATUS_LABELS.rescheduled, count: stats?.rescheduled },
+          { key: 'converted', label: STATUS_LABELS.converted, count: stats?.converted },
+          { key: 'cancelled', label: STATUS_LABELS.cancelled, count: stats?.cancelled },
+        ].map((t) => (
+          <StatCard key={t.label} label={t.label} value={t.count ?? '—'} active={statusFilter === t.key}
+            onClick={() => { setStatusFilter(statusFilter === t.key ? '' : t.key); pager.reset(); }} />
+        ))}
       </div>
 
       <div className="flex flex-wrap gap-2 mb-4">
         <input value={search} onChange={(e) => { setSearch(e.target.value); pager.reset(); }} placeholder="Search name or phone…"
           className="flex-1 min-w-[200px] px-3 py-2 rounded-lg border border-line outline-none focus:border-accent text-sm" />
-        <select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); pager.reset(); }}
-          className="px-3 py-2 rounded-lg border border-line outline-none focus:border-accent text-sm">
-          <option value="">All statuses</option>
-          {Object.entries(STATUS_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-        </select>
       </div>
 
       <div className="bg-surface border border-line rounded-xl overflow-hidden scroll-x">

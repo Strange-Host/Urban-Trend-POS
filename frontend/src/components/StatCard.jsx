@@ -25,17 +25,24 @@ function Delta({ pct, label }) {
   );
 }
 
-export default function StatCard({ label, value, sub, size = 'compact', delta, spark }) {
+export default function StatCard({ label, value, sub, size = 'compact', delta, spark, onClick, active = false }) {
   const isLarge = size === 'large';
+  // With `onClick` the card becomes a button (used as a filter tile); `active` marks the selected one.
+  const interactive = typeof onClick === 'function';
+  const Tag = interactive ? 'button' : 'div';
+  const interactiveClasses = interactive
+    ? `text-left w-full cursor-pointer transition-colors hover:border-accent focus-visible:outline-none focus-visible:border-accent ${active ? 'border-accent ring-1 ring-accent' : ''}`
+    : '';
   return (
     // `@container` + the @[..] sizes below: the number is sized by the card's own width,
     // so it shrinks in a narrow card (phone, or four-up at ~1000px) instead of wrapping.
-    <div className={`@container bg-surface border border-line rounded-xl ${isLarge ? 'p-4 sm:p-5' : 'p-4'}`}>
+    <Tag {...(interactive ? { type: 'button', onClick, 'aria-pressed': active } : {})}
+      className={`@container bg-surface border border-line rounded-xl ${isLarge ? 'p-4 sm:p-5' : 'p-4'} ${interactiveClasses}`}>
       <div className={`text-text-muted ${isLarge ? 'text-sm mb-3' : 'text-xs mb-1'}`}>{label}</div>
       <div className={`font-display font-700 tracking-tight tabular-nums ${isLarge ? 'text-xl @[9rem]:text-2xl @[13rem]:text-3xl' : 'text-2xl'}`}>{value}</div>
       {delta && <Delta {...delta} />}
       {spark && <Sparkline values={spark} className="w-full h-8 mt-3" />}
       {sub && <div className="text-xs text-text-muted mt-1.5">{sub}</div>}
-    </div>
+    </Tag>
   );
 }
