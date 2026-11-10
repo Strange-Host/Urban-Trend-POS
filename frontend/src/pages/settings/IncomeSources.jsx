@@ -175,8 +175,8 @@ function IncomeSourceRow({ source, onEdit }) {
   return (
     <div className="border border-line rounded-lg p-3 sm:p-4 mb-3">
       <div className="flex items-start justify-between gap-3 flex-wrap">
-        <div>
-          <div className="flex items-center gap-2">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 flex-wrap">
             <span className="font-medium text-sm">{source.name}</span>
             <span className="text-xs px-2 py-0.5 rounded-full bg-line text-text-muted">{PLATFORM_LABEL[source.platform]}</span>
             {needsAuth ? (
@@ -187,14 +187,14 @@ function IncomeSourceRow({ source, onEdit }) {
               <span className="text-xs px-2 py-0.5 rounded-full bg-success-soft text-success">Connected</span>
             )}
           </div>
-          <div className="text-xs text-text-muted mt-1 font-mono">
+          <div className="text-xs text-text-muted mt-1 font-mono break-all">
             {source.platform === 'shopify' ? source.shop_domain || '—' : source.site_url || '—'}
           </div>
           {source.platform === 'shopify' && !!source.has_access_token && (
-            <div className="text-xs mt-1">
+            <div className="text-xs mt-1 break-words">
               <span className="text-text-muted">Granted scopes: </span>
               {source.oauth_scopes ? (
-                <span className="font-mono">{source.oauth_scopes}</span>
+                <span className="font-mono">{source.oauth_scopes.split(',').map((x) => x.trim()).filter(Boolean).join(', ')}</span>
               ) : (
                 <span className="text-danger">none — check the app's Admin API access scopes in the Dev Dashboard, then reconnect.</span>
               )}

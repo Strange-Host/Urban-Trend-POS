@@ -25,15 +25,19 @@ export default function OrderDetail({
 
   return (
     <>
-        <div className="flex items-start justify-between mb-1">
-          <h2 className="font-display font-700 text-lg">{order.product_code}</h2>
-          <StatusPill tone={STATUS_TONES[order.status]}>{STATUS_LABELS[order.status]}</StatusPill>
-          <PrintReceiptButton kind="order" id={order.id} label="Print" className="ml-auto px-3 py-1.5 rounded-lg border border-line text-xs font-medium hover:border-text-muted disabled:opacity-50" />
-          <InvoiceButton kind="order" id={order.id} className="ml-2 px-3 py-1.5 rounded-lg border border-line text-xs font-medium hover:border-text-muted disabled:opacity-50" />
-          <PrintWaybillButton orderId={order.id} status={order.status} className="ml-2 px-3 py-1.5 rounded-lg border border-line text-xs font-medium hover:border-text-muted disabled:opacity-50" />
+        <div className="flex flex-wrap items-start gap-x-2 gap-y-2 mb-1">
+          <div className="flex items-center gap-2 min-w-0">
+            <h2 className="font-display font-700 text-lg truncate">{order.product_code}</h2>
+            <StatusPill tone={STATUS_TONES[order.status]}>{STATUS_LABELS[order.status]}</StatusPill>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 ml-auto">
+            <PrintReceiptButton kind="order" id={order.id} label="Print" className="px-3 py-1.5 rounded-lg border border-line text-xs font-medium hover:border-text-muted disabled:opacity-50" />
+            <InvoiceButton kind="order" id={order.id} className="px-3 py-1.5 rounded-lg border border-line text-xs font-medium hover:border-text-muted disabled:opacity-50" />
+            <PrintWaybillButton orderId={order.id} status={order.status} className="px-3 py-1.5 rounded-lg border border-line text-xs font-medium hover:border-text-muted disabled:opacity-50" />
+          </div>
         </div>
-        <div className="text-sm mb-1">{order.customer?.name}</div>
-        <div className="text-xs text-text-muted font-mono mb-4">
+        <div className="text-sm mb-1 break-words">{order.customer?.name}</div>
+        <div className="text-xs text-text-muted font-mono mb-4 break-words">
           {order.customer?.phone}{order.customer?.city ? ` · ${order.customer.city}` : ''}
           {order.delivery_zone && ` · ${order.delivery_zone === 'nairobi' ? 'Nairobi (2h)' : 'Outside Nairobi (24–48h)'}`}
         </div>
@@ -53,14 +57,14 @@ export default function OrderDetail({
 
         <div className="font-mono text-sm space-y-1 border-t border-dashed border-line pt-3 mb-3">
           {order.items?.map((it) => (
-            <div key={it.id} className="flex justify-between">
-              <span className="truncate pr-2">{it.quantity} × {it.product_name}</span>
-              <span>{money(it.line_total)}</span>
+            <div key={it.id} className="flex justify-between gap-2">
+              <span className="truncate min-w-0">{it.quantity} × {it.product_name}</span>
+              <span className="whitespace-nowrap">{money(it.line_total)}</span>
             </div>
           ))}
           {order.delivery_fee > 0 && (
-            <div className="flex justify-between text-text-muted">
-              <span>Delivery fee, billed separately ({order.courier?.name || order.courier_type || 'courier'})</span><span>{money(order.delivery_fee)}</span>
+            <div className="flex justify-between gap-2 text-text-muted">
+              <span className="min-w-0 break-words">Delivery fee, billed separately ({order.courier?.name || order.courier_type || 'courier'})</span><span className="whitespace-nowrap">{money(order.delivery_fee)}</span>
             </div>
           )}
           <div className="flex justify-between font-600 pt-1 border-t border-dashed border-line">
