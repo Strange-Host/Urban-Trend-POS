@@ -26,7 +26,7 @@ describe('money stays in integers', () => {
   });
   it('no parseFloat on an amount: only rates and hours may use it', () => {
     // Allowed: percentages and hours, which are not money. A new use needs a reason, so it is listed here.
-    const allowed = ['services/payroll.service.js', 'utils/discounts.js'];
+    const allowed = ['utils/discounts.js'];
     expect(hits(/\bparseFloat\(/, [...allowed, 'utils/money.js', 'services/paymentCallbackAdapters.js'])).toEqual([]);
   });
 });

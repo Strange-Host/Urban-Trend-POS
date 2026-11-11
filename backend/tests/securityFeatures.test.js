@@ -115,7 +115,6 @@ describe('staff: reactivate, delete unused, erase personal data', () => {
     const admin = await adminLogin();
     const u = makeUser();
     db.prepare(`INSERT INTO cash_sessions (store_id, user_id, opening_amount) VALUES (?, ?, 0)`).run(store(), u.id);
-    db.prepare(`INSERT INTO employee_documents (staff_id, doc_type, file_reference, uploaded_by) VALUES (?, 'national_id', 'scan-123.pdf', ?)`).run(u.id, 1);
     await request(app).patch(`/api/staff/${u.id}`).set(auth(admin.token)).send({ phone: '0733999888' });   // leaves an audit entry holding old details
 
     const early = await request(app).post(`/api/staff/${u.id}/erase-personal-data`).set(auth(admin.token)).send({ confirmName: u.name });
@@ -134,7 +133,6 @@ describe('staff: reactivate, delete unused, erase personal data', () => {
     expect(row.erased_at).toBeTruthy();
     expect(row.pin_code_hash).toBeNull();
     expect(db.prepare('SELECT COUNT(*) c FROM cash_sessions WHERE user_id = ?').get(u.id).c).toBe(1);          // records stay
-    expect(db.prepare('SELECT COUNT(*) c FROM employee_documents WHERE staff_id = ?').get(u.id).c).toBe(0);    // personal documents go
     const logs = db.prepare(`SELECT changes FROM staff_logs WHERE entity_type = 'staff' AND entity_id = ?`).all(u.id).map((l) => l.changes);
     expect(logs.some((c) => c.includes(u.email) || c.includes('0733999888') || c.includes(u.name))).toBe(false);
     expect((await signIn(u.email)).res.status).toBe(401);

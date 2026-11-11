@@ -4,9 +4,8 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import Finance from './Finance';
 import Catalog from './Catalog';
-import Payroll from './Payroll';
 
-// Finance, Catalog and Payroll are "mini pages": a tab strip in front of full pages that each have their own header.
+// Finance and Catalog are "mini pages": a tab strip in front of full pages that each have their own header.
 // The embedded pages are stand-ins that draw a PageHeader like the real ones do.
 const auth = { role: 'admin', perms: new Set(['custody.manage', 'products.manage']) };
 vi.mock('../context/AuthContext', () => ({
@@ -32,9 +31,6 @@ vi.mock('./Products', async () => {
   return { default: ({ catalogue }) => createElement(Header, { title: catalogue === 'online' ? 'Online products' : 'Products' }) };
 });
 vi.mock('./Categories', stub('Categories'));
-vi.mock('./PayrollRuns', stub('Pay runs'));
-vi.mock('./PayrollSummary', stub('Payroll live'));
-vi.mock('./PayTerms', stub('Pay terms'));
 
 const tabNames = () => screen.getAllByRole('tab').map((t) => t.textContent);
 const h1s = () => screen.queryAllByRole('heading', { level: 1 }).map((h) => h.textContent);
@@ -84,19 +80,3 @@ describe('Catalog', () => {
   });
 });
 
-describe('Payroll', () => {
-  it('only admins get the Pay terms tab', () => {
-    const { unmount } = render(<Payroll />);
-    expect(tabNames()).toEqual(['Pay runs', 'Live summary', 'Pay terms']);
-    unmount();
-    auth.role = 'manager';
-    render(<Payroll />);
-    expect(tabNames()).toEqual(['Pay runs', 'Live summary']);
-  });
-
-  it('Payroll is the title and the embedded page a section', () => {
-    render(<Payroll />);
-    expect(h1s()).toEqual(['Payroll']);
-    expect(screen.getByText('Pay runs page')).toBeTruthy();
-  });
-});

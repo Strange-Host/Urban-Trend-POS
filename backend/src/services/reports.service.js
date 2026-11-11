@@ -300,9 +300,7 @@ function topProductsByProfit({ user, query }) {
 // GET /api/reports/top-staff-by-profit?from=&to=&limit=10 — telesales reps
 // ranked by gross margin their dispatched-and-paid orders generated (§6:
 // "Track sales allocation vs achievement", "side-by-side staff comparison").
-// This is margin contribution, not fully-loaded profit after their own
-// commission — pair with GET /api/payroll/summary for the commission cost
-// of any one rep.
+// This is margin contribution, not fully-loaded profit.
 function topStaffByProfit({ user, query }) {
   const storeId = user.storeId;
   const from = dateParam(query.from, 'from', isoDaysAgo(29));

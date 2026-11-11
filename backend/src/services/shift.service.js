@@ -3,14 +3,13 @@ const { todaySql } = require('../utils/storeTime');
 const { logStaffAction } = require('../utils/auditLog');
 const notificationsService = require('./notifications.service');
 const settingsService = require('./settings.service');
-const ApiError = require('../utils/ApiError');
 
 // Shift-close accountability. The older system's logout check asked staff
 // about unfinished orders and parcels before they left; this is the same idea,
 // built on the data this system already has. "Mine" means assigned to the
 // signed-in rep (orders.assigned_staff_id / leads.assigned_staff_id).
 //
-// What the check covers when someone clocks out or closes their till:
+// What the check covers when someone closes their till:
 //   - dispatched orders still unpaid or part paid (unpaid_parcels), with the Nairobi ones called out
 //     separately (nairobi_unpaid) because those are the boda/cash-on-delivery payments that must be reconciled
 //     the same day;
@@ -21,64 +20,14 @@ const ApiError = require('../utils/ApiError');
 //     whole shop rather than to one rep, so they are shown and logged but do not by themselves raise a manager alert;
 //   - a free-text note for the manager. A note always reaches the managers, whether or not anything is open.
 //
-// Clock-out is a gate, not just a prompt (assertCanClockOut below). The person must confirm two things:
-//   (1) every order assigned to them has been dispatched, and
-//   (2) every Nairobi payment of theirs is reconciled.
-// The server checks the claim against the data - ticking a box while orders are still awaiting dispatch is refused.
-// If either is genuinely still open, clockout_gate_mode decides: 'reason' (default) lets them leave once they write why;
-// 'block' keeps them in until it is cleared. Every handover is stored in shift_handovers for the manager's end-of-day review.
+// Every handover is stored in shift_handovers and reaches the managers when something is left open.
 const SAMPLE = 8;
 
 function clockOutGateMode() {
   return settingsService.getAll().clockout_gate_mode === 'block' ? 'block' : 'reason';
 }
 
-const MIN_REASON_LENGTH = 10;
 const cleanNote = (notes) => (typeof notes === 'string' ? notes.trim().slice(0, 500) : '');
-
-/**
- * The clock-out gate. Throws (422) if the person may not clock out as asked; otherwise returns what to record.
- * Call it BEFORE the clock-out is written, so a refusal leaves them clocked in.
- *
- *   confirmations: { dispatched, nairobi } booleans from the two checkboxes.
- */
-function assertCanClockOut({ userId, storeId, confirmations = {}, notes }) {
-  const summary = getHandover({ userId, storeId });
-  const { gate } = summary;
-  const note = cleanNote(notes);
-
-  if (gate.blocked) {
-    const parts = [];
-    if (!gate.can_confirm_dispatched) parts.push(`${summary.undispatched_orders.count} assigned order(s) not yet dispatched`);
-    if (!gate.can_confirm_nairobi) parts.push(`${summary.nairobi_unpaid.count} Nairobi payment(s) not yet reconciled`);
-    throw new ApiError(422, `You can't clock out yet: ${parts.join(' and ')}. Clear them first, or ask a manager.`, null, 'CLOCKOUT_BLOCKED');
-  }
-
-  // A tick must be true. Claiming "all dispatched" with orders still waiting is refused rather than recorded.
-  if (confirmations.dispatched && !gate.can_confirm_dispatched) {
-    throw new ApiError(422, `${summary.undispatched_orders.count} order(s) assigned to you are still awaiting dispatch, so that can't be confirmed.`, null, 'CLOCKOUT_CONFIRMATION_FALSE');
-  }
-  if (confirmations.nairobi && !gate.can_confirm_nairobi) {
-    throw new ApiError(422, `${summary.nairobi_unpaid.count} Nairobi payment(s) of yours are still not reconciled, so that can't be confirmed.`, null, 'CLOCKOUT_CONFIRMATION_FALSE');
-  }
-
-  // Each item is either confirmed (and true) or explained.
-  const missing = [];
-  if (gate.can_confirm_dispatched && !confirmations.dispatched) missing.push('confirm that all your assigned orders were dispatched');
-  if (gate.can_confirm_nairobi && !confirmations.nairobi) missing.push('confirm that all your Nairobi payments are reconciled');
-  if (missing.length) {
-    throw new ApiError(422, `Before clocking out, please ${missing.join(' and ')}.`, null, 'CLOCKOUT_CONFIRMATION_REQUIRED');
-  }
-  if (gate.reason_required && note.length < MIN_REASON_LENGTH) {
-    throw new ApiError(422, `Something is still open, so please write a short reason for your manager (at least ${MIN_REASON_LENGTH} characters).`, null, 'CLOCKOUT_REASON_REQUIRED');
-  }
-
-  return {
-    summary,
-    dispatchConfirmed: gate.can_confirm_dispatched && Boolean(confirmations.dispatched),
-    nairobiConfirmed: gate.can_confirm_nairobi && Boolean(confirmations.nairobi),
-  };
-}
 
 function getHandover({ userId, storeId }) {
   const unconfirmedCod = db.prepare(`
@@ -215,4 +164,4 @@ function recordHandover({ userId, userName, storeId, trigger, notes, dispatchCon
   }
 }
 
-module.exports = { getHandover, recordHandover, assertCanClockOut, clockOutGateMode };
+module.exports = { getHandover, recordHandover, clockOutGateMode };

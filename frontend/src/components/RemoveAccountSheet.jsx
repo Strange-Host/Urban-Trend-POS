@@ -81,7 +81,7 @@ export default function RemoveAccountSheet({ staff, onClose }) {
           <div className="rounded-xl border border-line p-4">
             <h3 className="font-medium text-sm">3. Erase personal data, keep the records</h3>
             <p className="text-sm text-text-muted mt-1">
-              For a former employee who has history. Their name, email, phone, password, PIN and HR documents are wiped. The account stays as
+              For a former employee who has history. Their name, email, phone, password and PIN are wiped. The account stays as
               <b> “Former staff #{staff.id}”</b>, so receipts, sales and reports still add up. This cannot be undone.
             </p>
             {check.erased ? (

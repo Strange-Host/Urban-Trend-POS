@@ -2,8 +2,7 @@
 // Shared by the shell (Layout.jsx, shell/) and the Ctrl+K palette (CommandPalette.jsx). `workspace` places each page in one of
 // the five workspaces (or Settings).
 import {
-  Banknote, ChartColumn, ClipboardCheck, Clock, GitCompareArrows, History, House, LayoutDashboard, Package, ReceiptText,
-  RefreshCw, ScrollText, Settings, ShoppingCart, Tags, TriangleAlert, UserCog, UserPlus, Users, Wallet, Warehouse,
+  ChartColumn, ClipboardCheck, GitCompareArrows, History, House, LayoutDashboard, Package, RefreshCw, ScrollText, Settings, ShoppingCart, Tags, TriangleAlert, UserCog, Users, Wallet, Warehouse,
 } from 'lucide-react';
 
 // Grouped by "what am I doing right now", not by which backend module a
@@ -51,17 +50,13 @@ export const GROUPS = [
       { to: '/money-at-risk', workspace: 'money', label: 'Money at risk', icon: TriangleAlert, keywords: 'unpaid overdue variance owed', roles: ['admin', 'manager'], perm: 'atrisk.view' },
       { to: '/finance', workspace: 'money', label: 'Finance', icon: Wallet, keywords: 'expenses payments income cash', roles: ['admin', 'manager'] },
       { to: '/reconciliation', workspace: 'money', label: 'Reconciliation', icon: GitCompareArrows, keywords: 'mpesa m-pesa match paybill payments', roles: ['admin', 'manager'], perm: 'payments.reconcile' },
-      { to: '/requisitions', workspace: 'money', label: 'Requisitions', icon: ReceiptText, keywords: 'request purchase spend', roles: ['admin', 'manager', 'cashier'], module: 'hr' },
     ],
   },
   {
     id: 'team',
     label: 'Team',
     items: [
-      { to: '/attendance', workspace: 'team', label: 'Attendance', icon: Clock, keywords: 'clock shift roster', roles: ['admin', 'manager', 'cashier'], module: 'hr' },
-      { to: '/payroll', workspace: 'team', label: 'Payroll', icon: Banknote, keywords: 'salary wages payslip', roles: ['admin', 'manager'], perm: 'payroll.view', module: 'hr' },
       { to: '/staff', workspace: 'team', label: 'Staff', icon: UserCog, keywords: 'users accounts employees permissions', roles: ['admin'] },
-      { to: '/employees', workspace: 'team', label: 'Onboarding', icon: UserPlus, keywords: 'hire new employee onboarding', roles: ['admin'], module: 'hr' },
       { to: '/staff-logs', workspace: 'team', label: 'Activity log', icon: ScrollText, keywords: 'audit history who did', roles: ['admin'] },
     ],
   },
@@ -108,8 +103,8 @@ export const ROUTE_ORDER = [
   '/start', '/dashboard',
   '/terminal', '/orders', '/leads', '/sales', '/approvals',
   '/catalog', '/stock', '/shopify-sync',
-  '/finance', '/reconciliation', '/money-at-risk', '/requisitions', '/reports',
-  '/attendance', '/payroll', '/staff', '/employees', '/staff-logs',
+  '/finance', '/reconciliation', '/money-at-risk', '/reports',
+  '/staff', '/staff-logs',
   '/settings',
 ];
 

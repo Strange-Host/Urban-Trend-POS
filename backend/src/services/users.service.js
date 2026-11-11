@@ -157,7 +157,7 @@ async function resetPassword({ id, storeId, staffId }) {
 //   A. Deactivate  - remove() above: they can't sign in, everything they did stays, and they can be reactivated.
 //   B. Delete permanently - ONLY when the account never did anything (a test account, a mistake). Checked against
 //      every table that references users, found from the database itself so new tables are covered automatically.
-//   C. Erase personal data - for former staff who have history: name, email, phone, password, PIN and HR documents are
+//   C. Erase personal data - for former staff who have history: name, email, phone, password and PIN are
 //      wiped; the account stays as "Former staff #N" so receipts, sales and reports still add up.
 
 // Columns that only hold the person's OWN sign-in/convenience data: deleted along with the account, not "activity".
@@ -168,9 +168,8 @@ const NULLABLE_REFS = new Set(['settings.updated_by']);
 const LABELS = {
   sales: 'sales', cash_sessions: 'cash sessions', inventory_movements: 'stock changes', orders: 'orders',
   order_status_history: 'order updates', payment_notifications: 'payment reviews', shopify_staging_products: 'product-sync reviews',
-  staff_logs: 'logged actions', staff_attendance: 'attendance records', payroll_adjustments: 'payroll entries',
-  employee_documents: 'HR documents', employee_agreements: 'signed agreements', leads: 'leads', lead_activities: 'lead notes',
-  lead_status_history: 'lead updates', requisitions: 'requisitions', expenses: 'expenses', payment_records: 'payment records',
+  staff_logs: 'logged actions', leads: 'leads', lead_activities: 'lead notes',
+  lead_status_history: 'lead updates', expenses: 'expenses', payment_records: 'payment records',
   lead_form_routes: 'website-form routes', user_permissions: 'permission changes',
 };
 
@@ -266,8 +265,6 @@ async function erasePersonalData({ id, storeId, requestingStaffId }) {
         pin_failed_count = 0, pin_locked_until = NULL, is_active = 0, erased_at = datetime('now'), updated_at = datetime('now')
       WHERE id = ?
     `).run(label, `erased-${id}@removed.invalid`, `erased-${id}`, unusable, id);
-    db.prepare('DELETE FROM employee_documents WHERE staff_id = ?').run(id);
-    db.prepare('UPDATE employee_agreements SET signed_name = ? WHERE staff_id = ?').run(label, id);
     db.prepare('DELETE FROM user_permissions WHERE user_id = ?').run(id);
     db.prepare('DELETE FROM notifications WHERE user_id = ?').run(id);
     db.prepare('DELETE FROM otp_challenges WHERE user_id = ?').run(id);

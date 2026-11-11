@@ -136,7 +136,7 @@ function PnlTab({ params }) {
       <Panel title="Summary" className="mb-4">
         <Table columns={[T('label', 'Line'), M('amount', 'Amount (KES)')]} rows={[
           line('Revenue (goods collected, net of discounts)', s.revenue), line('Less: cost of goods sold', -s.costOfGoodsSold), line('Gross margin', s.grossMargin),
-          line('Less: net delivery cost (costs minus fees collected)', -s.deliveryFees), line('Less: telesales pay (retainer + commission)', -s.laborCost), line('Less: business expenses (approved)', -s.businessExpenses),
+          line('Less: net delivery cost (costs minus fees collected)', -s.deliveryFees), line('Less: business expenses (approved)', -s.businessExpenses),
         ]} totals={{ label: 'Net profit', amount: s.netProfit }} />
       </Panel>
       <Panel title="By category" description="Till and online sales together. Sale-level discounts cannot be split by category, so they show as their own row." className="mb-4">
@@ -145,7 +145,7 @@ function PnlTab({ params }) {
       </Panel>
       {modules.branches && (
         <Panel title="Branch comparison" className="mb-4">
-          <Table columns={[T('branch', 'Branch'), M('revenue', 'Revenue'), M('costOfGoodsSold', 'Cost of goods'), M('deliveryFees', 'Delivery'), M('laborCost', 'Telesales pay'), M('businessExpenses', 'Expenses'), M('netProfit', 'Net profit'), P('margin_percent', 'Net margin %')]}
+          <Table columns={[T('branch', 'Branch'), M('revenue', 'Revenue'), M('costOfGoodsSold', 'Cost of goods'), M('deliveryFees', 'Delivery'), M('businessExpenses', 'Expenses'), M('netProfit', 'Net profit'), P('margin_percent', 'Net margin %')]}
             rows={byBranch.rows} totals={byBranch.rows.length > 1 ? { branch: 'All branches', ...byBranch.total } : undefined} />
         </Panel>
       )}
@@ -213,7 +213,7 @@ function BranchesTab({ params }) {
   if (error) return <div className="text-sm text-danger">{getErrorMessage(error)}</div>;
   return (
     <Panel title="Branches" description="Admins see every active branch; managers see their own.">
-      <Table columns={[T('branch', 'Branch'), I('transactions', 'Transactions'), M('revenue', 'Revenue'), M('costOfGoodsSold', 'Cost of goods'), M('deliveryFees', 'Delivery'), M('laborCost', 'Telesales pay'), M('businessExpenses', 'Expenses'), M('netProfit', 'Net profit'), P('margin_percent', 'Net margin %')]}
+      <Table columns={[T('branch', 'Branch'), I('transactions', 'Transactions'), M('revenue', 'Revenue'), M('costOfGoodsSold', 'Cost of goods'), M('deliveryFees', 'Delivery'), M('businessExpenses', 'Expenses'), M('netProfit', 'Net profit'), P('margin_percent', 'Net margin %')]}
         rows={data.rows} totals={data.rows.length > 1 ? { branch: 'All branches', ...data.total } : undefined} />
     </Panel>
   );
@@ -226,7 +226,7 @@ function AgentsTab({ params }) {
   return (
     <Panel title="Agents ranked by revenue" description="Online revenue = collected value of dispatched orders assigned to the agent. Leads are those assigned in the period; Lost = cancelled.">
       <Table columns={[I('rank', '#'), T('staff', 'Agent'), I('leads_assigned', 'Leads'), I('leads_converted', 'Converted'), I('leads_lost', 'Lost'), P('lead_conversion_percent', 'Conv. %'), I('orders_created', 'Orders'), I('orders_collected', 'Collected'),
-        M('online_revenue', 'Online revenue'), M('avg_order_value', 'Avg order'), I('till_sales', 'Till sales'), M('till_revenue', 'Till revenue'), M('total_revenue', 'Total revenue'), M('discounts_given', 'Discounts'), M('commission', 'Commission')]}
+        M('online_revenue', 'Online revenue'), M('avg_order_value', 'Avg order'), I('till_sales', 'Till sales'), M('till_revenue', 'Till revenue'), M('total_revenue', 'Total revenue'), M('discounts_given', 'Discounts')]}
         rows={data.rows} totals={{ staff: 'Total', ...data.total }} />
     </Panel>
   );
@@ -287,7 +287,7 @@ function ProfitLeadersTab({ params }) {
       <Panel title="Top products by profit" description="Till and online sales together, ranked by revenue minus cost." className="mb-4">
         <Table columns={[T('name', 'Product'), T('sku', 'SKU'), I('units_sold', 'Units'), M('revenue', 'Revenue'), M('cost', 'Cost'), M('profit', 'Profit'), P('margin_percent', 'Margin %')]} rows={productRows} />
       </Panel>
-      <Panel title="Sales staff by margin" description="Margin on the paid, dispatched orders assigned to each person, before their own commission (see Payroll for that).">
+      <Panel title="Sales staff by margin" description="Margin on the paid, dispatched orders assigned to each person.">
         <Table columns={[T('name', 'Staff'), I('orders_count', 'Orders'), M('revenue', 'Revenue'), M('cost', 'Cost'), M('margin', 'Margin'), P('margin_percent', 'Margin %')]} rows={staffRows} />
       </Panel>
     </>

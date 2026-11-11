@@ -18,7 +18,7 @@ vi.mock('../context/AuthContext', () => ({
     can: canFor(auth.role),
   }),
 }));
-vi.mock('../hooks/useModules', () => ({ default: () => ({ hr: true, control: true, branches: true, loaded: true }) }));
+vi.mock('../hooks/useModules', () => ({ default: () => ({ control: true, branches: true, loaded: true }) }));
 vi.mock('./NotificationBell', () => ({ default: () => <button type="button" aria-label="Notifications" /> }));
 vi.mock('./useStackedTableLabels', () => ({ default: () => {} }));
 vi.mock('../api/endpoints', () => ({
@@ -69,18 +69,18 @@ describe('the rail, per role', () => {
     expect(aside.getByRole('button', { name: /account menu/i })).toBeTruthy();
   });
 
-  it('manager: the same five workspaces, no Settings', () => {
+  it('manager: the same workspaces except Team, no Settings', () => {
     auth.role = 'manager';
     setWide(true);
     mount();
-    expect(labels(rail())).toEqual(['Today', 'Sell', 'Stock', 'Money', 'Team']);
+    expect(labels(rail())).toEqual(['Today', 'Sell', 'Stock', 'Money']);
     expect(screen.queryByRole('link', { name: 'Settings' })).toBeNull();
   });
 
   it('cashier: a flat rail with Start first and Shift last', () => {
     auth.role = 'cashier';
     mount('/orders');
-    expect(labels(rail())).toEqual(['Start', 'Terminal', 'Orders', 'Leads', 'Sales history', 'Approvals', 'Requisitions', 'Attendance', 'Shift']);
+    expect(labels(rail())).toEqual(['Start', 'Terminal', 'Orders', 'Leads', 'Sales history', 'Approvals', 'Shift']);
     expect(rail().getByRole('link', { name: 'Shift' }).getAttribute('href')).toBe('/terminal?shift=close');
     expect(screen.getByRole('link', { name: 'Urban Trends, home' }).getAttribute('href')).toBe('/start');
   });
@@ -96,7 +96,7 @@ describe('the rail, per role', () => {
   it('manager at the till keeps the full workspace rail', () => {
     auth.role = 'manager';
     mount('/terminal');
-    expect(labels(rail())).toEqual(['Today', 'Sell', 'Stock', 'Money', 'Team']);
+    expect(labels(rail())).toEqual(['Today', 'Sell', 'Stock', 'Money']);
   });
 
   it('storekeeper: a flat rail of two, and the logo goes to the catalog', () => {
@@ -110,13 +110,13 @@ describe('the rail, per role', () => {
     mount();
     const href = (name) => rail().getByRole('link', { name }).getAttribute('href');
     expect([href('Today'), href('Sell'), href('Stock'), href('Money'), href('Team')])
-      .toEqual(['/dashboard', '/terminal', '/catalog', '/finance', '/attendance']);
+      .toEqual(['/dashboard', '/terminal', '/catalog', '/finance', '/staff']);
   });
 });
 
 describe('where you are', () => {
   it('marks the current workspace, including for sub-pages', () => {
-    mount('/attendance/end-of-day');
+    mount('/staff-logs');
     expect(rail().getByRole('link', { name: 'Team' }).getAttribute('aria-current')).toBe('page');
     expect(rail().getByRole('link', { name: 'Sell' }).getAttribute('aria-current')).toBeNull();
   });

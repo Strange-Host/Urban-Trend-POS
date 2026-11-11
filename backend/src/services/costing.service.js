@@ -3,7 +3,7 @@ const db = require('../config/db');
 // Stock costing: batches, FIFO / average valuation, and the cost of what was sold.
 //
 // WHY THIS REPLAYS THE LEDGER INSTEAD OF KEEPING ITS OWN LAYER TABLE
-// Stock changes in about ten places (till sales, online dispatch, receiving, issues, transfers, counts, requisitions,
+// Stock changes in about ten places (till sales, online dispatch, receiving, issues, transfers, counts,
 // the Shopify/WooCommerce syncs, reconciliation). Every one of them already writes inventory_movements, and that table is
 // the audit trail the reconciliation job trusts. A second, mutable "remaining quantity per batch" table would have to be
 // kept in step by all ten, and would drift the first time one of them was missed. So the layers are DERIVED: replaying a

@@ -27,78 +27,42 @@ beforeAll(async () => {
 
 describe('the switches', () => {
   it('are OFF when nothing has been saved', () => {
-    db.prepare(`DELETE FROM settings WHERE key IN ('module_hr_enabled', 'module_control_enabled', 'module_branches_enabled')`).run();
+    db.prepare(`DELETE FROM settings WHERE key IN ('module_control_enabled', 'module_branches_enabled')`).run();
     // branches is derived while unset: off for a one-branch shop (this test database has one).
     expect(db.prepare('SELECT COUNT(*) c FROM stores WHERE is_active = 1').get().c).toBe(1);
-    expect(modules.getAll()).toEqual({ hr: false, control: false, branches: false });
+    expect(modules.getAll()).toEqual({ control: false, branches: false });
   });
 
   it('any signed-in user can read them; only an admin can change them', async () => {
     expect((await request(app).get('/api/modules')).status).toBe(401);
     const asCashier = await request(app).get('/api/modules').set(auth(cashierToken));
     expect(asCashier.status).toBe(200);
-    expect(asCashier.body.data).toEqual({ hr: false, control: false, branches: false });
-    expect((await request(app).put('/api/modules').set(auth(managerToken)).send({ hr: true })).status).toBe(403);
-    expect((await request(app).put('/api/modules').set(auth(cashierToken)).send({ hr: true })).status).toBe(403);
+    expect(asCashier.body.data).toEqual({ control: false, branches: false });
+    expect((await request(app).put('/api/modules').set(auth(managerToken)).send({ control: true })).status).toBe(403);
+    expect((await request(app).put('/api/modules').set(auth(cashierToken)).send({ control: true })).status).toBe(403);
   });
 
   it('validate the input, and cannot be flipped through the generic settings call', async () => {
     expect((await setModules({})).status).toBe(400);
-    expect((await setModules({ hr: 'yes' })).status).toBe(400);
+    expect((await setModules({ control: 'yes' })).status).toBe(400);
     expect((await setModules({ banana: true })).status).toBe(400);
-    const generic = await request(app).put('/api/settings').set(auth(admin)).send({ module_hr_enabled: '1' });
+    const generic = await request(app).put('/api/settings').set(auth(admin)).send({ module_control_enabled: '1' });
     expect(generic.status).toBe(400);
-    expect(modules.getAll().hr).toBe(false);
+    expect(modules.getAll().control).toBe(false);
   });
 
   it('can be set one at a time, and the change is audit-logged', async () => {
-    const res = await setModules({ hr: true });
+    const res = await setModules({ control: true });
     expect(res.status).toBe(200);
-    expect(res.body.data).toEqual({ hr: true, control: false, branches: false });
+    expect(res.body.data).toEqual({ control: true, branches: false });
     const log = db.prepare(`SELECT COUNT(*) c FROM staff_logs WHERE entity_type = 'modules'`).get().c;
     expect(log).toBeGreaterThan(0);
-    expect((await setModules({ hr: false })).body.data).toEqual({ hr: false, control: false, branches: false });
-  });
-});
-
-describe('HR & back office switched off', () => {
-  beforeAll(async () => { await setModules({ hr: false, control: false }); });
-
-  it.each([
-    ['attendance', '/api/attendance/today'],
-    ['payroll', '/api/payroll/summary'],
-    ['onboarding', '/api/employees'],
-    ['requisitions', '/api/requisitions'],
-  ])('%s is closed', async (_name, path) => {
-    const res = await request(app).get(path).set(auth(admin));
-    expect(res.status).toBe(404);
-    expect(res.body.error.code).toBe('MODULE_DISABLED');
-  });
-
-  it('comes back when switched on, with the data untouched', async () => {
-    await setModules({ hr: true });
-    const res = await request(app).get('/api/requisitions').set(auth(admin));
-    expect(res.status).toBe(200);
-    await setModules({ hr: false });
-  });
-
-  it('new leads are still shared out to cashiers even though nobody clocks in', async () => {
-    const res = await request(app).post('/api/leads').set(auth(admin)).send({ name: 'Auto Assign', phone: '0711000001', source: 'whatsapp' });
-    expect(res.status).toBe(201);
-    expect(res.body.data.assigned_staff_id).toBe(cashierId);
-  });
-
-  it('with HR ON and nobody clocked in, a lead stays unassigned (unchanged behaviour)', async () => {
-    await setModules({ hr: true });
-    const res = await request(app).post('/api/leads').set(auth(admin)).send({ name: 'No Clock In', phone: '0711000002', source: 'whatsapp' });
-    expect(res.status).toBe(201);
-    expect(res.body.data.assigned_staff_id).toBeNull();
-    await setModules({ hr: false });
+    expect((await setModules({ control: false })).body.data).toEqual({ control: false, branches: false });
   });
 });
 
 describe('control extras switched off', () => {
-  beforeAll(async () => { await setModules({ hr: false, control: false }); });
+  beforeAll(async () => { await setModules({ control: false }); });
 
   it('closes the screens that change permissions, two-factor and disputes', async () => {
     const calls = [
@@ -127,7 +91,7 @@ describe('control extras switched off', () => {
   });
 
   it('the core flows still work with everything off (till, orders, leads)', async () => {
-    await setModules({ hr: false, control: false });
+    await setModules({ control: false });
     expect((await request(app).get('/api/products').set(auth(admin))).status).toBe(200);
     expect((await request(app).get('/api/orders').set(auth(admin))).status).toBe(200);
     expect((await request(app).get('/api/leads').set(auth(admin))).status).toBe(200);

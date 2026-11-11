@@ -3,7 +3,7 @@ const modules = require('../services/modules.service');
 
 // Blocks a route while its optional module is switched off. 404 (not 403): as far as the API is
 // concerned the feature does not exist until an admin turns it on.
-const LABEL = { hr: 'HR & back office', control: 'Control extras', branches: 'Multi-branch mode' };
+const LABEL = { control: 'Control extras', branches: 'Multi-branch mode' };
 
 module.exports = (name) => (req, _res, next) => {
   if (modules.isEnabled(name)) return next();

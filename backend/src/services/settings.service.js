@@ -5,7 +5,6 @@ const db = require('../config/db');
 // guarantees the Settings page always has something sensible to show.
 const DEFAULTS = {
   // Optional modules (services/modules.service.js). Off until an admin switches them on.
-  module_hr_enabled: '0',
   module_control_enabled: '0',
   business_name: 'Urban Trends',
   business_currency: 'KES',
@@ -39,35 +38,9 @@ const DEFAULTS = {
   // COD Confirmation Gate (§1): how long an order can sit unconfirmed
   // before it auto-cancels.
   cod_confirmation_window_minutes: '120',
-  // Phase 6 (attendance-based payroll deductions §12):
-  attendance_workday_start_hour: '8',          // late fee kicks in after this hour
-  attendance_late_fee_per_hour_kes: '50',
-  // What a missed day costs IN TOTAL. The daily retainer is only paid for days logged in, so a no-show already
-  // loses the retainer; this fee is counted from there (fee minus retainer, never below 0), so a day is never
-  // charged twice. At the default 300 / 300 a no-show simply earns no retainer and nothing more is deducted.
-  attendance_absence_fee_kes: '300',
-  attendance_expected_hours: '8',              // a full clocked day — short of this incurs the missing-hours fee
-  attendance_missing_hour_fee_kes: '30',
-  daily_retainer_kes: '300',                   // paid for every day logged in, on top of commission
-  // Pay cycle: a calendar month's work is paid on this day of the following month (1-28; the 3rd).
-  payroll_pay_day: '3',
-  // Commission tiers — BEST GUESS pending confirmation (see CHANGES.md):
-  // the source requirements gave two different numbers for this before
-  // landing on this one, which has an odd wrinkle (below AND at 70% pay
-  // the same rate) that's very possibly a typo. Confirm before relying on
-  // this in a real payroll run.
-  commission_below_70_percent_kes: '30',        // per unit sold, achievement < 70% of target
-  commission_at_70_percent_kes: '30',           // per unit sold, achievement >= 70% and < 80%
-  commission_at_80_percent_kes: '50',           // per unit sold, achievement >= 80%
-  commission_sales_target_kes: '50000',         // per staff member, per payroll period — configure per your actual targets
-  // Phase 7 (employee onboarding & e-signature §13):
-  employee_policy_version: '1',
-  employee_policy_text: '',                     // shown at first login — set this before onboarding anyone for real
   // Clock-out gate. 'reason' = someone who still has orders undispatched or Nairobi payments unreconciled can clock
   // out only by writing why; 'block' = they cannot clock out until those are cleared.
   clockout_gate_mode: 'reason',
-  // Phase 5 (telesales distribution §3):
-  telesales_cutoff_hour: '10',                   // the "10:00 AM Rule" — configurable in case your actual cutoff differs
   // Off-site email backups (see backup.service.js) — comma-separated list
   // of recipient emails. SMTP connection details stay in .env (secrets);
   // this is just who gets the backup, which isn't a secret and is exactly

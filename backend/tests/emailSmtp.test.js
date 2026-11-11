@@ -157,6 +157,8 @@ describe('leftovers from Resend are removed by the migration', () => {
       const d = new Database(dbFile);
       // back to a database from before versioned migrations (no schema_migrations table), so the frozen baseline runs on it again
       d.exec('DROP TABLE IF EXISTS schema_migrations');
+      // A database from before the runner still has the HR columns that 0003 drops (the baseline re-adds the commission ones, not this one).
+      try { d.exec("ALTER TABLE users ADD COLUMN onboarding_status TEXT NOT NULL DEFAULT 'active'"); } catch { /* already there */ }
       d.prepare("INSERT INTO settings (key, value) VALUES ('mail_provider', 'resend'), ('resend_from', 'x@y.z'), ('resend_api_key_enc', 'enc:v1:abc'), ('smtp_host', 'smtp.keep.me')").run();
       d.close();
       run();                                                         // what happens on the next deploy

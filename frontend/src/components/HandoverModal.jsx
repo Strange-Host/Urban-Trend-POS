@@ -59,7 +59,7 @@ export default function HandoverModal({ summary, actionLabel, busy, onCancel, on
 
   let intro = 'Nothing of yours is left open. Add a note for your manager if there is anything they should know.';
   if (requireConfirmations && gate.blocked) intro = "You can't clock out yet — clear the items marked below first, or ask a manager for help.";
-  else if (reasonRequired) intro = "Something you were responsible for is still open. Tell your manager why, then you can clock out — they'll see it in the end-of-day review.";
+  else if (reasonRequired) intro = "Something you were responsible for is still open. Tell your manager why, then you can leave — they'll be told.";
   else if (open) intro = 'You still have items open. You can leave, but your manager will see this — add a note for whoever picks it up.';
 
   return (

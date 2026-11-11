@@ -5,15 +5,9 @@ import { SectionCard } from '../../components/SettingsUI';
 import { modulesApi } from '../../api/endpoints';
 import { LoadingBlock } from '../../components/Skeleton';
 
-// Optional parts of the system. HR and Control ship OFF (Multi-branch mode starts ON only if there is already more than one branch); switching one off hides its screens and closes its API,
+// Optional parts of the system. Control ships OFF (Multi-branch mode starts ON only if there is already more than one branch); switching one off hides its screens and closes its API,
 // but never deletes anything - switch it back on and it is all there.
 const MODULE_CHOICES = [
-  {
-    key: 'hr',
-    title: 'HR & back office',
-    detail: 'Attendance and clock-in, payroll, staff onboarding (documents and agreements) and requisitions.',
-    offNote: 'While off, new leads and orders are shared out to every active cashier instead of only those who clocked in.',
-  },
   {
     key: 'control',
     title: 'Control extras',

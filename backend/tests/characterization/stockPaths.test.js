@@ -118,7 +118,7 @@ describe('R0 characterization: manual adjustment, issue, receipt', () => {
   });
 });
 
-describe('R0 characterization: transfers, counts, requisitions', () => {
+describe('R0 characterization: transfers and counts', () => {
   it('transfer: nothing moves on request; approval writes one out row and one in row', async () => {
     const pid = newProduct({ stock: 12 });
     const req = await request(app).post('/api/stock/transfers').set(auth(A.token)).send({ to_store_id: outletId, items: [{ product_id: pid, quantity: 5 }] });
@@ -168,17 +168,6 @@ describe('R0 characterization: transfers, counts, requisitions', () => {
     expect(cached(pid)).toBe(10);
   });
 
-  it('requisition: approving adds only the approved quantity as a "requisition" row', async () => {
-    const pid = newProduct({ stock: 0 });
-    const r = await request(app).post('/api/requisitions').set(auth(A.token)).send({ signed_name: 'Store Admin', items: [{ product_id: pid, quantity_requested: 10 }] });
-    expect(r.status).toBe(201);
-    const m = mark();
-    const ap = await request(app).patch(`/api/requisitions/${r.body.data.id}/approve`).set(auth(A.token)).send({ items: [{ product_id: pid, quantity_approved: 6 }] });
-    expect(ap.status).toBe(200);
-    expect(movementsSince(m, pid)).toEqual([{ store_id: A.mainId, change: 6, reason: 'requisition', ref: null }]);
-    expect(cached(pid)).toBe(6);
-    expectLedgerBalanced(pid);
-  });
 });
 
 describe('R1 guarantees: error wording and status codes survive the move onto stock.service', () => {

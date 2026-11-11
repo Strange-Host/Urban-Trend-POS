@@ -25,10 +25,6 @@ const Start = lazy(() => import('./pages/Start'));
 const Orders = lazy(() => import('./pages/Orders'));
 const PaymentReconciliation = lazy(() => import('./pages/PaymentReconciliation'));
 const MoneyAtRisk = lazy(() => import('./pages/MoneyAtRisk'));
-const Attendance = lazy(() => import('./pages/Attendance'));
-const EndOfDay = lazy(() => import('./pages/EndOfDay'));
-const Payroll = lazy(() => import('./pages/Payroll'));
-const Employees = lazy(() => import('./pages/Employees'));
 const Catalog = lazy(() => import('./pages/Catalog'));
 const StockControl = lazy(() => import('./pages/StockControl'));
 const SalesHistory = lazy(() => import('./pages/SalesHistory'));
@@ -37,7 +33,6 @@ const Dashboard = lazy(() => import('./pages/Dashboard'));
 const Reports = lazy(() => import('./pages/Reports'));
 const ShopifySync = lazy(() => import('./pages/ShopifySync'));
 const Leads = lazy(() => import('./pages/Leads'));
-const Requisitions = lazy(() => import('./pages/Requisitions'));
 const Finance = lazy(() => import('./pages/Finance'));
 const Staff = lazy(() => import('./pages/Staff'));
 const StaffLogs = lazy(() => import('./pages/StaffLogs'));
@@ -115,16 +110,6 @@ export default function App() {
                   path="/reconciliation"
                   element={<ProtectedRoute roles={['admin', 'manager']} permission="payments.reconcile"><PaymentReconciliation /></ProtectedRoute>}
                 />
-                <Route path="/attendance" element={<ProtectedRoute module="hr"><Attendance /></ProtectedRoute>} />
-                <Route path="/attendance/end-of-day" element={<ProtectedRoute module="hr"><EndOfDay /></ProtectedRoute>} />
-                <Route
-                  path="/payroll"
-                  element={<ProtectedRoute module="hr" roles={['admin', 'manager']} permission="payroll.view"><Payroll /></ProtectedRoute>}
-                />
-                <Route
-                  path="/employees"
-                  element={<ProtectedRoute module="hr" roles={['admin']}><Employees /></ProtectedRoute>}
-                />
                 <Route
                   path="/shopify-sync"
                   element={
@@ -154,14 +139,6 @@ export default function App() {
                   element={
                     <ProtectedRoute roles={['admin', 'manager', 'cashier']}>
                       <Leads />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/requisitions"
-                  element={
-                    <ProtectedRoute module="hr" roles={['admin', 'manager', 'cashier']}>
-                      <Requisitions />
                     </ProtectedRoute>
                   }
                 />

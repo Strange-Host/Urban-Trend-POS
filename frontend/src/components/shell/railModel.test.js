@@ -4,17 +4,17 @@ import { buildRail, activeEntryId, coversPath, tillRail, CLOSE_SHIFT_TO } from '
 import { ROLES, canFor, hasRoleFor } from './testRoles';
 
 function railFor(role, can = canFor(role)) {
-  const visible = filterVisible(ALL_ITEMS, { hasRole: hasRoleFor(role), can, modules: { hr: true, control: true } });
+  const visible = filterVisible(ALL_ITEMS, { hasRole: hasRoleFor(role), can, modules: { control: true } });
   return { visible, rail: buildRail(visible) };
 }
 const labels = (list) => list.map((e) => e.label);
 
 describe('buildRail', () => {
-  it('gives admins and managers the workspace rail', () => {
+  it('gives admins and managers the workspace rail; Team holds only admin pages, so a manager has no Team', () => {
     for (const role of ['admin', 'manager']) {
       const { rail } = railFor(role);
       expect(rail.flat).toBe(false);
-      expect(labels(rail.entries)).toEqual(['Today', 'Sell', 'Stock', 'Money', 'Team']);
+      expect(labels(rail.entries)).toEqual(role === 'admin' ? ['Today', 'Sell', 'Stock', 'Money', 'Team'] : ['Today', 'Sell', 'Stock', 'Money']);
     }
   });
 
@@ -24,15 +24,15 @@ describe('buildRail', () => {
     expect(railFor('cashier').rail.settings).toBeNull();
   });
 
-  it('gives the cashier a flat rail: Start, their seven pages in workspace order, then Shift', () => {
+  it('gives the cashier a flat rail: Start, their six pages in workspace order, then Shift', () => {
     const { rail } = railFor('cashier');
     expect(rail.flat).toBe(true);
-    expect(labels(rail.entries)).toEqual(['Start', 'Terminal', 'Orders', 'Leads', 'Sales history', 'Approvals', 'Requisitions', 'Attendance', 'Shift']);
+    expect(labels(rail.entries)).toEqual(['Start', 'Terminal', 'Orders', 'Leads', 'Sales history', 'Approvals', 'Shift']);
   });
 
   it('does not count Start toward the flat-rail threshold, so a cashier keeps the flat rail', () => {
     const { visible } = railFor('cashier');
-    expect(visible).toHaveLength(8);
+    expect(visible).toHaveLength(6);
     expect(buildRail(visible).flat).toBe(true);
   });
 
@@ -55,12 +55,12 @@ describe('buildRail', () => {
 
   it('sends each workspace item to its first visible page', () => {
     const to = Object.fromEntries(railFor('admin').rail.entries.map((e) => [e.id, e.to]));
-    expect(to).toEqual({ today: '/dashboard', sell: '/terminal', stock: '/catalog', money: '/finance', team: '/attendance' });
+    expect(to).toEqual({ today: '/dashboard', sell: '/terminal', stock: '/catalog', money: '/finance', team: '/staff' });
   });
 
   it('falls back to a later page when the first is not visible', () => {
     // A manager who may not see the till still lands in Sell, on Orders.
-    const visible = filterVisible(ALL_ITEMS.filter((i) => i.to !== '/terminal'), { hasRole: hasRoleFor('manager'), can: canFor('manager'), modules: { hr: true } });
+    const visible = filterVisible(ALL_ITEMS.filter((i) => i.to !== '/terminal'), { hasRole: hasRoleFor('manager'), can: canFor('manager'), modules: { control: true } });
     expect(buildRail(visible).entries.find((e) => e.id === 'sell').to).toBe('/orders');
   });
 
@@ -95,7 +95,7 @@ describe('activeEntryId', () => {
   });
 
   it('counts sub-pages, but not look-alike paths', () => {
-    expect(activeEntryId(admin, '/attendance/end-of-day', '/dashboard')).toBe('team');
+    expect(activeEntryId(admin, '/staff/new', '/dashboard')).toBe('team');
     expect(activeEntryId(admin, '/stock-whatever', '/dashboard')).toBeNull();
   });
 
@@ -156,8 +156,8 @@ describe('tillRail', () => {
 
 describe('coversPath', () => {
   it('matches the page itself and its sub-pages only', () => {
-    expect(coversPath('/attendance', '/attendance')).toBe(true);
-    expect(coversPath('/attendance/end-of-day', '/attendance')).toBe(true);
+    expect(coversPath('/staff', '/staff')).toBe(true);
+    expect(coversPath('/staff/new', '/staff')).toBe(true);
     expect(coversPath('/staff-logs', '/staff')).toBe(false);
   });
 });

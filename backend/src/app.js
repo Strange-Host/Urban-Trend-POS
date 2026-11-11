@@ -26,7 +26,6 @@ const reportsRoutes = require('./routes/reports.routes');
 const usersRoutes = require('./routes/users.routes');
 const shopifyRoutes = require('./routes/shopify.routes');
 const leadsRoutes = require('./routes/leads.routes');
-const requisitionsRoutes = require('./routes/requisitions.routes');
 const expensesRoutes = require('./routes/expenses.routes');
 const pettyCashRoutes = require('./routes/pettyCash.routes');
 const stockRoutes = require('./routes/stock.routes');
@@ -44,10 +43,7 @@ const custodyRoutes = require('./routes/custody.routes');
 const paymentReconciliationRoutes = require('./routes/paymentReconciliation.routes');
 const paymentWebhooksRoutes = require('./routes/paymentWebhooks.routes');
 const paymentCallbacksRoutes = require('./routes/paymentCallbacks.routes');
-const attendanceRoutes = require('./routes/attendance.routes');
 const telesalesRoutes = require('./routes/telesales.routes');
-const payrollRoutes = require('./routes/payroll.routes');
-const employeesRoutes = require('./routes/employees.routes');
 const smsRoutes = require('./routes/sms.routes');
 const systemRoutes = require('./routes/system.routes');
 const webhooksRoutes = require('./routes/webhooks.routes');
@@ -56,7 +52,6 @@ const deliveryRoutes = require('./routes/delivery.routes');
 const deliveryAreasRoutes = require('./routes/deliveryAreas.routes');
 const shiftRoutes = require('./routes/shift.routes');
 const customersRoutes = require('./routes/customers.routes');
-const endOfDayRoutes = require('./routes/endOfDay.routes');
 const leadIntakeRoutes = require('./routes/leadIntake.routes');
 const notificationsRoutes = require('./routes/notifications.routes');
 
@@ -135,7 +130,6 @@ app.use('/api/users', usersRoutes);
 app.use('/api/staff', usersRoutes); // Staff module (§5) — same controller, reuses `users`
 app.use('/api/integrations/shopify', shopifyRoutes);
 app.use('/api/leads', leadsRoutes);
-app.use('/api/requisitions', requireModule('hr'), requisitionsRoutes);
 app.use('/api/expenses', expensesRoutes);
 app.use('/api/petty-cash', pettyCashRoutes);
 app.use('/api/stock', stockRoutes);
@@ -161,11 +155,7 @@ app.use('/api/integrations/payments', paymentWebhooksRoutes);
 // middleware/webhookPathAuth.js). Deliberately separate from the
 // normalized /webhook routes above, which stay in place for manual/internal testing.
 app.use('/api/integrations/payments/callbacks', paymentCallbacksRoutes);
-app.use('/api/attendance', requireModule('hr'), attendanceRoutes);
-app.use('/api/end-of-day', requireModule('hr'), endOfDayRoutes);
 app.use('/api/telesales', telesalesRoutes);
-app.use('/api/payroll', requireModule('hr'), payrollRoutes);
-app.use('/api/employees', requireModule('hr'), employeesRoutes);
 app.use('/api/sms', smsRoutes);
 app.use('/api/system', systemRoutes);
 app.use('/api/integrations/webhooks', webhooksRoutes);

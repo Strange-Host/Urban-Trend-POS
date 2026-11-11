@@ -171,6 +171,8 @@ describe('migration: leads.converted_order_id foreign key repair', () => {
       d.pragma('foreign_keys = OFF');
       // back to a database from before versioned migrations (no schema_migrations table), so the frozen baseline runs on it again
       d.exec('DROP TABLE IF EXISTS schema_migrations');
+      // A database from before the runner still has the HR columns that 0003 drops (the baseline re-adds the commission ones, not this one).
+      try { d.exec("ALTER TABLE users ADD COLUMN onboarding_status TEXT NOT NULL DEFAULT 'active'"); } catch { /* already there */ }
       const sql = d.prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='leads'`).get().sql;
       d.exec('DROP TABLE leads');
       d.exec(sql.replace(/(converted_order_id\s+INTEGER\s+REFERENCES\s+)orders/i, '$1sales'));

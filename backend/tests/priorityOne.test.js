@@ -397,6 +397,8 @@ describe('migration: existing databases are upgraded safely', () => {
       d.pragma('foreign_keys = OFF');
       // back to a database from before versioned migrations (no schema_migrations table), so the frozen baseline runs on it again
       d.exec('DROP TABLE IF EXISTS schema_migrations');
+      // A database from before the runner still has the HR column that 0003 drops (the baseline re-adds the commission ones, not this one).
+      try { d.exec("ALTER TABLE users ADD COLUMN onboarding_status TEXT NOT NULL DEFAULT 'active'"); } catch { /* already there */ }
       const usersSql = d.prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='users'`).get().sql;
       d.exec('DROP TABLE users');
       d.exec(usersSql.replace("'admin','manager','cashier','store'", "'admin','manager','cashier'"));

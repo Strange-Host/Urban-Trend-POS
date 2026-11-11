@@ -63,7 +63,7 @@ describe('orders list pages through EVERYTHING', () => {
 
 describe('every paged endpoint answers page/limit consistently', () => {
   it('returns { data, total, page, totalPages } so one Pager works everywhere', async () => {
-    const endpoints = ['/api/orders', '/api/leads', '/api/staff', '/api/expenses', '/api/payments', '/api/requisitions',
+    const endpoints = ['/api/orders', '/api/leads', '/api/staff', '/api/expenses', '/api/payments',
       '/api/staff-logs', '/api/payment-reconciliation/unmatched', '/api/sales', '/api/cash-sessions', '/api/products', '/api/notifications'];
     for (const url of endpoints) {
       const res = await get(`${url}?page=1&limit=5&pageSize=5`);

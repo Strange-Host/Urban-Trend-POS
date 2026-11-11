@@ -92,8 +92,10 @@ describe('leads', () => {
     const cashierToken = cashierLogin.body.token;
 
     // A lead assigned to someone else...
+    const otherCashier = await request(app).post('/api/staff').set('Authorization', `Bearer ${token}`)
+      .send({ name: 'Other Cashier', email: 'other-cashier-leads@urbantrends.com', phone: '0722000016', password: 'Orchid-Summit-1930', role: 'cashier' });
     const otherLeadRes = await request(app).post('/api/leads').set('Authorization', `Bearer ${token}`)
-      .send({ name: 'Not This Cashiers Lead', phone: '0722000007', source: 'walk_in' });
+      .send({ name: 'Not This Cashiers Lead', phone: '0722000007', source: 'walk_in', assigned_staff_id: otherCashier.body.data.id });
 
     // ...the cashier can't see it in their list...
     const listRes = await request(app).get('/api/leads').set('Authorization', `Bearer ${cashierToken}`);

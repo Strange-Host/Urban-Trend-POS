@@ -3,7 +3,6 @@ const { spawnSync } = require('child_process');
 const path = require('path');
 const db = require('../src/config/db');
 const orgs = require('../src/services/courierOrganizations.service');
-const runs = require('../src/services/payrollRuns.service');
 const { runIntegrityChecks, GUARD_TRIGGERS, NOT_APPLICABLE } = require('../src/integrity/checks');
 const { runNightlyIntegrity, msUntilNextRun } = require('../src/integrity/job');
 
@@ -52,7 +51,7 @@ function withoutTrigger(name, fn) {
 }
 
 describe('a healthy shop passes every check', () => {
-  it('passes on a realistic mix: paid, part paid, refunded, shop cash, an organization, a locked payroll run', async () => {
+  it('passes on a realistic mix: paid, part paid, refunded, shop cash, an organization', async () => {
     const paid = await newOrder(); await pay(paid, paid.total);
     const part = await newOrder(); await pay(part, Math.floor(part.total / 2));
     const refunded = await newOrder(); const r = await pay(refunded, refunded.total);
@@ -70,12 +69,6 @@ describe('a healthy shop passes every check', () => {
     orgs.createStatement({ storeId, staffId, courierId: org.id, periodStart: '2026-01-01', periodEnd: '2026-12-31', collectionIds: [col.id],
       chargeEntered: 20_000, remitted: viaOrg.total - 20_000, remittanceRef: 'RMT1' });
 
-    const today = require('../src/utils/storeTime').localDate();
-    runs.generateDraft({ storeId, from: today, to: today, staffId });
-    const draft = db.prepare(`SELECT id FROM payroll_runs WHERE status = 'draft'`).get();
-    runs.approveRun({ runId: draft.id, storeId, staffId });
-
-    expect(db.prepare('SELECT COUNT(*) AS n FROM commissioned_orders').get().n).toBeGreaterThan(0);
     const report = runIntegrityChecks();
     expect(report.violations).toEqual([]);
     expect(report.ok).toBe(true);
@@ -210,33 +203,8 @@ describe('rule 12: fees and costs are never combined', () => {
   });
 });
 
-describe('rules 8 and 9: commission and locked payroll', () => {
-  it('flags commission paid on money that is no longer secure', () => {
-    const co = db.prepare('SELECT order_id FROM commissioned_orders LIMIT 1').get();
-    tamper(`UPDATE payment_records SET status = 'refunded' WHERE order_id = ${co.order_id}`, `UPDATE payment_records SET status = 'completed' WHERE order_id = ${co.order_id}`, () => {
-      expect(checks(8)).toContain('commission_secure');
-    });
-    expect(violations(8)).toEqual([]);
-  });
-
-  it('flags a locked run whose figures were altered behind the triggers', () => {
-    const run = db.prepare(`SELECT id FROM payroll_runs WHERE status <> 'draft' LIMIT 1`).get();
-    const item = db.prepare('SELECT id FROM payroll_items WHERE run_id = ? LIMIT 1').get(run.id);
-    withoutTrigger('payroll_items_upd_locked', () => {
-      db.prepare('UPDATE payroll_items SET days_worked = days_worked + 1 WHERE id = ?').run(item.id);
-      try {
-        expect(checks(9)).toContain('locked_run_unchanged');
-      } finally {
-        db.prepare('UPDATE payroll_items SET days_worked = days_worked - 1 WHERE id = ?').run(item.id);
-      }
-    });
-    expect(violations(9)).toEqual([]);
-  });
-
-  it('flags a missing protection trigger, against the rule it protects', () => {
-    withoutTrigger('payroll_runs_paid_is_final', () => {
-      expect(violations(9)).toEqual([{ rule: 9, check: 'guard_present', message: 'Protection trigger payroll_runs_paid_is_final on payroll_runs is missing.' }]);
-    });
+describe('a missing protection trigger', () => {
+  it('is flagged against the rule it protects', () => {
     withoutTrigger('custody_no_delete', () => {
       expect(violations(7).map((v) => v.check)).toEqual(['guard_present']);
     });

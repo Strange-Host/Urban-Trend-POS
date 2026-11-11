@@ -88,7 +88,7 @@ function getStaffPermissions({ user, params }) {
   return { data: require('./permissions.service').describeForUser({ storeId: user.storeId, userId: Number(params.id) }) };
 }
 
-// PUT /api/staff/:id/permissions  { overrides: { "reports.view": true, "sales.void": false, "payroll.view": null } }
+// PUT /api/staff/:id/permissions  { overrides: { "reports.view": true, "sales.void": false, "expenses.approve": null } }
 function setStaffPermissions({ body, user, params }) {
   const overrides = body?.overrides;
   if (!overrides || typeof overrides !== 'object' || Array.isArray(overrides)) throw new ApiError(400, 'overrides must be an object of permission → true | false | null.');

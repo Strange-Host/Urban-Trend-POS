@@ -65,7 +65,7 @@ export function activeEntryId({ entries, settings }, pathname, homeRoute) {
   return entries.find((e) => e.pages.some((p) => covers(path, p.to)))?.id ?? null;
 }
 
-/** Whether `path` is the page `to` or one of its sub-pages (/attendance/end-of-day belongs to /attendance). */
+/** Whether `path` is the page `to` or one of its sub-pages (/orders/new belongs to /orders). */
 export function coversPath(path, to) {
   return covers(path, to);
 }

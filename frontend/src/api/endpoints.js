@@ -309,31 +309,6 @@ export const leadsApi = {
   remove: (id) => client.delete(`/leads/${id}`),
 };
 
-export const requisitionsApi = {
-  /** @param {Params} params */
-  list: (params) => client.get('/requisitions', { params }),
-  /** @param {Id} id */
-  getById: (id) => client.get(`/requisitions/${id}`),
-  /** @param {Payload} data */
-  create: (data) => client.post('/requisitions', data),
-  /**
-   * @param {Id} id
-   * @param {Payload[]} items
-   */
-  approve: (id, items) => client.patch(`/requisitions/${id}/approve`, { items }),
-  /**
-   * @param {Id} id
-   * @param {string} rejection_reason
-   */
-  reject: (id, rejection_reason) => client.patch(`/requisitions/${id}/reject`, { rejection_reason }),
-  // The requester signs (typed name) that they received the money or goods. create() takes signed_name too.
-  /**
-   * @param {Id} id
-   * @param {string} signed_name
-   */
-  acknowledge: (id, signed_name) => client.patch(`/requisitions/${id}/acknowledge`, { signed_name }),
-};
-
 export const expensesApi = {
   /** @param {Params} params */
   list: (params) => client.get('/expenses', { params }),
@@ -732,85 +707,6 @@ export const paymentReconciliationApi = {
    * @param {string} notes
    */
   ignore: (id, notes) => client.post(`/payment-reconciliation/${id}/ignore`, { notes }),
-};
-
-export const attendanceApi = {
-  clockIn: () => client.post('/attendance/clock-in'),
-  // { notes, dispatched, nairobi }: the handover note and the two clock-out confirmations (all assigned orders
-  // dispatched, all Nairobi payments reconciled). The server checks both against the data.
-  /** @param {{ notes?: string, dispatched?: boolean, nairobi?: boolean }} [opts] */
-  clockOut: ({ notes, dispatched, nairobi } = {}) => client.post('/attendance/clock-out', {
-    ...(notes ? { handover_notes: notes } : {}),
-    confirm_all_dispatched: dispatched === true,
-    confirm_nairobi_reconciled: nairobi === true,
-  }),
-  /** @param {string} date */
-  today: (date) => client.get('/attendance/today', { params: date ? { date } : {} }),
-  absencesToday: () => client.get('/attendance/absences-today'),
-  /** @param {string} date */
-  endOfDay: (date) => client.get('/end-of-day', { params: date ? { date } : {} }),
-  /** @param {{ date: string, note?: string, acknowledged?: boolean }} opts */
-  approveEndOfDay: ({ date, note, acknowledged }) => client.post('/end-of-day/approve', { date, note, acknowledged }),
-};
-
-export const payrollApi = {
-  /**
-   * @param {Id} staffId
-   * @param {string} from
-   * @param {string} to
-   */
-  summary: (staffId, from, to) => client.get('/payroll/summary', { params: { staff_id: staffId, from, to } }),
-  /** @param {Payload} data */
-  lossDeduction: (data) => client.post('/payroll/loss-deduction', data),
-  // Locked payroll runs: draft -> approved (locked) -> paid. Approve and pay are admin-only on the server.
-  runs: () => client.get('/payroll/runs'),
-  /** @param {Id} id */
-  run: (id) => client.get(`/payroll/runs/${id}`),
-  /** @param {Id} id */
-  verifyRun: (id) => client.get(`/payroll/runs/${id}/verify`),
-  // generateRun({ month: '2026-10' }) for a whole calendar month, or generateRun(from, to) for part of one.
-  /**
-   * @param {string | { month: string }} fromOrOpts
-   * @param {string} [to]
-   */
-  generateRun: (fromOrOpts, to) => client.post('/payroll/runs', typeof fromOrOpts === 'object' ? fromOrOpts : { from: fromOrOpts, to }),
-  /** @param {Id} id */
-  approveRun: (id) => client.post(`/payroll/runs/${id}/approve`),
-  // Paying is signed off: the payer's own typed name plus the run's checksum (what they are signing for).
-  /**
-   * @param {Id} id
-   * @param {string} method
-   * @param {string} paymentRef
-   * @param {string} signedName
-   * @param {string} checksum
-   */
-  payRun: (id, method, paymentRef, signedName, checksum) => client.post(`/payroll/runs/${id}/pay`, {
-    method, payment_ref: paymentRef || undefined, signed_name: signedName, checksum,
-  }),
-  cycle: () => client.get('/payroll/cycle'),
-  payTerms: () => client.get('/payroll/pay-terms'),
-  /**
-   * @param {Id} staffId
-   * @param {Payload} data
-   */
-  setPayTerms: (staffId, data) => client.put(`/payroll/pay-terms/${staffId}`, data),
-};
-
-export const employeesApi = {
-  /** @param {Payload} data */
-  onboard: (data) => client.post('/employees/onboard', data),
-  /** @param {Id} id */
-  onboardingStatus: (id) => client.get(`/employees/${id}/onboarding-status`),
-  /**
-   * @param {Id} id
-   * @param {Payload} data
-   */
-  uploadDocument: (id, data) => client.post(`/employees/${id}/documents`, data),
-  /**
-   * @param {Id} id
-   * @param {string} signedName
-   */
-  signAgreement: (id, signedName) => client.post(`/employees/${id}/sign-agreement`, { signed_name: signedName }),
 };
 
 export const telesalesApi = {

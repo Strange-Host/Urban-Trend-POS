@@ -260,7 +260,7 @@ describe('profit and loss', () => {
     expect(after.deliveryCost - before.deliveryCost).toBe(15000);
     expect(after.deliveryFees - before.deliveryFees).toBe(15000 - FEE);
     expect(after.netProfit - before.netProfit).toBe(FEE - 15000); // extra earned: the delivery made money
-    expect(after.netProfit).toBe(after.revenue - after.costOfGoodsSold - after.deliveryFees - after.laborCost - after.businessExpenses);
+    expect(after.netProfit).toBe(after.revenue - after.costOfGoodsSold - after.deliveryFees - after.businessExpenses);
   });
 
   it('a customer who does not pay the fee makes the delivery a plain cost', async () => {

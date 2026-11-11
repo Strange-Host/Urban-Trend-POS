@@ -5,36 +5,31 @@ import {
 import { canFor, hasRoleFor } from './shell/testRoles';
 
 // What a typical person of each role sees, with both optional modules on.
-function visibleFor(role, { modules = { hr: true, control: true }, can = canFor(role) } = {}) {
+function visibleFor(role, { modules = { control: true }, can = canFor(role) } = {}) {
   return filterVisible(ALL_ITEMS, { hasRole: hasRoleFor(role), can, modules });
 }
 const labels = (items) => items.map((i) => i.label);
 
 describe('filterVisible: who sees what (unchanged by the redesign)', () => {
-  it('admin sees all 20 destinations', () => {
-    expect(visibleFor('admin')).toHaveLength(20);
+  it('admin sees all 16 destinations', () => {
+    expect(visibleFor('admin')).toHaveLength(16);
   });
 
-  it('manager sees all but the four admin-only pages', () => {
+  it('manager sees all but the three admin-only pages', () => {
     const seen = labels(visibleFor('manager'));
-    expect(seen).toHaveLength(16);
-    for (const adminOnly of ['Staff', 'Onboarding', 'Activity log', 'Settings']) expect(seen).not.toContain(adminOnly);
+    expect(seen).toHaveLength(13);
+    for (const adminOnly of ['Staff', 'Activity log', 'Settings']) expect(seen).not.toContain(adminOnly);
   });
 
   it('cashier sees their Start screen and the same seven pages as before, storekeeper two', () => {
-    expect(labels(visibleFor('cashier'))).toEqual(['Start', 'Terminal', 'Orders', 'Leads', 'Sales history', 'Approvals', 'Requisitions', 'Attendance']);
+    expect(labels(visibleFor('cashier'))).toEqual(['Start', 'Terminal', 'Orders', 'Leads', 'Sales history', 'Approvals']);
     expect(labels(visibleFor('store'))).toEqual(['Catalog', 'Stock control']);
-  });
-
-  it('hides HR pages while the module is off', () => {
-    const seen = labels(visibleFor('admin', { modules: { hr: false } }));
-    for (const hr of ['Requisitions', 'Attendance', 'Payroll', 'Onboarding']) expect(seen).not.toContain(hr);
   });
 
   it('lets a permission override the role list', () => {
     const can = (p) => p === 'reports.view';
     expect(labels(visibleFor('manager', { can }))).toEqual(expect.arrayContaining(['Dashboard', 'Reports']));
-    expect(labels(visibleFor('manager', { can }))).not.toContain('Payroll');
+    expect(labels(visibleFor('manager', { can }))).not.toContain('Staff');
   });
 });
 
@@ -51,8 +46,8 @@ describe('workspaces', () => {
     // Start is the cashier's landing page; only a cashier sees it, so no workspace rail ever lists it.
     expect(inWorkspace('sell')).toEqual(['Start', 'Terminal', 'Orders', 'Leads', 'Sales history', 'Approvals']);
     expect(inWorkspace('stock')).toEqual(['Catalog', 'Stock control', 'Shopify sync']);
-    expect(inWorkspace('money')).toEqual(['Finance', 'Reconciliation', 'Money at risk', 'Requisitions', 'Reports']);
-    expect(inWorkspace('team')).toEqual(['Attendance', 'Payroll', 'Staff', 'Onboarding', 'Activity log']);
+    expect(inWorkspace('money')).toEqual(['Finance', 'Reconciliation', 'Money at risk', 'Reports']);
+    expect(inWorkspace('team')).toEqual(['Staff', 'Activity log']);
     expect(inWorkspace('settings')).toEqual(['Settings']);
   });
 

@@ -6,7 +6,6 @@ const { scheduleBackups } = require('./services/backup.service');
 const { findDrift } = require('./services/reconciliation.service');
 const { expireUnconfirmedOrders } = require('./services/orders.service');
 const { rebalanceStaleAssignments } = require('./services/telesalesDistribution.service');
-const settingsService = require('./services/settings.service');
 const alerting = require('./services/alerting.service');
 const smsService = require('./services/sms.service');
 const notificationsService = require('./services/notifications.service');
@@ -77,16 +76,12 @@ app.listen(PORT, () => {
   }, FIFTEEN_MINUTES_MS);
   codExpiryCheck.unref?.();
 
-  // §3 10:00 AM Rule + §11 Unplanned Absences: same sweep handles both —
-  // see telesalesDistribution.service.js's rebalanceStaleAssignments for
-  // why they're one mechanism. Runs per store since eligibility/workload
-  // are all store-scoped.
+  // Shares out any unassigned lead or order; per store, since workload is store-scoped.
   const telesalesRebalanceCheck = setInterval(() => {
     try {
-      const cutoffHour = parseInt(settingsService.getAll().telesales_cutoff_hour, 10) || 10;
       const stores = db.prepare('SELECT id FROM stores').all();
       for (const store of stores) {
-        const moved = rebalanceStaleAssignments({ storeId: store.id, cutoffHour });
+        const moved = rebalanceStaleAssignments({ storeId: store.id });
         const movedCount = moved.leads.length + moved.orders.length;
         if (movedCount > 0) {
           logger.info(`[telesales] reassigned ${movedCount} stale/unassigned lead(s)/order(s) for store ${store.id}`, moved);

@@ -37,7 +37,7 @@ const getPermissions = asyncHandler(async (req, res) => {
   res.json(svc.getStaffPermissions({ user: req.user, params: req.params }));
 });
 
-// PUT /api/staff/:id/permissions  { overrides: { "reports.view": true, "sales.void": false, "payroll.view": null } }
+// PUT /api/staff/:id/permissions  { overrides: { "reports.view": true, "sales.void": false, "expenses.approve": null } }
 const setPermissions = asyncHandler(async (req, res) => {
   res.json(svc.setStaffPermissions({ body: req.body, user: req.user, params: req.params }));
 });

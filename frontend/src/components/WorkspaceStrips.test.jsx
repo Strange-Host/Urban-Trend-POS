@@ -19,13 +19,13 @@ vi.mock('../context/AuthContext', () => ({
     hasRole: hasRoleFor(auth.role), can: canFor(auth.role),
   }),
 }));
-vi.mock('../hooks/useModules', () => ({ default: () => ({ hr: true, control: true, branches: true, loaded: true }) }));
+vi.mock('../hooks/useModules', () => ({ default: () => ({ control: true, branches: true, loaded: true }) }));
 vi.mock('./NotificationBell', () => ({ default: () => <button type="button" aria-label="Notifications" /> }));
 vi.mock('./useStackedTableLabels', () => ({ default: () => {} }));
 vi.mock('../api/endpoints', () => ({ storesApi: { list: vi.fn() }, cashSessionsApi: { current: vi.fn() } }));
 
 const STRIP = { name: 'Pages in this workspace' };
-const MODULES = { hr: true, control: true };
+const MODULES = { control: true };
 
 function mount(path) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -51,7 +51,7 @@ for (const role of ['admin', 'manager']) {
     .flatMap((ws) => ws.pages.map((page) => [`${ws.label} > ${page.label}`, ws, page]));
 
   describe(`${role}: every Sell, Money and Team page shows its workspace strip`, () => {
-    it('has pages to walk', () => expect(walk.length).toBeGreaterThanOrEqual(role === 'admin' ? 15 : 12));
+    it('has pages to walk', () => expect(walk.length).toBeGreaterThanOrEqual(role === 'admin' ? 11 : 9));
 
     it.each(walk)('%s', (_name, ws, page) => {
       auth.role = role;
@@ -68,13 +68,6 @@ for (const role of ['admin', 'manager']) {
 }
 
 describe('sub-pages and the other roles', () => {
-  it('keeps Attendance marked on End of day, a page beneath it', () => {
-    auth.role = 'admin';
-    mount('/attendance/end-of-day');
-    const current = within(screen.getByRole('navigation', STRIP)).getAllByRole('link').filter((a) => a.getAttribute('aria-current') === 'page');
-    expect(current.map((a) => a.textContent)).toEqual(['Attendance']);
-  });
-
   it('does not light Staff on Activity log, whose path starts the same way', () => {
     auth.role = 'admin';
     mount('/staff-logs');
@@ -83,7 +76,7 @@ describe('sub-pages and the other roles', () => {
   });
 
   it.each([
-    ['cashier', ['/start', '/orders', '/leads', '/sales', '/approvals', '/requisitions', '/attendance']],
+    ['cashier', ['/start', '/orders', '/leads', '/sales', '/approvals']],
     ['store', ['/catalog', '/stock']],
   ])('%s has a flat rail and no strip on any of their pages', (role, paths) => {
     auth.role = role;

@@ -1,6 +1,5 @@
 const { app, request, loginAsAdmin, cleanupTestDb } = require('./setup');
 const db = require('../src/config/db');
-const { computeAttendanceDeductions } = require('../src/services/payroll.service');
 const { offsetMinutes, localDate, dateParam, sqlOffset } = require('../src/utils/storeTime');
 
 afterAll(() => cleanupTestDb());
@@ -112,30 +111,5 @@ describe('profit summary', () => {
     expect(res.status).toBe(200);
     expect(res.body.data.summary.revenue).toBe(4000);            // 40% of 10000 (was the full 10000)
     expect(res.body.data.summary.costOfGoodsSold).toBe(2400);    // 40% of 2 x 3000
-  });
-});
-describe('late arrival is measured on the shop clock', () => {
-  const settings = {
-    attendance_workday_start_hour: '8', attendance_late_fee_per_hour_kes: '50', attendance_absence_fee_kes: '0',
-    attendance_expected_hours: '8', attendance_missing_hour_fee_kes: '0',
-  };
-  const attend = (workDate, clockIn) => db.prepare(
-    'INSERT INTO staff_attendance (staff_id, store_id, work_date, clock_in_at) VALUES (?, 1, ?, ?)').run(adminId, workDate, clockIn);
-
-  const attend2 = (workDate, clockIn, clockOut) => db.prepare(
-    'INSERT INTO staff_attendance (staff_id, store_id, work_date, clock_in_at, clock_out_at) VALUES (?, 1, ?, ?, ?)').run(adminId, workDate, clockIn, clockOut);
-
-  it('08:00 Nairobi is on time, 09:30 Nairobi is two hours late', () => {
-    attend('2031-05-10', '2031-05-10 05:00:00'); // 08:00 EAT  (the old code read this as hour 5 -> never late)
-    attend('2031-05-11', '2031-05-11 06:30:00'); // 09:30 EAT  (old code: hour 6.5 -> not late)
-    attend('2031-05-12', '2031-05-11 21:30:00'); // 00:30 EAT on the 12th, an early clock-in
-    const r = computeAttendanceDeductions({ staffId: adminId, periodStart: '2031-05-10', periodEnd: '2031-05-12', settings });
-    // exactly 8 hours worked is not "missing" an hour
-    attend2('2031-05-13', '2031-05-13 05:00:00', '2031-05-13 13:00:00');
-    expect(computeAttendanceDeductions({ staffId: adminId, periodStart: '2031-05-13', periodEnd: '2031-05-13', settings }).breakdown)
-      .toEqual([]);
-    expect(r.breakdown.filter((b) => b.type === 'late')).toEqual([
-      { date: '2031-05-11', type: 'late', hoursLate: 2, amount: 2 * 50 * 100 },
-    ]);
   });
 });

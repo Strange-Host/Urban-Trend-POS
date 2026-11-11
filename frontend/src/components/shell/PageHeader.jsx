@@ -10,7 +10,7 @@ import { useInPageSection, useShellChrome } from './pageChromeContext';
 //   meta         right-aligned mono text beside the actions
 //   actions      buttons and pickers on the right
 //   tabs         { items, active, onChange, className? } in-page tabs, drawn by <Tabs>
-//   padding      classes for pages that sit outside any padded container (Finance, Catalog and Payroll front embedded pages)
+//   padding      classes for pages that sit outside any padded container (Finance and Catalog front embedded pages)
 //
 // Title and actions, then the status line, the workspace tabs, then in-page tabs, then content. Inside a <PageSection> it is
 // a section header: description and actions only, since the parent's tab names the page.

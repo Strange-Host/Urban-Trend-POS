@@ -189,6 +189,8 @@ describe('real database: fresh install vs a database from before the runner', ()
     migrate(legacy);
     const d = new Database(legacy);
     d.exec('DROP TABLE schema_migrations');           // the shape every live database had before R3
+    // A database from before the runner still has the HR columns that 0003 drops (the baseline re-adds the commission ones, not this one).
+    try { d.exec("ALTER TABLE users ADD COLUMN onboarding_status TEXT NOT NULL DEFAULT 'active'"); } catch { /* already there */ }
     d.prepare("INSERT INTO settings (key, value) VALUES ('shop_note', 'kept') ON CONFLICT(key) DO NOTHING").run();
     d.close();
 
@@ -205,6 +207,8 @@ describe('real database: fresh install vs a database from before the runner', ()
     migrate(f);
     const d = new Database(f);
     d.exec('DROP TABLE schema_migrations');
+    // A database from before the runner still has the HR columns that 0003 drops (the baseline re-adds the commission ones, not this one).
+    try { d.exec("ALTER TABLE users ADD COLUMN onboarding_status TEXT NOT NULL DEFAULT 'active'"); } catch { /* already there */ }
     d.close();
     migrate(f);
     const dir = path.join(path.dirname(f), 'backups');

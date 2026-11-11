@@ -175,18 +175,18 @@ describe('shift handover', () => {
     expect((await request(app).get('/api/shift/handover')).status).toBe(401);
   });
 
-  it('clock-out records the snapshot + note in the audit log and tells managers (once per day)', async () => {
-    await request(app).post('/api/attendance/clock-in').set(auth(cashier.token));
-    const out = await request(app).post('/api/attendance/clock-out').set(auth(cashier.token)).send({
-      // The cashier still has an undispatched COD order, so "all dispatched" can't be ticked; the reason stands in for it.
-      handover_notes: 'Customer will pay tomorrow', confirm_nairobi_reconciled: true,
-    });
-    expect(out.status).toBe(200);
-    expect(out.body.handover.has_open_items).toBe(true);
+  it('closing the till with something open records the snapshot + note and tells managers (once per day)', async () => {
+    const open = await request(app).post('/api/cash-sessions/open').set(auth(cashier.token)).send({ openingAmount: 100 });
+    expect(open.status).toBe(201);
+    // The cashier still has an undispatched COD order, so the note stands in for confirming everything was dispatched.
+    const close = await request(app).post(`/api/cash-sessions/${open.body.data.id}/close`).set(auth(cashier.token))
+      .send({ closingAmount: 100, handover_notes: 'Customer will pay tomorrow' });
+    expect(close.status).toBe(200);
+    expect(close.body.handover.has_open_items).toBe(true);
 
     const log = db.prepare(`SELECT changes FROM staff_logs WHERE entity_type = 'shift_handover' AND staff_id = ? ORDER BY id DESC`).get(cashier.id);
     const after = toAfter(log.changes);
-    expect(after).toMatchObject({ trigger: 'clock_out', notes: 'Customer will pay tomorrow' });
+    expect(after).toMatchObject({ trigger: 'cash_session_close', notes: 'Customer will pay tomorrow' });
     expect(after.unconfirmed_cod).toBe(1);
 
     for (const uid of [manager.id, adminId]) {
@@ -209,9 +209,9 @@ describe('shift handover', () => {
     expect(db.prepare(`SELECT COUNT(*) AS n FROM notifications WHERE type = 'shift_handover' AND title LIKE ?`).get('%csr quiet%').n).toBe(0);
   });
 
-  it('a handover failure can never break clock-out (the service swallows errors)', () => {
+  it('a handover failure can never break closing the till (the service swallows errors)', () => {
     const shift = require('../src/services/shift.service');
-    expect(() => shift.recordHandover({ userId: 999999, storeId: 999999, trigger: 'clock_out' })).not.toThrow();
+    expect(() => shift.recordHandover({ userId: 999999, storeId: 999999, trigger: 'cash_session_close' })).not.toThrow();
     expect(notificationsService).toBeTruthy();
   });
 });

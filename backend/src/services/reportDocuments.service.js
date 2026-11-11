@@ -33,7 +33,6 @@ function pnlDocument({ user, from, to }) {
           { line: 'Less: cost of goods sold', amount: -s.costOfGoodsSold },
           { line: 'Gross margin', amount: s.grossMargin },
           { line: 'Less: net delivery cost (costs minus fees collected)', amount: -s.deliveryFees },
-          { line: 'Less: telesales pay (retainer + commission)', amount: -s.laborCost },
           { line: 'Less: business expenses (approved)', amount: -s.businessExpenses },
         ],
         totals: { line: 'Net profit', amount: s.netProfit },
@@ -47,7 +46,7 @@ function pnlDocument({ user, from, to }) {
       // Only in multi-branch mode; a single-branch shop's summary above already is its one branch.
       modules.isEnabled('branches') && {
         heading: 'Branch comparison',
-        columns: [T('branch', 'Branch'), M('revenue', 'Revenue'), M('costOfGoodsSold', 'Cost of goods'), M('deliveryFees', 'Delivery'), M('laborCost', 'Telesales pay'), M('businessExpenses', 'Expenses'), M('netProfit', 'Net profit'), P('margin_percent', 'Net margin %')],
+        columns: [T('branch', 'Branch'), M('revenue', 'Revenue'), M('costOfGoodsSold', 'Cost of goods'), M('deliveryFees', 'Delivery'), M('businessExpenses', 'Expenses'), M('netProfit', 'Net profit'), P('margin_percent', 'Net margin %')],
         rows: branches.rows,
         totals: branches.rows.length > 1 ? { branch: 'All branches', ...branches.total } : undefined,
       },
@@ -102,7 +101,7 @@ function branchesDocument({ user, from, to }) {
     title: 'Branch comparison',
     sections: [{
       heading: 'Branches',
-      columns: [T('branch', 'Branch'), I('transactions', 'Transactions'), M('revenue', 'Revenue'), M('costOfGoodsSold', 'Cost of goods'), M('deliveryFees', 'Delivery'), M('laborCost', 'Telesales pay'), M('businessExpenses', 'Expenses'), M('netProfit', 'Net profit'), P('margin_percent', 'Net margin %')],
+      columns: [T('branch', 'Branch'), I('transactions', 'Transactions'), M('revenue', 'Revenue'), M('costOfGoodsSold', 'Cost of goods'), M('deliveryFees', 'Delivery'), M('businessExpenses', 'Expenses'), M('netProfit', 'Net profit'), P('margin_percent', 'Net margin %')],
       rows: r.rows,
       totals: r.rows.length > 1 ? { branch: 'All branches', ...r.total } : undefined,
     }],
@@ -117,7 +116,7 @@ function agentsDocument({ user, from, to }) {
       heading: 'Agents ranked by revenue',
       note: 'Online revenue = collected value of dispatched orders assigned to the agent. Leads are those assigned in the period; "Lost" = cancelled.',
       columns: [I('rank', '#'), T('staff', 'Agent'), I('leads_assigned', 'Leads'), I('leads_converted', 'Converted'), I('leads_lost', 'Lost'), P('lead_conversion_percent', 'Conv. %'), I('orders_created', 'Orders'), I('orders_collected', 'Collected'),
-        M('online_revenue', 'Online revenue'), M('avg_order_value', 'Avg order'), I('till_sales', 'Till sales'), M('till_revenue', 'Till revenue'), M('total_revenue', 'Total revenue'), M('discounts_given', 'Discounts'), M('commission', 'Commission')],
+        M('online_revenue', 'Online revenue'), M('avg_order_value', 'Avg order'), I('till_sales', 'Till sales'), M('till_revenue', 'Till revenue'), M('total_revenue', 'Total revenue'), M('discounts_given', 'Discounts')],
       rows: r.rows,
       totals: { staff: 'Total', ...r.total },
     }],

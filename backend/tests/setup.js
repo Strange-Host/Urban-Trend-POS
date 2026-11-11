@@ -16,10 +16,10 @@ process.env.CORS_ORIGIN = 'http://localhost:5173';
 require('../src/db/migrate');
 require('../src/db/seed');
 
-// The optional modules (HR & back office, control extras) ship switched OFF. Most tests exercise those
-// features, so they start with both ON; tests/modules.test.js switches them off to test the off state.
+// The optional module control extras ships switched OFF. Most tests exercise it,
+// so they start with it ON; tests/modules.test.js switches them off to test the off state.
 require('../src/config/db').prepare(
-  `INSERT INTO settings (key, value) VALUES ('module_hr_enabled', '1'), ('module_control_enabled', '1')
+  `INSERT INTO settings (key, value) VALUES ('module_control_enabled', '1')
    ON CONFLICT(key) DO UPDATE SET value = excluded.value`
 ).run();
 

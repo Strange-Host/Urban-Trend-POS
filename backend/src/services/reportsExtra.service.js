@@ -1,5 +1,4 @@
 const db = require('../config/db');
-const payrollService = require('./payroll.service');
 const settingsService = require('./settings.service');
 const { dateOf } = require('../utils/storeTime');
 const money = require('../utils/money');
@@ -164,10 +163,6 @@ function agentPerformance({ storeId, from, to }) {
     const o = ON.get(s.id) || { orders: 0, revenue: 0, cost: 0 };
     const t = T.get(s.id) || { sales: 0, revenue: 0 };
     const given = discounts.filter((d) => d.staff_id === s.id).reduce((n, d) => n + d.discount, 0);
-    let commission = 0;
-    if (s.role === 'cashier') {
-      commission = payrollService.getSummary({ staffId: s.id, storeId, periodStart: from, periodEnd: to }).commission.commissionTotal;
-    }
     return {
       staff_id: s.id, staff: s.name, role: s.role,
       leads_assigned: l.assigned, leads_converted: l.converted, leads_lost: l.lost, lead_conversion_percent: pct(l.converted, l.assigned),
@@ -176,7 +171,7 @@ function agentPerformance({ storeId, from, to }) {
       avg_order_value: o.orders ? Math.round(o.revenue / o.orders) : 0,
       till_sales: t.sales, till_revenue: t.revenue,
       total_revenue: o.revenue + t.revenue,
-      discounts_given: given, commission,
+      discounts_given: given,
     };
   }).filter((r) => r.leads_assigned || r.orders_created || r.orders_collected || r.till_sales || r.discounts_given);
 
@@ -186,8 +181,8 @@ function agentPerformance({ storeId, from, to }) {
     leads_assigned: t.leads_assigned + r.leads_assigned, leads_converted: t.leads_converted + r.leads_converted, leads_lost: t.leads_lost + r.leads_lost,
     orders_created: t.orders_created + r.orders_created, orders_collected: t.orders_collected + r.orders_collected, till_sales: t.till_sales + r.till_sales,
     online_revenue: t.online_revenue + r.online_revenue, till_revenue: t.till_revenue + r.till_revenue, total_revenue: t.total_revenue + r.total_revenue,
-    discounts_given: t.discounts_given + r.discounts_given, commission: t.commission + r.commission,
-  }), { leads_assigned: 0, leads_converted: 0, leads_lost: 0, orders_created: 0, orders_collected: 0, till_sales: 0, online_revenue: 0, till_revenue: 0, total_revenue: 0, discounts_given: 0, commission: 0 });
+    discounts_given: t.discounts_given + r.discounts_given,
+  }), { leads_assigned: 0, leads_converted: 0, leads_lost: 0, orders_created: 0, orders_collected: 0, till_sales: 0, online_revenue: 0, till_revenue: 0, total_revenue: 0, discounts_given: 0 });
   total.lead_conversion_percent = pct(total.leads_converted, total.leads_assigned);
   total.avg_order_value = total.orders_collected ? Math.round(total.online_revenue / total.orders_collected) : 0;
   return { period: { from, to }, rows, total };

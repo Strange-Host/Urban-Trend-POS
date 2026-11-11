@@ -1,8 +1,6 @@
 const db = require('../config/db');
 const ApiError = require('../utils/ApiError');
-const payrollService = require('./payroll.service');
 const modules = require('./modules.service');
-const { monthSegments } = require('../utils/payCycle');
 const { dateOf, localDate } = require('../utils/storeTime');
 
 // Profit & loss and its companions: by category, by branch (store), and forecast vs actual.
@@ -68,21 +66,11 @@ function profitLoss({ storeId, from, to }) {
       AND id NOT IN (SELECT costs_expense_id FROM rider_payouts WHERE costs_expense_id IS NOT NULL)
   `).get(storeId, from, to).total;
 
-  let laborCost = 0;
-  const telesales = db.prepare(`SELECT id FROM users WHERE store_id = ? AND role = 'cashier' AND is_active = 1`).all(storeId);
-  for (const staff of telesales) {
-    // Commission targets reset each month, so a range that spans months is costed month by month and added up.
-    for (const seg of monthSegments(from, to)) {
-      const summary = payrollService.getSummary({ staffId: staff.id, storeId, periodStart: seg.from, periodEnd: seg.to });
-      laborCost += summary.dailyRetainer.total + summary.commission.commissionTotal;
-    }
-  }
-
   const revenue = pos.revenue - saleDiscounts + online.revenue;
   const costOfGoodsSold = pos.cost + online.cost;
   const grossMargin = revenue - costOfGoodsSold;
-  const netProfit = grossMargin - deliveryFees - laborCost - businessExpenses;
-  return { period: { from, to }, revenue, costOfGoodsSold, deliveryFees, deliveryEarned, deliveryCost, laborCost, businessExpenses, grossMargin, netProfit };
+  const netProfit = grossMargin - deliveryFees - businessExpenses;
+  return { period: { from, to }, revenue, costOfGoodsSold, deliveryFees, deliveryEarned, deliveryCost, businessExpenses, grossMargin, netProfit };
 }
 
 // Revenue/cost/margin per product category, POS + online. The sale-level discount cannot be
@@ -142,8 +130,8 @@ function byBranch({ user, from, to }) {
   });
   const total = rows.reduce((t, r) => ({
     revenue: t.revenue + r.revenue, costOfGoodsSold: t.costOfGoodsSold + r.costOfGoodsSold, deliveryFees: t.deliveryFees + r.deliveryFees,
-    laborCost: t.laborCost + r.laborCost, businessExpenses: t.businessExpenses + r.businessExpenses, netProfit: t.netProfit + r.netProfit, transactions: t.transactions + r.transactions,
-  }), { revenue: 0, costOfGoodsSold: 0, deliveryFees: 0, laborCost: 0, businessExpenses: 0, netProfit: 0, transactions: 0 });
+    businessExpenses: t.businessExpenses + r.businessExpenses, netProfit: t.netProfit + r.netProfit, transactions: t.transactions + r.transactions,
+  }), { revenue: 0, costOfGoodsSold: 0, deliveryFees: 0, businessExpenses: 0, netProfit: 0, transactions: 0 });
   total.margin_percent = total.revenue > 0 ? Math.round((total.netProfit / total.revenue) * 1000) / 10 : null;
   return { rows, total };
 }
@@ -204,7 +192,7 @@ function forecastVsActual({ storeId, from, to, today = localDate(0) }) {
     if (start > today) return { ...base, revenue_actual: 0, operating_expenses_actual: 0, net_profit_actual: 0, revenue_variance: null, revenue_attainment_percent: null, expense_variance: null, in_progress: false, days_elapsed: 0, days_in_month: days, on_pace_percent: null };
 
     const pl = profitLoss({ storeId, from: start, to: upTo });
-    const opex = pl.deliveryFees + pl.laborCost + pl.businessExpenses;
+    const opex = pl.deliveryFees + pl.businessExpenses;
     const inProgress = end >= today;
     const elapsed = Number(upTo.slice(8, 10));
     const target = forecast?.revenue_target || 0;

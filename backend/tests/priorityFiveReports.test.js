@@ -99,7 +99,7 @@ describe('forecast vs actual', () => {
     expect(row.revenue_actual).toBe(monthPnl.revenue);
     expect(row.revenue_variance).toBe(monthPnl.revenue - 100000000);
     expect(row.revenue_attainment_percent).toBeCloseTo((monthPnl.revenue / 100000000) * 100, 1);
-    expect(row.operating_expenses_actual).toBe(monthPnl.deliveryFees + monthPnl.laborCost + monthPnl.businessExpenses);
+    expect(row.operating_expenses_actual).toBe(monthPnl.deliveryFees + monthPnl.businessExpenses);
     expect(row.in_progress).toBe(true);
     expect(row.on_pace_percent).not.toBeNull();
 
@@ -148,7 +148,7 @@ describe('VAT report', () => {
 });
 
 describe('sales-agent performance', () => {
-  it('ranks agents on what they collected, with lead conversion, discounts and commission', async () => {
+  it('ranks agents on what they collected, with lead conversion and discounts', async () => {
     const r = (await get(`/api/reports/agent-performance?${q}`)).body.data;
     const rep = r.rows.find((x) => x.staff_id === repId);
     expect(rep.orders_collected).toBe(1);

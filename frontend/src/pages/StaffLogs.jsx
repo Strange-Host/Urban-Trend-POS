@@ -7,7 +7,7 @@ import Pager, { usePager } from '../components/Pager';
 import { SkeletonRows } from '../components/Skeleton';
 import { EmptyRow } from '../components/EmptyState';
 
-const ENTITY_TYPES = ['lead', 'requisition', 'expense', 'payment', 'staff'];
+const ENTITY_TYPES = ['lead', 'expense', 'payment', 'staff'];
 const ACTIONS = ['create', 'update', 'delete'];
 
 export default function StaffLogs() {
@@ -32,7 +32,7 @@ export default function StaffLogs() {
     <div className="p-4 md:p-8 max-w-5xl">
       <PageHeader
         title="Staff logs"
-        description="Every create, update, and delete across CRM, Requisitions, Expenses, Payments, and Staff — write-only audit trail."
+        description="Every create, update, and delete across CRM, Expenses, Payments, and Staff — write-only audit trail."
       />
 
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-6">

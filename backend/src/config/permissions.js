@@ -6,7 +6,7 @@
 // person — e.g. let a trusted cashier view reports, or stop one manager voiding sales.
 //
 // Deliberately NOT here (stay admin-only role checks): settings, backups,
-// payment-gateway and SMS credentials, staff create/edit/delete, onboarding,
+// payment-gateway and SMS credentials, staff create/edit/delete,
 // income sources, telesales rebalancing, the audit log, owner write-off
 // decisions. A permission you can delegate is a permission you can lose
 // control of; these are the ones where that costs money or access.
@@ -16,10 +16,7 @@
 const PERMISSIONS = {
   'reports.view':          { group: 'Reports',   label: 'View reports and dashboard figures',        roles: ['admin', 'manager'] },
   'reports.forecast':      { group: 'Reports',   label: 'Set monthly sales forecasts and expense budgets', roles: ['admin', 'manager'] },
-  'payroll.view':          { group: 'Team',      label: 'View payroll and commission',                roles: ['admin', 'manager'] },
   'staff.view':            { group: 'Team',      label: 'View the staff list',                        roles: ['admin', 'manager'] },
-  'attendance.view':       { group: 'Team',      label: 'View today\'s attendance and absences',      roles: ['admin', 'manager'] },
-  'attendance.review':     { group: 'Team',      label: 'Review and approve the end-of-day report',   roles: ['admin', 'manager'] },
   'expenses.manage':       { group: 'Money',     label: 'Record and edit expenses and petty cash top-ups', roles: ['admin', 'manager'] },
   'expenses.approve':      { group: 'Money',     label: 'Approve or reject expenses and petty cash top-ups', roles: ['admin', 'manager'] },
   'payments.manage':       { group: 'Money',     label: 'Record and refund payments',                 roles: ['admin', 'manager'] },
@@ -27,7 +24,6 @@ const PERMISSIONS = {
   'payments.refund_request': { group: 'Money',   label: 'Ask for a payment refund to be approved',    roles: ['admin', 'manager'] },
   'payments.reconcile':    { group: 'Money',     label: 'Match unmatched payments to orders',         roles: ['admin', 'manager'] },
   'approvals.review':      { group: 'Money',     label: 'Approve or reject void and refund requests', roles: ['admin', 'manager'] },
-  'requisitions.approve':  { group: 'Money',     label: 'Approve or reject requisitions',             roles: ['admin', 'manager'] },
   'atrisk.view':           { group: 'Money',     label: 'View the money-at-risk page',                roles: ['admin', 'manager'] },
   'cashsessions.view':     { group: 'Money',     label: 'View other staff\'s cash sessions',          roles: ['admin', 'manager'] },
   'sales.void':            { group: 'Sales',     label: 'Void a completed sale',                      roles: ['admin', 'manager'] },

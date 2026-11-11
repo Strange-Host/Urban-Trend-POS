@@ -1,3 +1,11 @@
+# HR & back office removed
+
+The optional HR & back office module is gone, code and data: attendance and clock-in, payroll runs and commission, pay terms, employee onboarding (documents and agreements), requisitions, and the end-of-day review. Migration `0003_remove_hr_module.sql` drops their tables (payroll_*, commissioned_orders, staff_attendance, employee_documents/agreements, end_of_day_reviews, assignment_moves, requisitions/items), rebuilds `expenses` without `requisition_id`, drops `users.onboarding_status` and the commission columns, and deletes their settings. **It deletes that data**; a copy of the database is saved to `backups/pre-migration-*.db` first.
+
+Behaviour changes: the P&L no longer has a "telesales pay" line (net profit is higher by what it used to deduct) and the agent report has no commission column; new leads and orders go to the least loaded active cashier (nobody clocks in; the 10:00 rule is gone); closing a till still records the handover and alerts managers but has no clock-out gate; the integrity checks lose the payroll and commission rules; managers no longer see the Team workspace (it holds only admin pages).
+
+Kept: old stock-movement rows with reason "requisition" (a table constraint allows it), the till-close handover. Tests for the removed features were deleted; tests that rewind the migration log now put `users.onboarding_status` back first, as a pre-runner database would have it.
+
 # Multi-branch mode is optional
 
 New switch **Multi-branch mode** under Settings > Business > Optional modules (`module_branches_enabled`, `modules.branches`). Unset, it is on when more than one active branch exists and off for a one-branch shop, so an upgrade never hides a working multi-branch setup. **Off:** adding/editing branches, stock transfers, the branch comparison report and its export are closed (404 `MODULE_DISABLED`); a `store_id` in a request is ignored (stock lists, staff list/create, inventory valuation), so everyone stays in their own branch; the P&L export drops its branch table. `GET /api/stores` stays open. Frontend: Transfers tab, Attention "Transfers to approve", branch pickers (Stock control, Staff), Reports Branches tab and P&L branch panel, and the status-line branch pill are hidden; the Settings tab shows only suppliers. Nothing is deleted; switching back on restores it all.

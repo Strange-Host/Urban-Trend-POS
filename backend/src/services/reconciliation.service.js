@@ -4,7 +4,7 @@ const stock = require('./stock.service');
 
 /**
  * inventory.quantity is a running cache, kept in sync inline by every
- * mutation (sale, void, adjust, requisition approval, Shopify/WooCommerce
+ * mutation (sale, void, adjust, Shopify/WooCommerce
  * sync) — each of those pairs its quantity change with an
  * inventory_movements row in the same transaction. That makes
  * SUM(inventory_movements.change_qty) an independent source of truth: if

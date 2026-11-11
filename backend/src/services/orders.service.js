@@ -14,7 +14,6 @@ const { determineDeliveryZone, suggestCourier } = require('../utils/delivery');
 const deliveryAreas = require('./deliveryAreas.service');
 const telesalesDistribution = require('./telesalesDistribution.service');
 const { assertLineDiscount, assertSaleDiscount, assertDiscountPercent } = require('../utils/discounts');
-const commissionReversal = require('./commissionReversal.service');
 const costing = require('./costing.service');
 const stock = require('./stock.service');
 
@@ -72,15 +71,6 @@ function transitionTo(orderId, order, toStatus, staffId, notes = null) {
     VALUES (?, ?, ?, ?, ?)
   `).run(orderId, order.status, toStatus, notes, staffId);
 
-  // A paid, dispatched order is the one that earns commission. If it stops being one (a payment refunded, the parcel
-  // coming back), any commission already paid on it is taken back - in the same transaction as the change that
-  // caused it, so the books can never show the sale gone and the commission still standing.
-  if (order.status === 'dispatched_paid' && toStatus !== 'dispatched_paid') {
-    commissionReversal.reverseForOrder({
-      orderId, actorId: staffId,
-      reason: `the order moved from paid to ${toStatus.replace(/_/g, ' ')}${notes ? ` (${notes})` : ''}`,
-    });
-  }
 }
 
 function findDuplicateActiveOrder({ storeId, phone }) {

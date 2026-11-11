@@ -6,18 +6,16 @@ const { logStaffAction } = require('../utils/auditLog');
 // are hidden AND the matching API refuses requests (see middleware/requireModule.js); no data is
 // deleted, so switching back on restores everything.
 //
-//   hr      HR & back office: attendance/clock-in, payroll, onboarding (employee documents and
-//           agreements), requisitions.
 //   control extras: per-user permission overrides, SMS two-factor set-up, order disputes
 //           and the customer "risk" badges.
 //   branches Multi-branch mode: adding branches, moving stock between them, looking at or adding staff in
 //           another branch, and the branch comparison reports. With it off the system behaves as one shop:
 //           every request is scoped to the signed-in person's own branch whatever the request says.
 //
-// hr and control are OFF unless an admin switches them on (a missing setting counts as off). branches is
+// control is OFF unless an admin switches it on (a missing setting counts as off). branches is
 // the exception: until someone chooses, it is ON when more than one active branch already exists (so an
 // upgrade never hides a working multi-branch setup) and OFF for a single-branch shop.
-const KEYS = { hr: 'module_hr_enabled', control: 'module_control_enabled', branches: 'module_branches_enabled' };
+const KEYS = { control: 'module_control_enabled', branches: 'module_branches_enabled' };
 
 function isEnabled(name) {
   const key = KEYS[name];
@@ -29,7 +27,7 @@ function isEnabled(name) {
 }
 
 function getAll() {
-  return { hr: isEnabled('hr'), control: isEnabled('control'), branches: isEnabled('branches') };
+  return { control: isEnabled('control'), branches: isEnabled('branches') };
 }
 
 function setMany(updates, actorId) {

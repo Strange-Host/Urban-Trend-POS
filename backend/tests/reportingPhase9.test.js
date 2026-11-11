@@ -13,8 +13,6 @@ beforeAll(async () => {
   const createRep = await request(app).post('/api/staff').set('Authorization', `Bearer ${token}`)
     .send({ name: 'Report Rep', email: 'reportrep@urbantrends.com', phone: '0722200001', password: 'Indigo-Prairie-2569', role: 'cashier' });
   repId = createRep.body.data.id;
-  const repLogin = await request(app).post('/api/auth/login').send({ email: 'reportrep@urbantrends.com', password: 'Indigo-Prairie-2569' });
-  await request(app).post('/api/attendance/clock-in').set('Authorization', `Bearer ${repLogin.body.token}`);
 
   today = require('../src/utils/storeTime').localDate(); // the shop's day, not the UTC date
 
@@ -52,14 +50,14 @@ describe('reporting (Phase 9)', () => {
     expect(res.body.data.some((row) => row.customer_phone === '0733300002')).toBe(true);
   });
 
-  it('the P&L summary computes revenue, cost of goods sold, delivery, labor, expenses, and net profit', async () => {
+  it('the P&L summary computes revenue, cost of goods sold, delivery, expenses, and net profit', async () => {
     const res = await request(app).get(`/api/reports/pnl?from=${today}&to=${today}`).set('Authorization', `Bearer ${token}`);
     expect(res.status).toBe(200);
     const d = res.body.data.summary;
     expect(d.revenue).toBeGreaterThan(0);
     expect(d.costOfGoodsSold).toBeGreaterThan(0);
     expect(d.grossMargin).toBe(d.revenue - d.costOfGoodsSold);
-    expect(d.netProfit).toBe(d.revenue - d.costOfGoodsSold - d.deliveryFees - d.laborCost - d.businessExpenses);
+    expect(d.netProfit).toBe(d.revenue - d.costOfGoodsSold - d.deliveryFees - d.businessExpenses);
   });
 
   it('top-products-by-profit and top-staff-by-profit return ranked rows', async () => {
